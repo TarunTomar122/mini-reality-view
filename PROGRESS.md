@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 18:00 — Sim step 2 queued
+- scripts/sim_render.py + slurm/sim_render.sh: 100 official train scenes (spread over the list), every other keyframe (~2,000 pairs), 6 calibrated rig cameras 448x252 (jpg) + ego-hidden low drone 512x288 (png, alpha 255) -> data/sim/{cams,keys}/<scene>/. 4 shards (3751064-67, 2080 Ti) after scn-convert (3751036).
+- Next: encode (DINOv2 tokens clean + phone-aug with rays; sim keys -> lat512 with full cover), geometry judge (Mask2Former + SegFormer, projected nuScenes boxes/map), train_sd changes for arms B/C (style 2, sim-only phase, twin-key rows).
+
 ## 2026-11-25 17:50 — Sim step 1 (replay verification) PASSED
 - scripts/sim_verify.py on 5 mini scenes: replayed car centres vs nuScenes annotations 0.0 m (after one constant map offset per scene; spread 0.0); sim ego origin = logged ego (rear axle, 0.0 m), so cameras placed from calibrated_sensor are right; per-camera HFOV from intrinsics ~65 deg (back ~90 deg); hiding all children of agent.origin except the camera hides our car (~2.5% of drone pixels change).
 - Lens vs K: first 18.6 px median (fail) -> fix 1: standalone Panda3D lens matches K exactly, so not the lens maths; fix 2: MetaDrive's lens is a standard PerspectiveLens; the principal-point film offset had the wrong sign (local test: +sign 22 px, -sign 0 px). After the fix: 0.00001 px. Pictures: pulled/sim_verify.jpg / docs/figs/sim_verify.jpg.

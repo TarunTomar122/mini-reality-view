@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:25 — Sim council round 1 done, round 2 running
+- Both seats: ScenarioNet nuScenes replays first; skip MetaDrive procedural maps; CARLA only after a positive pilot (+ Vulkan check); cheap pilot before any big run. Astra: ~3.6 GPU-h pilot, go only if sim pretrain improves car-placement F1 by >= 5 points on held-out real scenes while meeting kerb/appearance thresholds; controls for equal real exposure and equal total updates. Fable: use sim for layout not looks; keep ~20% sim rows in the mix with their own style token instead of only pretraining; "twin keys" (ScenarioNet-rendered complete key of the same real moment paired with the real cameras); layout metric = nuScenes map + 3D boxes projected into the drone view vs a segmenter on our renders, validated first; ~8 GPU-h pilot.
+- Fable's checks: nuScenes intrinsics give ~65 deg HFOV for five cameras and ~89 deg for the back camera (our sim test used 70 for all); ScenarioNet ego origin may be the rear axle with length/width swapped -> alignment overlay first.
+- low_lidar (low-drone lidar keys, 45M, rays) on 30 val: L1 23.9 / LPIPS 0.348 (mean image 30.1 / 0.615); A_rays (high) 26.3 / 0.377 (mean 30.6 / 0.655) -> low at least as good relative to baseline, with cleaner keys.
+- Round 2: council/sim2real-round2.md -> council/s2-astra.md, council/s2-fable.md.
+
 ## 2026-11-25 17:15 — Sim council round 1 (user asked: research, not winging it)
 - Council: Astra (codex gpt-6.2-astra, xhigh) and Fable (claude-fable-5-2, high), same brief council/sim2real-brief.md: literature on mixing sim and real for conditional generation and driving view synthesis, simulator choice, data recipe, training recipe for SD+LoRA+adapter, geometry-aware evaluation, cheap go/no-go pilot. Outputs: council/s1-astra.md, council/s1-fable.md.
 - Round 2 (after both): swap plans so each critiques the other and they converge (council/s2-*.md); then build the agreed plan. No sim training until then; data-generation tooling (ScenarioNet test) continues.

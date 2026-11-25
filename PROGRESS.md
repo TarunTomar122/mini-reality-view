@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:25 — Hole fix for the main SD run
+- SD 10k judge renders (pulled/sd10k_grid.jpg): no big black hole under the car (SD fills it), but dark speckles all over the road = lidar-key gaps (lidar keys are premultiplied, black between points) and splat floaters leaking through partly covered latent cells, which still had weight cover (and holes 0.05).
+- Key coverage per latent cell (sample of 15 scenes): lidar mean 0.75, >=0.8 in 65% of cells, 0<c<0.5 in 14%; splat-trust mean 0.52, >=0.3 in ~65%, >=0.9 only 11% (trust is soft).
+- train_sd.py --cover_min (one threshold per key set): cells below get zero weight. sd_run1 paused with STOP at ~13k and resubmitted (3751176, afterany 3751069) with --hole_w 0 --cover_min 0.8,0.3; everything else unchanged. SD's prior should fill the zero-weight areas instead of copying black.
+
 ## 2026-11-25 19:10 — Trust-mask comparison (valid version)
 - 12 unseen val scenes, scored against true-colour trusted splat keys, trusted pixels only, low drone, 45M DiT 40k:
   low_mix_nomask L1 27.2 / LPIPS 0.399; low_mix_trust L1 27.8 / LPIPS 0.364 (mean image 33.1 / 0.524).

@@ -33,6 +33,8 @@ p.add_argument("--steps", type=int, default=30000)
 p.add_argument("--bs", type=int, default=16)
 p.add_argument("--lr", type=float, default=1e-4)
 p.add_argument("--hole_w", type=float, default=0.05)
+p.add_argument("--cover_min", default="", help="comma list, one per key set: latent cells whose coverage is below this get zero "
+               "weight (lidar keys are black between points, so partly covered cells teach dark speckles); '' = off")
 p.add_argument("--out", required=True)
 p.add_argument("--render_scenes", type=int, default=8)
 p.add_argument("--sample_steps", type=int, default=25)
@@ -99,6 +101,11 @@ if a.set:
     print("batch rows per set", ROWS, "-> bs", a.bs, flush=True)
 else:
     sets = [load_set(a.keys, 0)] + ([load_set(a.keys2, 1)] if a.keys2 else [])
+if a.cover_min:
+    for s, thr in zip(sets, map(float, a.cover_min.split(","))):
+        kept = (s["C"] >= thr).float().mean().item()
+        s["C"] = s["C"] * (s["C"] >= thr)
+        print(f"cover_min {thr}: {kept:.3f} of latent cells keep weight", flush=True)
 train = [split({k: v for k, v in s.items() if k != "tokdir"}) for s in sets]
 for s, t in zip(sets, train):
     print("set", len(s["L"]), "frames,", len(t["L"]), "train", flush=True)

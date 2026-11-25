@@ -26,3 +26,19 @@ Sources: s1-astra.md, s1-fable.md (research + citations), s2-*.md (critiques), s
    no regression on the other metric, masked splat LPIPS worse by <= 0.01, no sim look in pictures.
    On a pass: scale to ~8,000 pairs, 5k sim + 40k real vs A at 40k/45k.
 6. **Budget** ~8 GPU-hours (training ~6, prep + scoring ~2). CARLA only after a positive pilot and a Vulkan check.
+
+## Decision rules agreed with the owner (25 Nov, so work continues without waiting)
+- Alignment check fails -> up to 3 genuinely different fixes; still failing -> drop sim, continue real-only.
+- Judge fails its validation (shift/shuffle) -> backup judge SegFormer-B5; also fails -> sim result inconclusive ->
+  skip sim unless the pictures are obviously better.
+- Verdict:
+  - C passes the go rule (B does not) -> at sd_run1's next checkpoint pause it and add sim rows (style 2, ~20% of each
+    batch) to its mix; continue (no restart).
+  - B passes (C does not) -> render ~8,000 pairs; new main run: 5k sim then real with sd_run1's settings (phone tokens,
+    trust keys); replaces sd_run1 only if it beats it at equal real steps (~1 extra day).
+  - Both pass -> take the larger gain; if about equal, take C (cheaper, no restart).
+  - Neither passes -> drop sim; sd_run1 is the final model; README "What did not work".
+  - Placement better but pictures look game-like -> one fix (less sim or shorter sim phase); still game-like -> drop.
+- Then in all cases: finish + evaluate the final model (30 real val scenes, pictures, vs older models), optional Difix
+  if it visibly helps, distil to 1-4 steps, finalise try_my_photos.py + README how-to (tested on phone-like nuScenes
+  photos), final README + results page. New design questions -> council again.

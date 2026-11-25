@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:30 — Decision rules for the sim verdict agreed with the owner
+Written into council/PLAN-sim.md ("Decision rules"): alignment fails -> 3 fixes then drop; judge fails -> backup judge then inconclusive/skip; C wins -> fold sim rows into sd_run1 at its next checkpoint; B wins -> 8k pairs + new main run (replaces sd_run1 only if better at equal real steps); both -> larger gain, tie -> C; neither -> drop sim; game-like look -> one fix then drop. Then always: final eval, optional Difix, distil, try_my_photos + how-to, final write-up.
+
 ## 2026-11-25 17:20 — Sim plan final (council/PLAN-sim.md)
 - Round 4: Astra accepts Fable's two points: B's sim phase trains adapter + LoRA; placement check = graded ground shifts 0.5/1/2 m (F1 must fall at each step, >= 0.15 at 1 m). Final plan written to council/PLAN-sim.md.
 - Step 1 started: ScenarioNet conversion of v1.0-trainval (scn-convert, 8 CPUs) -> data/scn_full. Next: replay verification script (intrinsics/FOV per camera, ego origin + hide, overlays).

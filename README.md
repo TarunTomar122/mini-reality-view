@@ -86,6 +86,21 @@ baseline is the average answer key: what you score if you ignore the cameras com
   with 1. A small model at 2 steps runs at about 20 frames per second on one seventh of an H200 (including turning the
   result back into pixels).
 
+**Telling the model where each camera points helps a little.** Each camera token also gets the direction of its
+viewing ray (from the camera's calibration), so the model doesn't have to work out the camera layout itself.
+Same 45M model, same 700 scenes: LPIPS 0.384 without rays, 0.377 with. Road edges and kerbs land slightly more often
+in the right place.
+
+![Answer key, no camera rays, with camera rays](docs/figs/rays_ablation.jpg)
+
+**Video drifts unless the previous frame is noisy enough.** The video model gets its own previous frame back as an
+input. With a little noise on it (0.1), errors pile up over a 20-second scene: pixel error 27.4 in the first frames,
+35.2 in the last, and some scenes wash out to grey. With more noise (0.3) the model trusts its past less, quality
+matches the single-frame model (LPIPS 0.374) and the end-of-scene error drops to 30.8. Noise 0.5 is worse again
+(0.408), more than the model saw in training.
+
+![Video model at the start, middle and end of a scene: key (top) and model (bottom)](docs/figs/video_drift.jpg)
+
 ## What we learned
 
 - **Data matters most at first.** Trained on 8 scenes, the model memorises them perfectly (pixel error 3) and draws a

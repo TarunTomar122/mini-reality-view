@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 10:20
+- Experiment A on 30 val scenes, 4 steps (45M, 700 scenes, 40k): no rays L1 26.22 / LPIPS 0.384; rays 26.27 / 0.377. Small gain for rays; keep them (also needed for phone photos). Pictures: pulled/rays_ablation.jpg (kerbs/road edges slightly better placed).
+  Note: these 45M runs (L1 26.2) beat full_b (110M, 27.8) on L1 and are close on LPIPS (0.377-0.384 vs 0.374).
+- Video drift fixes on full_c (30 val scenes, 4 steps): s_prev 0.1: LPIPS 0.389, L1 first5->last5 27.4->35.2 | fix 1 s_prev 0.3: 0.374, 27.4->30.8 | s_prev 0.5: 0.408, 28.5->34.2 (beyond the 0-0.3 training range) | fix 2 reset every 8: 0.385, 27.3->30.1. Best: s_prev 0.3. Drift reduced by more than half, not gone. Next: s0.3 + reset 8 (3750559); fix 3 (train on own rollouts) if needed.
+- mix_high OOM'd on an 11 GB 2080 Ti (110M, bs 64) -> resubmitted on gpu:h200_1g.18gb (3750558). Teaching partition gres names: nvidia_geforce_rtx_2080_ti, nvidia_rtx_a6000, h200, h200_3g.71gb, h200_1g.18gb.
+- Full low-drone lidar targets: 74/850 scenes so far (8 shards running).
+
 ## 2026-11-25 10:00
 - ssh master had gone stale ("Connection closed by UNKNOWN port 65535"): ssh -O exit mlp, reconnect -> fine.
 - Stage 5 video model full_c (512x16, 80k) on 30 val scenes, whole-scene rollouts, 4 steps, s_prev 0.1: masked L1 29.95, LPIPS 0.389 (single-frame full_b 27.8 / 0.374). DRIFT: L1 first 5 frames 27.4 -> last 5 frames 35.2. Stage counts as failed; rescues:

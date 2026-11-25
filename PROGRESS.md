@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 23:55
+- BEV build 3751357 failed (fix 1 of 3 for this stage): mmdet3d spconv CUDA files do not compile: nvcc 11.3 cannot parse `__s128` in the conda sysroot's Linux 6.12 kernel headers (sysroot_linux-64 2.39 came with gcc 10). Fix: pin sysroot_linux-64=2.17 in envs/bev (login node, logs/bev_sysroot.log), then rebuild with a clean build dir on a 2080 Ti.
+- Arms: A 3.9k/7k, B1 done -> B2 1.9k/5k, C running. sd_run1 23.4k.
+
 ## 2026-11-25 23:25 — SD 20k judge
 - SD 20k vs 10k (judge set, 240 renders): Mask2Former F1 0.284 vs 0.260 (diff +0.023, 95% CI -0.026..+0.075); SegFormer 0.153 vs 0.124 (+0.030, CI -0.002..+0.063); kerb error 1.40 vs 1.47 m (-0.064, CI -0.103..-0.027) / 1.39 vs 1.43 (-0.036, CI -0.064..-0.005).
 - Pictures (pulled/sd10k_vs_20k.jpg -> docs/figs): fewer dark speckles on roads, sharper buildings, more drawn cars inside the true outlines; the near field right behind the ego is still smeared (weakest part of the keys). README: placement judge table + this figure.

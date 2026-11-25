@@ -101,6 +101,20 @@ matches the single-frame model (LPIPS 0.374) and the end-of-scene error drops to
 
 ![Video model at the start, middle and end of a scene: key (top) and model (bottom)](docs/figs/video_drift.jpg)
 
+**Training on its own mistakes fixes most of the rest.** The drift comes from a mismatch: in training the previous frame
+is always a perfect answer key, at run time it is the model's own imperfect picture. We fine-tuned the video model so
+that half the time its "previous frame" is one it drew itself. Over a whole scene it now scores LPIPS 0.368 (our best
+so far, better than the single-frame model's 0.374), and pixel error rises only 1.8 from start to end (was 7.8).
+The last frames keep their road texture instead of fading to grey.
+
+| Video model, whole 20 s scenes | LPIPS | Pixel error, first 5 → last 5 frames |
+|---|---|---|
+| Previous frame with noise 0.1 | 0.389 | 27.4 → 35.2 |
+| Noise 0.3 | 0.374 | 27.4 → 30.8 |
+| **Noise 0.3, trained on its own frames** | **0.368** | 28.5 → 30.3 |
+
+![Last frame of a scene: key, original video model, self-trained video model](docs/figs/selfprev_fix.jpg)
+
 ## What we learned
 
 - **Data matters most at first.** Trained on 8 scenes, the model memorises them perfectly (pixel error 3) and draws a

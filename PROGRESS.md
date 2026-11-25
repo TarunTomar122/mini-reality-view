@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 14:15
+- Video fix 3 WORKED: full_c_self (fine-tuned 20k with --self_prev 0.5), eval s_prev 0.3, 30 val scenes: LPIPS 0.368 (best of all models; full_b 0.374), L1 29.2, first5->last5 28.5->30.3 (+1.8; original +7.8, fix 1 +3.4). Pictures (pulled/selfprev_fix.jpg): last frames keep road texture instead of greying out.
+- sd_run1 RUNNING (loading data). lat512_full_low 850/850. One enc-low shard still running -> low_lidar / low_mix_* then start. Aug copies 691/1700.
+
 ## 2026-11-25 13:55
 - VPN dropped (gateway unreachable, "Connection closed by UNKNOWN port 65535") -> FortiTray AppleScript reconnect, gateway back after 15 s.
 - Style-mix eval: vs high splat keys on 12 val scenes: full_b L1 37.5 / LPIPS 0.675; mix_high style 1: 28.9 / 0.639 (mean image 34.5 / 0.873). vs lidar keys (30 val, style 0): mix_high 28.4 / 0.372 (full_b 27.8 / 0.374) -> lidar skill kept.

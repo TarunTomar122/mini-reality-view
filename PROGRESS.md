@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 16:20 — NEW EXPERIMENT S (user, side chat): sim pretraining -> real fine-tune
+In a simulator the answer key is perfect (every pixel known, no holes/smears). Pretrain the SD renderer (same camera adapter + LoRA, rays, DINOv2 tokens, low drone 9 m back / 4.5 m up / look 15 m ahead at 0.5 m, 60 deg HFOV) on sim pairs: 6 cameras placed like the nuScenes rig (positions, yaw, FOV) -> drone view. Then fine-tune on real keys and compare with real-only at equal real steps. Do NOT stop sd_run1 or the low_* runs.
+Simulator (cheapest working wins; findings logged here): 1) MetaDrive + ScenarioNet (pip, Panda3D, headless EGL; ScenarioNet can replay nuScenes layouts); 2) CARLA 0.9.x -RenderOffScreen (better graphics, ~20 GB, Vulkan, apptainer?) if 1 is too cartoonish or easy; 3) fallback SHIFT-like synthetic data only if both fail.
+Target: a few thousand pairs (300-500 short episodes x 2 Hz), mixed maps/weather/time, traffic + pedestrians; also through the phone augmentation.
+Comparison on the 30 real val scenes (low-drone keys with trust masks): A) sd_run1 real-only; B) sim-pretrain -> real fine-tune, same real steps; optional C) real + sim mixed with a new style id. Masked LPIPS/L1 + pictures; say whether geometry (road edges, car positions) improves, not just texture.
+
 ## 2026-11-25 15:15
 - sd_run1 2k/40k (loss 0.19). low_mix_nomask 39.8k/40k, low_lidar 13k, low_mix_trust 12k. Evals queued after each: low_mix_{nomask,trust} vs low splat keys with trust masks, style 1 (3750831/32); low_lidar vs low lidar keys (3750833). Aug copies 1213/1700.
 

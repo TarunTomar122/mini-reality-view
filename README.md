@@ -75,8 +75,9 @@ baseline is the average answer key: what you score if you ignore the cameras com
   curves, kerbs, trees and buildings roughly where they are. LPIPS drops from 0.66 (ignoring the cameras) to 0.37.
 - **It is blurry and copies the key's flaws.** It draws the lidar's ring-shaped stripes and holes, because that is what
   the key looks like. That is the main reason for the splat keys and the plan below.
-- **Two steps are enough.** With 2 denoising steps instead of 32 the picture is just as good, and a small model runs
-  at about 20 frames per second on one seventh of an H200 (including turning the result back into pixels).
+- **One step is nearly enough.** The bigger renderer scores LPIPS 0.374 with 4 denoising steps, 0.383 with 2 and 0.381
+  with 1. A small model at 2 steps runs at about 20 frames per second on one seventh of an H200 (including turning the
+  result back into pixels).
 
 ## What we learned
 
@@ -86,6 +87,15 @@ baseline is the average answer key: what you score if you ignore the cameras com
   while its pictures are visibly sharper; LPIPS (0.41 → 0.37) tracks what you see.
 - **Splat keys break when the camera is too high.** The real cameras are 1.5 m up; at 8.5 m the splat scene shows
   floaters and smears where no camera ever looked.
+
+## What did not work
+
+- **Distilling to one step.** We trained a one-step copy of the bigger renderer to reproduce its 4-step pictures from
+  the same noise. Its pixel error is lower (27.4 vs 28.9 for the plain model at one step), but it looks slightly
+  smoother and scores worse on LPIPS (0.394 vs 0.381). The plain model already takes almost straight paths from noise
+  to picture, so there was little left to gain.
+
+![Answer key, bigger renderer at 4 steps, distilled renderer at 1 step](docs/figs/distill_sheet.jpg)
 
 ## Problems we hit (and fixed)
 

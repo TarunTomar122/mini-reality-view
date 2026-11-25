@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 07:45
+- Stage 7 distillation (1-step student of full_b's 4-step output, 15k steps, final loss 0.011): val masked L1 27.4 (vs 28.9 plain 1-step) but LPIPS 0.394 (vs 0.381 plain 1-step, 0.374 plain 4-step). Pictures (pulled/distill_sheet.jpg): very close to the 4-step teacher, a bit smoother. Verdict: no gain over plain 1-step sampling; keep plain few-step sampling for now and revisit with a perceptual/adversarial loss for the SD1.5 model.
+- Experiment A at 5.2k/40k: train loss with rays 0.894 vs 0.952 without (early).
+- Trainval splats 67/70; mini re-renders running (12 scene dirs written so far); full-train-c 65k/80k.
+
 ## 2026-11-25 07:20
 - calib_rays.pt done (850 scenes, 6x144 Plücker rays each). Lidar keys at the low drone done for mini (coverage 0.21-0.81, about the same as high).
 - Experiment A launched: 45M DiT, all 700 train scenes, 40k steps, bs 64, identical except --rays: runs/A_norays vs runs/A_rays.

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:10 — Trust-mask comparison (valid version)
+- 12 unseen val scenes, scored against true-colour trusted splat keys, trusted pixels only, low drone, 45M DiT 40k:
+  low_mix_nomask L1 27.2 / LPIPS 0.399; low_mix_trust L1 27.8 / LPIPS 0.364 (mean image 33.1 / 0.524).
+- Pictures (pulled/trust2_sheet.jpg -> docs/figs/trust_masks.jpg): the trust model copies the key's black hole under/behind the ego (never seen by a camera, trust low but not zero); the no-mask model fills it with mush. Verdict: helps on trusted pixels, but needs exact zero weight there + a prior to fill (SD). README updated.
+
 ## 2026-11-25 19:50
 - scn-subset 3751130 done (100 pilot scenes). Sim renders 3751131-34 running: 38/100 scenes in 8 min. Checked scene-0001 by eye (pulled/sim_pairs_check.jpg): the trucks and parked car sit in the same places in the 6 cameras and in the drone key; our own car is hidden; the look is game-like (allowed by the owner, the go rule is placement only).
 - Judge truth 3751146 and SD-10k judge renders 3751144/45 running; 10 validation scorers queued behind them.

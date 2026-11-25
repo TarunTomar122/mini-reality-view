@@ -133,6 +133,16 @@ Exact positions are not precise yet. Training continues.
 - **Splat keys break when the camera is too high.** The real cameras are 1.5 m up; at 8.5 m the splat scene shows
   floaters and smears where no camera ever looked.
 
+- **Trust masks help where the key is good, but the model then copies the key's holes.** We weighted the loss by how
+  much each pixel of the splat key can be trusted (seen by a real camera, depth agrees with lidar). On 12 unseen scenes,
+  scored only on trusted pixels, LPIPS improves from 0.399 to 0.364 and pixel error stays the same (27.2 vs 27.8).
+  But the ground right under and behind our car was never seen by any camera, so the key is black there, and the
+  trust-weighted model learns to draw that black hole too (right column). The unweighted model fills it with mush.
+  A fix would be zero weight there plus a pretrained model that can fill the gap, which is what the Stable Diffusion
+  renderer is for.
+
+![Trusted splat key, model without trust weighting, model with trust weighting (low drone, unseen scenes)](docs/figs/trust_masks.jpg)
+
 ## What did not work
 
 - **Distilling to one step.** We trained a one-step copy of the bigger renderer to reproduce its 4-step pictures from
@@ -169,8 +179,8 @@ Exact positions are not precise yet. Training continues.
 
 ## What's next
 
-1. **Lower drone camera** (9 m back, 4.5 m up) so the splat keys are cleaner, and compare models at both heights.
-2. **Trust masks:** grade the model only where the key is reliable (splat seen by a real camera, depth agrees).
+1. ~~Lower drone camera~~ and ~~trust masks~~: done (see above).
+2. **Simulator pretraining:** replay nuScenes drives in a driving simulator, where the drone-view answer is exact, and test whether that helps the real model place cars and kerbs (running).
 3. **Camera geometry as input:** give each camera token its viewing ray, so the model doesn't have to guess where each
    camera points.
 4. **Start from a pretrained image model** (Stable Diffusion 1.5 with LoRA and a camera-token adapter; Difix to clean

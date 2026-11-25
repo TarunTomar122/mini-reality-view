@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:50
+- SD restart done by the watcher: sd_run1 stopped at ckpt step 10000 and resumed as job 3751069 (17:32) with --tokens_aug data/enc_aug_0, mem 120G (loading data).
+- Corrected trust comparison, arm 1 (true-colour trusted splat keys, 12 val scenes): low_mix_nomask L1 27.2 / LPIPS 0.399 (mean image 33.1 / 0.524). low_mix_trust retrain at 8.2k/40k.
+- Sim: shared phone augmentation moved to mrv/aug.py (encode_aug.py uses it). scripts/sim_encode.py: sim rig tokens clean + phone-aug (rays recomputed for the crop; sim renders are 448x252 so crop boxes are scaled to 1600x900 for the calibration). Queued after the 4 render jobs: sim-enc x2 (-> data/enc_sim, data/enc_sim_aug) and sim-lat (encode_latents -> data/lat512_sim, full cover).
+
 ## 2026-11-25 18:00 — Sim step 2 queued
 - scripts/sim_render.py + slurm/sim_render.sh: 100 official train scenes (spread over the list), every other keyframe (~2,000 pairs), 6 calibrated rig cameras 448x252 (jpg) + ego-hidden low drone 512x288 (png, alpha 255) -> data/sim/{cams,keys}/<scene>/. 4 shards (3751064-67, 2080 Ti) after scn-convert (3751036).
 - Next: encode (DINOv2 tokens clean + phone-aug with rays; sim keys -> lat512 with full cover), geometry judge (Mask2Former + SegFormer, projected nuScenes boxes/map), train_sd changes for arms B/C (style 2, sim-only phase, twin-key rows).

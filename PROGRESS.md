@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 06:50
+- Trainval splats 51/70; full-train-c 54k/80k; distillation + 1/2-step baselines running; SD1.5 UNet/VAE + Difix + peft downloaded (DL_DONE). CPU jobs (calib rays, lidar-low) and the mini low/high re-renders still queued.
+- Step 1 code: scripts/trust_masks.py — lift each drone pixel with the splat depth, project into the 6 real cameras of that keyframe, visible = in image, in front, < 60 m, not behind a nearer lidar surface (per-camera lidar depth map at 1/4 res, 5x5 min-spread); weight by cos(angle between drone and real view) x exp(-dist/60); trust = opacity x sqrt(best). Written as key alpha. Queued after the mini re-renders (3750396 low, 3750397 high).
+
 ## 2026-11-25 06:50 — camera-only, and a phone-photo goal (user, side chat)
 - The model stays camera-only (no lidar input at run time). Experiment A (calibration rays) stays.
 - New goal: work from just 6 phone photos taken in a street (front, front-left, front-right, back-left, back, back-right) and draw the drone view.

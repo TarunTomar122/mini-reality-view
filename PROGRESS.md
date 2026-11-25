@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:35 — Owner: game-like look is fine if accurate
+Go rule for sim now rests only on placement (car F1 >= +0.05 or kerb error -10%, CI excluding zero, no regression on the other); LPIPS and "sim look" are reported, not used to reject (council/PLAN-sim.md updated).
+
 ## 2026-11-25 17:30 — Decision rules for the sim verdict agreed with the owner
 Written into council/PLAN-sim.md ("Decision rules"): alignment fails -> 3 fixes then drop; judge fails -> backup judge then inconclusive/skip; C wins -> fold sim rows into sd_run1 at its next checkpoint; B wins -> 8k pairs + new main run (replaces sd_run1 only if better at equal real steps); both -> larger gain, tie -> C; neither -> drop sim; game-like look -> one fix then drop. Then always: final eval, optional Difix, distil, try_my_photos + how-to, final write-up.
 

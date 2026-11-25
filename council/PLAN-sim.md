@@ -23,7 +23,7 @@ Sources: s1-astra.md, s1-fable.md (research + citations), s2-*.md (critiques), s
    **Validation before any verdict:** graded ground-plane label shifts of 0.5 / 1 / 2 m must lower F1 at each step
    (>= 0.15 drop at 1 m) and raise kerb error; shuffled cameras at fixed noise must score worse.
 5. **Go rule.** >= 0.05 F1 gain or >= 10% kerb-error reduction over A, paired scene-bootstrap 95% CI excluding zero,
-   no regression on the other metric, masked splat LPIPS worse by <= 0.01, no sim look in pictures.
+   no regression on the other metric. (Appearance guardrails dropped by the owner: LPIPS and 'sim look' are reported only.)
    On a pass: scale to ~8,000 pairs, 5k sim + 40k real vs A at 40k/45k.
 6. **Budget** ~8 GPU-hours (training ~6, prep + scoring ~2). CARLA only after a positive pilot and a Vulkan check.
 
@@ -38,7 +38,8 @@ Sources: s1-astra.md, s1-fable.md (research + citations), s2-*.md (critiques), s
     trust keys); replaces sd_run1 only if it beats it at equal real steps (~1 extra day).
   - Both pass -> take the larger gain; if about equal, take C (cheaper, no restart).
   - Neither passes -> drop sim; sd_run1 is the final model; README "What did not work".
-  - Placement better but pictures look game-like -> one fix (less sim or shorter sim phase); still game-like -> drop.
+  - Owner (25 Nov): a game-like look is acceptable if placement is accurate. Appearance (LPIPS, 'sim look') is reported
+    but is NOT a go/no-go guardrail; the decision rests on car-placement F1 and kerb error only.
 - Then in all cases: finish + evaluate the final model (30 real val scenes, pictures, vs older models), optional Difix
   if it visibly helps, distil to 1-4 steps, finalise try_my_photos.py + README how-to (tested on phone-like nuScenes
   photos), final README + results page. New design questions -> council again.

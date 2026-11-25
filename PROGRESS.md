@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 23:10
+- Sim data final for the pilot: 91 scenes, 1,388 clean pairs (2,776 rows with the phone-style copies); shard 3 used up its 6 attempts on hanging scenes, the rest never started. Plan asked for ~2,000 pairs: we have ~70% (stated in the write-up).
+- Arms: A 3751356 at 700/7k; B1 3751311 running (sim-only 2k); B2 3751312 and C 3751313 queued.
+- sd_run1 20.2k: checkpoint copied to runs/judge_ckpt_sd20k.pt -> judge renders 3751479 -> m2f 3751480 + SegFormer 3751481 (compare with 10k: m2f F1 0.260, SegFormer 0.124).
+- BEV build 3751357 still waiting for an A6000.
+
 ## 2026-11-25 22:30
 - Sim watchdog works (shard 3: two scenes timed out at 5 min, skipped). 90 scene folders. Encoders 3751308-10 switched to afterany on the shards (the running shard 3 wrapper still has only 6 attempts; if it runs out, encode what is there rather than block the arms).
 - Arm A 3751356 loading (25 min in). BEV build 3751357 queued for an A6000. sd_run1 18.4k.

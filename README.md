@@ -110,9 +110,10 @@ baseline is the average answer key: what you score if you ignore the cameras com
 2. **Trust masks:** grade the model only where the key is reliable (splat seen by a real camera, depth agrees).
 3. **Camera geometry as input:** give each camera token its viewing ray, so the model doesn't have to guess where each
    camera points.
-4. **Lidar as input** (a non-Tesla variant, clearly labelled): how much better does it get with lidar at run time?
-5. **Start from a pretrained image model** (Stable Diffusion 1.5 with LoRA and a camera-token adapter; Difix to clean
+4. **Start from a pretrained image model** (Stable Diffusion 1.5 with LoRA and a camera-token adapter; Difix to clean
    splat keys) so the model already knows what streets look like.
+5. **Try it on your own photos:** six phone photos taken in a street, no calibration needed. Training adds random
+   crops, zoom, colour and small turns so phone pictures look familiar to the model.
 6. **Distil to 1–4 steps**, then a final evaluation and video results.
 
 ## For researchers

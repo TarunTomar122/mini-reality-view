@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 12:50
+- Aug test OK: augmented tokens align with clean ones (same sample order), mean cosine to clean tokens 0.81. Launched 2 full augmented copies of all 850 scenes (8 jobs) -> data/enc_aug_{0,1}.
+- train_sd.py: --tokens_aug (phone-like copies as extra training rows, train scenes only, own rays) and --init. CameraAdapter + LORA_TARGETS moved to mrv/sd.py.
+- scripts/try_my_photos.py: 6 photos -> EXIF-rotate, centre-crop 16:9, 448x252 -> DINOv2 -> pooled tokens; default rig rays assets/default_rays.pt (mean over 850 scenes); renders with the SD checkpoint (CFG) or a DiT checkpoint; CUDA / MPS / CPU.
+- mix_high 25.4k/30k; c-selfprev 14.8k/20k; low lidar targets 824/850.
+
 ## 2026-11-25 12:20
 - mix_high 20k/30k (loss 0.16); c-selfprev 10.6k/20k; low lidar targets 777/850 (then enc-low -> low_lidar / low_mix_* and lat512-low -> sd_run1).
 - P (phone photos) started: scripts/encode_aug.py — per camera independently: zoom-crop z in [1,1.3] at a random offset (narrower FOV + small yaw/pitch jitter), brightness/contrast/saturation x0.75-1.25, hue +-0.03, gamma 0.8-1.25, blur (50%, sigma <= 1.2), JPEG q 35-95; rays recomputed for the patches inside the crop. Small test job 3750677 (2 scenes) before the full copies.

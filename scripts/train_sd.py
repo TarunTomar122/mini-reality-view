@@ -17,7 +17,7 @@ import torch.nn.functional as F
 from PIL import Image
 from diffusers import UNet2DConditionModel, DDPMScheduler, DDIMScheduler, AutoencoderKL
 from peft import LoraConfig
-from mrv.model import sincos_2d
+from mrv.sd import CameraAdapter, LORA_TARGETS
 
 SD = "sd-legacy/stable-diffusion-v1-5"
 p = argparse.ArgumentParser()
@@ -26,6 +26,8 @@ p.add_argument("--keys", default="data/lat512_full_low", help="style-0 key laten
 p.add_argument("--keys2", default="", help="style-1 key latents (e.g. splat keys)")
 p.add_argument("--mix", type=float, default=0.5)
 p.add_argument("--rays", default="data/calib_rays.pt")
+p.add_argument("--tokens_aug", default="", help="comma list of encode_aug.py dirs: phone-like token copies (with their own rays) added as extra training rows")
+p.add_argument("--init", default="", help="start adapter + LoRA from this checkpoint")
 p.add_argument("--rank", type=int, default=64)
 p.add_argument("--steps", type=int, default=30000)
 p.add_argument("--bs", type=int, default=16)
@@ -58,6 +60,14 @@ def load_set(keydir, style):
         ix = [pos[t] for t in k["sample_tokens"]]
         T.append(e["tokens"][ix]); L.append(k["lat"]); C.append(k["cover"])
         R.append(RAYS[sc][None].expand(len(ix), -1, -1, -1)); S += [style] * len(ix); names += [sc] * len(ix)
+        for ad in [x for x in a.tokens_aug.split(",") if x]:
+            if sc in VAL or not os.path.exists(f"{ad}/{sc}.pt"):
+                continue  # augmented copies only for training scenes
+            g = torch.load(f"{ad}/{sc}.pt")
+            gp = {t: i for i, t in enumerate(g["sample_tokens"])}
+            gx = [gp[t] for t in k["sample_tokens"]]
+            T.append(g["tokens"][gx]); L.append(k["lat"]); C.append(k["cover"]); R.append(g["rays"][gx])
+            S += [style] * len(gx); names += [sc] * len(gx)
     return dict(T=torch.cat(T), L=torch.cat(L), C=torch.cat(C), R=torch.cat(R), S=torch.tensor(S), names=names)
 
 
@@ -74,33 +84,10 @@ lat_scale = 1.0  # latents are already x0.18215 (SD convention)
 
 
 # ---------------- model ----------------
-class CameraAdapter(nn.Module):
-    def __init__(s, d=768, n_cam=6, layers=2):
-        super().__init__()
-        s.inp = nn.Sequential(nn.LayerNorm(384), nn.Linear(384, d))
-        s.ray = nn.Sequential(nn.Linear(6, d), nn.SiLU(), nn.Linear(d, d))
-        s.cam = nn.Parameter(torch.zeros(1, n_cam, 1, d))
-        s.register_buffer("pos", sincos_2d(9, 16, d)[None, None], persistent=False)
-        s.style = nn.Embedding(2, d)
-        s.null = nn.Parameter(torch.zeros(1, n_cam * 144 + 1, d))
-        enc = nn.TransformerEncoderLayer(d, 12, 4 * d, batch_first=True, norm_first=True, activation="gelu")
-        s.mix = nn.TransformerEncoder(enc, layers)
-        s.out = nn.LayerNorm(d)
-
-    def forward(s, tok, rays, style, drop=None):
-        B = tok.shape[0]
-        h = s.inp(tok) + s.ray(rays) + s.cam + s.pos  # (B,6,144,d)
-        h = torch.cat([h.flatten(1, 2), s.style(style)[:, None]], 1)
-        h = s.out(s.mix(h))
-        if drop is not None:
-            h = torch.where(drop[:, None, None], s.null.expand(B, -1, -1).to(h.dtype), h)
-        return h
-
-
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet", torch_dtype=torch.float32)
 unet.requires_grad_(False)
 unet.add_adapter(LoraConfig(r=a.rank, lora_alpha=a.rank, init_lora_weights="gaussian",
-                            target_modules=["to_q", "to_k", "to_v", "to_out.0", "proj_in", "proj_out", "ff.net.0.proj", "ff.net.2"]))
+                            target_modules=LORA_TARGETS))
 for n_, p_ in unet.named_parameters():
     if not p_.requires_grad:
         p_.data = p_.data.to(AMP)  # frozen base weights in half precision, LoRA weights stay fp32
@@ -114,6 +101,9 @@ sched = DDPMScheduler.from_pretrained(SD, subfolder="scheduler")
 acp = sched.alphas_cumprod.to(dev)
 ck = f"{a.out}/ckpt.pt"
 start = 0
+if a.init and not os.path.exists(ck):
+    s_ = torch.load(a.init, map_location=dev)
+    adapter.load_state_dict(s_["adapter"]); print("init from", a.init, unet.load_state_dict(s_["lora"], strict=False).unexpected_keys[:3], flush=True)
 if os.path.exists(ck):
     s_ = torch.load(ck, map_location=dev)
     adapter.load_state_dict(s_["adapter"])

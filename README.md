@@ -119,6 +119,14 @@ matches the single-frame model (LPIPS 0.374) and the end-of-scene error drops to
 
 ![Answer key, bigger renderer at 4 steps, distilled renderer at 1 step](docs/figs/distill_sheet.jpg)
 
+- **Mixing in rough splat keys.** We fine-tuned the bigger renderer on lidar keys and splat keys together, with a tag
+  saying which style to draw. Asked for "splat style" on unseen scenes, its pixel error against the splat keys
+  dropped from 37.5 to 28.9, but the pictures got worse: soft mush instead of a road. Those splat keys were rendered
+  from the high drone after a short fit and are full of smears, and against a noisy key blur is the safest answer.
+  The pixel score rewarded it. We now use the lower drone and trust masks for splat keys instead.
+
+![Splat key, lidar-trained model, style-mix model in splat style](docs/figs/stylemix.jpg)
+
 ## Problems we hit (and fixed)
 
 - **Parked car, night scene, crash at step 0.** With the car standing still, the lidar contains exact duplicate
@@ -143,7 +151,7 @@ matches the single-frame model (LPIPS 0.374) and the end-of-scene error drops to
 3. **Camera geometry as input:** give each camera token its viewing ray, so the model doesn't have to guess where each
    camera points.
 4. **Start from a pretrained image model** (Stable Diffusion 1.5 with LoRA and a camera-token adapter; Difix to clean
-   splat keys) so the model already knows what streets look like.
+   splat keys) so the model already knows what streets look like. (Running.)
 5. **Try it on your own photos:** six phone photos taken in a street, no calibration needed. Training adds random
    crops, zoom, colour and small turns so phone pictures look familiar to the model.
 6. **Distil to 1–4 steps**, then a final evaluation and video results.

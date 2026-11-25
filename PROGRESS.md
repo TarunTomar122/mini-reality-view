@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 13:55
+- VPN dropped (gateway unreachable, "Connection closed by UNKNOWN port 65535") -> FortiTray AppleScript reconnect, gateway back after 15 s.
+- Style-mix eval: vs high splat keys on 12 val scenes: full_b L1 37.5 / LPIPS 0.675; mix_high style 1: 28.9 / 0.639 (mean image 34.5 / 0.873). vs lidar keys (30 val, style 0): mix_high 28.4 / 0.372 (full_b 27.8 / 0.374) -> lidar skill kept.
+  BUT pictures (pulled/stylemix.jpg): the val high-drone 15k-iter splat keys are very messy, and mix_high's splat style is soft mush; the lidar-trained model looks sharper and more road-like. The L1 win is blur matching a noisy key. Verdict: did not work with high-drone splat keys; low-drone + trust-mask keys (low_mix_* runs) are the real test.
+- c-selfprev DONE -> eval with s_prev 0.3 (3750778). lat512_full_low 671/850; then sd_run1 + low_* runs start.
+
 ## 2026-11-25 13:15
 - mix_high DONE (init full_b; lidar style 0 + trainval high splats style 1, mix 0.5, 30k, final loss ~0.14). Evals: full_b vs splat keys (3750742), mix_high style 1 vs splat keys (3750743) on the val scenes that have splats; mix_high style 0 vs lidar keys on 30 val scenes (3750744).
 - Low lidar targets 850/850 DONE; enc-low and lat512-low running -> then low_lidar / low_mix_{nomask,trust} and sd_run1 start.

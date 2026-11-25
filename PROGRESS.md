@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 23:25 — SD 20k judge
+- SD 20k vs 10k (judge set, 240 renders): Mask2Former F1 0.284 vs 0.260 (diff +0.023, 95% CI -0.026..+0.075); SegFormer 0.153 vs 0.124 (+0.030, CI -0.002..+0.063); kerb error 1.40 vs 1.47 m (-0.064, CI -0.103..-0.027) / 1.39 vs 1.43 (-0.036, CI -0.064..-0.005).
+- Pictures (pulled/sd10k_vs_20k.jpg -> docs/figs): fewer dark speckles on roads, sharper buildings, more drawn cars inside the true outlines; the near field right behind the ego is still smeared (weakest part of the keys). README: placement judge table + this figure.
+- Arms: A 2.2k/7k, B1 1.3k/2k, C running (15 min), B2 queued. BEV build still waiting for an A6000.
+
 ## 2026-11-25 23:10
 - Sim data final for the pilot: 91 scenes, 1,388 clean pairs (2,776 rows with the phone-style copies); shard 3 used up its 6 attempts on hanging scenes, the rest never started. Plan asked for ~2,000 pairs: we have ~70% (stated in the write-up).
 - Arms: A 3751356 at 700/7k; B1 3751311 running (sim-only 2k); B2 3751312 and C 3751313 queued.

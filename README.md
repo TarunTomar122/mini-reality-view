@@ -124,6 +124,24 @@ Exact positions are not precise yet. Training continues.
 
 ![Splat key (left) and the Stable Diffusion renderer after 5k steps (right), unseen scenes](docs/figs/sd5k.jpg)
 
+**Does it put cars in the right places?** To check placement rather than looks, a separate off-the-shelf model
+(Mask2Former, trained on city street photos) finds the cars in each drone picture, and we compare them with where the
+real cars were, using the nuScenes labels projected into the drone view. On 30 unseen scenes (240 pictures):
+
+| Renderer input | Car score (F1, Mask2Former / SegFormer) |
+|---|---|
+| Right cameras, step 10k | 0.26 / 0.12 |
+| Cameras pointed the wrong way | 0.03 / 0.02 |
+| Cameras from another street | 0.03 / 0.01 |
+| Right cameras, step 20k | 0.28 / 0.15 |
+
+So the cars it draws really come from the cameras, not from guessing where cars usually are. Between 10k and 20k
+steps we also stopped grading the model on the empty parts of the answer keys, which had taught it to scatter dark
+speckles on the road. The road is cleaner and the car score went up a little, but the gain is within the noise
+(95% interval -0.03 to +0.07). The judge is coarse: moving the true cars by 1 m only lowers the score by 0.04.
+
+![Step 10k and step 20k on unseen scenes; yellow outlines are the real cars](docs/figs/sd10k_vs_20k.jpg)
+
 ## What we learned
 
 - **Data matters most at first.** Trained on 8 scenes, the model memorises them perfectly (pixel error 3) and draws a

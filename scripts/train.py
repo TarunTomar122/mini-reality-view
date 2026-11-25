@@ -30,6 +30,7 @@ p.add_argument("--enc2", default="", help="second encoded set (e.g. splat target
 p.add_argument("--mix", type=float, default=0.5, help="fraction of each batch drawn from --enc2")
 p.add_argument("--init", default="", help="start from this checkpoint's EMA weights (fresh optimiser)")
 p.add_argument("--render_style", type=int, default=1)
+p.add_argument("--self_prev", type=float, default=0.0, help="video: fraction of samples whose previous frame is drawn by the model itself (2 steps, from its previous camera tokens)")
 p.add_argument("--rays", default="", help="experiment A: data/calib_rays.pt -> per-patch ray embeddings")
 p.add_argument("--render", default="", help="scenes to render (default: test scenes)")
 p.add_argument("--max_render", type=int, default=6)
@@ -140,6 +141,20 @@ for step in range(start, 0 if a.eval_only else a.steps):
     xt = (1 - t.view(-1, 1, 1, 1)) * x0 + t.view(-1, 1, 1, 1) * eps
     kw = {}
     if a.prev:
+        if a.self_prev > 0 and not a.enc2:
+            msk = (torch.rand(len(pv), device=dev) < a.self_prev) & hp
+            if msk.any():
+                with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
+                    pidx = idx[msk] - 1  # same scene, previous keyframe (scenes are stored contiguously)
+                    ptok = Ttr[pidx.to(Ttr.device)].to(dev).float()
+                    pry = Rtr[pidx] if RAYS is not None else None
+                    zc = torch.randn(len(pidx), 4, 18, 32, device=dev)
+                    pin, ps = torch.randn_like(zc), torch.ones(len(pidx), device=dev)  # single-frame mode
+                    pctx = ema.context(ptok, pry)
+                    for t0, t1 in [(1.0, 0.5), (0.5, 0.0)]:
+                        vv = ema(zc, torch.full((len(pidx),), t0, device=dev), None, prev=pin, s_noise=ps, ctx=pctx).float()
+                        zc = zc + (t1 - t0) * vv
+                pv = pv.clone(); pv[msk] = zc.float() * lat_std
         kw["prev"], kw["s_noise"] = prev_input(pv, hp)
     if a.enc2:
         kw["style"] = sty

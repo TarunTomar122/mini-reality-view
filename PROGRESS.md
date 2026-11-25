@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 10:45
+- Video drift fix 1+2 combined (s_prev 0.3 + reset every 8): L1 26.76, LPIPS 0.376, first5->last5 27.5->30.4 (~same as s_prev 0.3 alone). Single-frame full_b stays flat (29.4->29.6), so the remaining +3 is real drift.
+- Fix 3 started: train.py --self_prev 0.5 — for half the samples the previous frame is drawn by the model itself (EMA, 2 steps, single-frame mode, from the previous keyframe's camera tokens) instead of the perfect key; fine-tune full_c for 20k steps, lr 1e-4 (c-selfprev 3750591, H200 18 GB slice).
+- mix_high running (3.6k/30k). Low lidar targets 266/850. Trainval low splats 70/70 rendered; trust masks running (16 done).
+
 ## 2026-11-25 10:20
 - Experiment A on 30 val scenes, 4 steps (45M, 700 scenes, 40k): no rays L1 26.22 / LPIPS 0.384; rays 26.27 / 0.377. Small gain for rays; keep them (also needed for phone photos). Pictures: pulled/rays_ablation.jpg (kerbs/road edges slightly better placed).
   Note: these 45M runs (L1 26.2) beat full_b (110M, 27.8) on L1 and are close on LPIPS (0.377-0.384 vs 0.374).

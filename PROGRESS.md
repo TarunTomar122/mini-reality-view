@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:00
+- judge-gt crashed: shapely 1.8.5 (pinned by nuscenes-devkit) has a numpy-1 build of shapely.vectorized that breaks under numpy 2.4 -> point-in-polygon now via matplotlib.path (exterior minus holes). Rerun 3751146.
+- Judge models downloaded (Mask2Former Swin-L Cityscapes panoptic, SegFormer-B5).
+- Judge validation queued (after truth + renders of SD 10k checkpoint 3751144/45): both judges x label shifts 0/0.5/1/2 m on normal renders, and shift 0 on shuffled-camera renders (10 jobs 3751147-56) -> runs/judge/sd10k_*.json. Pass = F1 falls at each shift (>= 0.15 at 1 m), kerb error rises, shuffled cameras score worse.
+
 ## 2026-11-25 18:50 — Geometry judge built (council/PLAN-sim.md step 4)
 - Session moved to another account after a usage limit; T3 orchestration tools (scheduled-task / delegate) are not available in this session, cluster work continues as before.
 - scripts/sd_render.py: renders a checkpoint on the judge set = val scenes (sorted, with tokens) 30-59, 4 evenly spaced keyframes x 2 seeds, style 1, DDIM 25, CFG 2; --shuffle_cams rolls the six cameras by 3 (front<->back) for the validation control.

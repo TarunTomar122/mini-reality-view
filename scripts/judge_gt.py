@@ -80,12 +80,14 @@ for sc in judge:
             for pt in nmap.get("drivable_area", tok)["polygon_tokens"]:
                 polys.append(nmap.extract_polygon(pt))
         mp = MultiPolygon([q for q in polys if q.is_valid]) if polys else None
-        try:
-            from shapely import contains_xy  # shapely >= 2
-            inside = contains_xy(mp, g_w[:, 0], g_w[:, 1]) if mp is not None else np.zeros(len(g_w), bool)
-        except ImportError:
-            from shapely import vectorized
-            inside = vectorized.contains(mp, g_w[:, 0], g_w[:, 1]) if mp is not None else np.zeros(len(g_w), bool)
+        # point-in-polygon with matplotlib (shapely 1.8's vectorized module is built against numpy 1 and breaks)
+        from matplotlib.path import Path as MPath
+        inside = np.zeros(len(g_w), bool)
+        for q in (mp.geoms if mp is not None else []):
+            pin = MPath(np.asarray(q.exterior.coords)[:, :2]).contains_points(g_w[:, :2])
+            for hole in q.interiors:
+                pin &= ~MPath(np.asarray(hole.coords)[:, :2]).contains_points(g_w[:, :2])
+            inside |= pin
         on = inside.reshape(xs.shape)
         edge = on ^ np.roll(on, 1, 0) | on ^ np.roll(on, 1, 1)
         edge_xy = np.stack([xs[edge], ys[edge]], 1)

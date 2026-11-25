@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:35 — New experiment W: 3D-aware "world model" encoder (owner approved, runs in parallel)
+- Gap vs Tesla: their renderer sits on a driving-trained vision encoder (3D, agents, memory); ours on generic per-frame DINOv2. Idea: features from a public camera-only nuScenes 3D model (BEV / occupancy) as renderer input, cached offline, judged with the geometry judge. Brief: council/bev-brief.md. Council round 1: Fable running (Astra unavailable in this session: no delegate_task; my own take will be the second view).
+
 ## 2026-11-25 19:25 — Hole fix for the main SD run
 - SD 10k judge renders (pulled/sd10k_grid.jpg): no big black hole under the car (SD fills it), but dark speckles all over the road = lidar-key gaps (lidar keys are premultiplied, black between points) and splat floaters leaking through partly covered latent cells, which still had weight cover (and holes 0.05).
 - Key coverage per latent cell (sample of 15 scenes): lidar mean 0.75, >=0.8 in 65% of cells, 0<c<0.5 in 14%; splat-trust mean 0.52, >=0.3 in ~65%, >=0.9 only 11% (trust is soft).

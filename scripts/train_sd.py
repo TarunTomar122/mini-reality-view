@@ -109,6 +109,14 @@ if a.cover_min:
 train = [split({k: v for k, v in s.items() if k != "tokdir"}) for s in sets]
 for s, t in zip(sets, train):
     print("set", len(s["L"]), "frames,", len(t["L"]), "train", flush=True)
+# keep only the val rows each set needs for the final render, so the training rows are not held twice in RAM
+# (61k token rows are ~40 GB; holding sets + train copies plus allocator growth hit 126 GB and an OOM kill)
+for s in sets:
+    vm = torch.tensor([n in VAL for n in s["names"]])
+    for k in ("T", "L", "C", "R", "S"):
+        s[k] = s[k][vm]
+    s["names"] = [n for n, m in zip(s["names"], vm) if m]
+import gc; gc.collect()
 lat_scale = 1.0  # latents are already x0.18215 (SD convention)
 
 
@@ -216,7 +224,7 @@ for step in range(start, 0 if a.eval_only else a.steps):
     if step % 100 == 0:
         r = {"step": step, "loss": round(loss.item(), 4), "gn": round(gn.item(), 3), "lr": lr, "min": round((time.time() - t_start) / 60, 1)}
         print(r, flush=True); log.write(json.dumps(r) + "\n"); log.flush()
-    if (step + 1) % 5000 == 0 or step + 1 == a.steps:
+    if (step + 1) % 1000 == 0 or step + 1 == a.steps:
         save(step + 1)
     if str(step + 1) in a.save_at.split(","):
         save(step + 1); import shutil; shutil.copy(ck, f"{a.out}/ckpt_{step + 1}.pt")
@@ -259,7 +267,7 @@ def decode(z):
 
 
 if ROWS:  # render against the real key set of the requested style
-    ev = next((s_ for s_ in sets if int(s_["S"][0]) == a.render_style and s_["tokdir"] == a.tokens), sets[0])
+    ev = next((s_ for s_ in sets if len(s_["S"]) and int(s_["S"][0]) == a.render_style and s_["tokdir"] == a.tokens), sets[0])
 else:
     ev = sets[-1] if a.render_style == 1 and len(sets) > 1 else sets[0]
 val_names = sorted({n for n in ev["names"] if n in VAL})[: a.render_scenes]

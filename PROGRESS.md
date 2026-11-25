@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:55 — Judge validation round 1; sd_run1 OOM
+- sd_run1 (3751069) was OOM-killed at 19:02 (MaxRSS 126 GB of 120 GB, ~13.6k steps) before the STOP: steps 10k-13.6k lost (checkpoint only every 5k). Cause: training rows held twice in RAM (sets + train copies, ~61k fp16 token rows ~40 GB each) plus slow allocator growth. Fix in train_sd.py: after the split keep only val rows in `sets`; checkpoint every 1k; MALLOC_ARENA_MAX=2 in py.sbatch. The restart with the hole fix (3751176) was cancelled while still loading and resubmitted with the memory fix: 3751192 (resumes from 10k, --hole_w 0 --cover_min 0.8,0.3).
+- Judge validation on SD-10k renders (30 val scenes x 4 frames x 2 seeds = 240):
+  m2f car F1 at label shifts 0 / 0.5 / 1 / 2 m: 0.260 / 0.243 / 0.223 / 0.166 (monotone, but drop at 1 m 0.037 < pre-set 0.15). SegFormer: 0.124 at 0, 0.076 at 2 m.
+  Kerb error 1.47 m (cap 2) at every shift: expected, the shift moves only car labels, not the road -> kerb check needs a wrong-street control.
+  Camera shuffle (tokens AND rays rolled by 3): F1 0.257 vs 0.260, pictures nearly identical (pulled/shuffle_check.jpg). The renderer places content by each token's ray, not by camera slot, so rolling both keeps the geometry consistent: not a control. (Good sign that it uses the rays.)
+- Proper controls queued with sd_render.py --control: roll_tokens (tokens rolled, rays kept: front content claimed to be behind) 3751193 and swap_scene (tokens + rays from the judge scene 15 positions away) 3751196, each scored by m2f + SegFormer (3751194/95, 3751197/98).
+- Reading so far: the judge is monotone but coarse at this model quality (F1 0.26). The 1 m criterion assumed sharper renders; the go rule uses paired bootstrap CIs, so a coarse judge errs towards "no difference" (= drop sim), which is the conservative side.
+
 ## 2026-11-25 19:35 — New experiment W: 3D-aware "world model" encoder (owner approved, runs in parallel)
 - Gap vs Tesla: their renderer sits on a driving-trained vision encoder (3D, agents, memory); ours on generic per-frame DINOv2. Idea: features from a public camera-only nuScenes 3D model (BEV / occupancy) as renderer input, cached offline, judged with the geometry judge. Brief: council/bev-brief.md. Council round 1: Fable running (Astra unavailable in this session: no delegate_task; my own take will be the second view).
 

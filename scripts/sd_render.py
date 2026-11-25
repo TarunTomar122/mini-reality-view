@@ -27,7 +27,10 @@ p.add_argument("--seeds", default="0,1")
 p.add_argument("--style", type=int, default=1)
 p.add_argument("--steps", type=int, default=25)
 p.add_argument("--cfg", type=float, default=2.0)
-p.add_argument("--shuffle_cams", action="store_true")
+p.add_argument("--shuffle_cams", action="store_true", help="roll tokens AND rays by 3 (not a real control: geometry stays consistent)")
+p.add_argument("--control", default="", choices=["", "roll_tokens", "swap_scene"],
+               help="validation controls: roll_tokens = tokens rolled by 3 cameras, rays kept (front content placed behind); "
+                    "swap_scene = tokens + rays of the judge scene half the list away (same frame position), i.e. the wrong street")
 a = p.parse_args()
 dev = "cuda"
 AMP = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
@@ -45,8 +48,10 @@ RAYS = torch.load(a.rays)
 names = sorted(os.path.basename(f)[:-3] for f in glob.glob(f"{a.tokens}/*.pt") if os.path.basename(f)[:-3] in set(VAL))
 judge = names[a.first:a.first + a.n_scenes]
 index = []
-for sc in judge:
+for si, sc in enumerate(judge):
     e = torch.load(f"{a.tokens}/{sc}.pt")
+    if a.control == "swap_scene":
+        osc = judge[(si + len(judge) // 2) % len(judge)]; eo = torch.load(f"{a.tokens}/{osc}.pt")
     n = len(e["sample_tokens"])
     ks = np.linspace(2, n - 3, a.frames).round().astype(int).tolist()
     os.makedirs(f"{a.out}/{sc}", exist_ok=True)
@@ -55,6 +60,11 @@ for sc in judge:
         ry = RAYS[sc][None].to(dev).float()
         if a.shuffle_cams:
             tok, ry = tok.roll(3, dims=1), ry.roll(3, dims=1)
+        if a.control == "roll_tokens":
+            tok = tok.roll(3, dims=1)
+        if a.control == "swap_scene":
+            ko = min(round(k / max(1, n - 1) * (len(eo["tokens"]) - 1)), len(eo["tokens"]) - 1)
+            tok, ry = eo["tokens"][ko:ko + 1].to(dev).float(), RAYS[osc][None].to(dev).float()
         st = torch.full((1,), a.style, dtype=torch.long, device=dev)
         for seed in map(int, a.seeds.split(",")):
             g = torch.Generator(device="cpu").manual_seed(1000 * seed + k)
@@ -74,5 +84,5 @@ for sc in judge:
             Image.fromarray(arr).save(f"{a.out}/{fn}")
             index.append({"scene": sc, "k": k, "token": e["sample_tokens"][k], "seed": seed, "file": fn})
     print(sc, len(ks), flush=True)
-json.dump({"ckpt": a.ckpt, "style": a.style, "shuffle_cams": a.shuffle_cams, "items": index}, open(f"{a.out}/index.json", "w"), indent=1)
+json.dump({"ckpt": a.ckpt, "style": a.style, "shuffle_cams": a.shuffle_cams, "control": a.control, "items": index}, open(f"{a.out}/index.json", "w"), indent=1)
 print("RENDER_DONE", len(index))

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 21:20 — Sim chain repaired
+- The resubmitted render shards (3751244/45) had no GPU and landed on saxa: MetaDrive could not open /dev/dri (EGL permission denied) and crashed at env.reset on every attempt. Each crash left an empty scene folder with a STARTED marker (12 of them; removed), and the wrapper ended with exit 0, so sim-enc / sim-lat ran on the 64 finished scenes and arms A/B1/C started early.
+- Fixes: STARTED is written only after env.reset succeeds; sim_render.sh exits with the last attempt's code; shards run on a 2080 Ti (the first run had --gres=gpu:1).
+- Kept arm A (3751138, real data only, unaffected). Cancelled B1/B2/C (minutes in, folders removed). New chain: render 3751306/07 (2080 Ti) -> sim-enc 3751308/09 + sim-lat 3751310 (incremental, skip finished scenes) -> B1 3751311 -> B2 3751312; C 3751313.
+- sd_run1 14.4k. BEV env still downloading pip packages (slow network on the login node).
+
 ## 2026-11-25 20:45
 - Sim render shards 2 and 3 hung since ~18:52 (MetaDrive stuck inside env.step on scene-1046 / scene-1082, one pair each; logs empty because grep was block-buffered). 64/100 scenes. Fix: sim_render.py resumes (DONE / STARTED markers; marker-less folders from the first run count as done) + --skip; slurm/sim_render.sh retries each shard up to 6x with a 25 min timeout per attempt (a hung scene keeps STARTED and is skipped next time), grep --line-buffered. Encoders skip empty scenes / frames without all 6 cameras. Resubmitted shards 2/3 as 3751244/45; sim-enc-0/1 and sim-lat retargeted to them (scontrol), arms follow as before.
 - BEV env: pip step (mmdet/mmseg/numba/nuscenes-devkit...) sat 40 min at 0.6% CPU (network stall) -> killed, rerun with --timeout 60 --retries 5, not quiet (logs/bev_setup_login2.log).

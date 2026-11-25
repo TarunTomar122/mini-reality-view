@@ -14,3 +14,4 @@ for attempt in 1 2 3 4 5 6; do
   [ $rc -eq 0 ] && break
 done
 echo SIM_RENDER_END
+exit $rc  # non-zero if the last attempt failed, so dependent encode jobs do not start on partial data

@@ -80,7 +80,6 @@ for idx, sc_name in chosen:
             (os.path.isdir(kd) and not os.path.exists(f"{kd}/STARTED")):
         print("skip", sc_name, flush=True)
         continue
-    os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()
     scene = by_name[sc_name]
     toks, t = [], scene["first_sample_token"]
     while t:
@@ -88,6 +87,7 @@ for idx, sc_name in chosen:
     s0 = nusc.get("sample", toks[0])
     poses = {c: cam_pose(nusc.get("calibrated_sensor", nusc.get("sample_data", s0["data"][c])["calibrated_sensor_token"])) for c in CAMS}
     env.reset(seed=idx)
+    os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()  # after reset: a crash at start-up is not a bad scene
     cam, drone = env.engine.get_sensor("rgb"), env.engine.get_sensor("drone")
     drone.lens.setFov(60, 2 * math.degrees(math.atan(math.tan(math.radians(30)) * DH / DW)))
     od_c, od_k = f"{a.out}/cams/{sc_name}", f"{a.out}/keys/{sc_name}"

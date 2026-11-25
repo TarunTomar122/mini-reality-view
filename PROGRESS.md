@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 14:45
+- sd_run1 RUNNING: 34,149 lidar-low frames (28,130 train) + 2,783 splat-low-trust frames (2,303 train); ~1.8 min/100 steps -> 40k ~ 12 h. low_lidar 3.6k, low_mix_nomask 11.6k, low_mix_trust 4.2k (of 40k). Aug copies running.
+
 ## 2026-11-25 14:15
 - Video fix 3 WORKED: full_c_self (fine-tuned 20k with --self_prev 0.5), eval s_prev 0.3, 30 val scenes: LPIPS 0.368 (best of all models; full_b 0.374), L1 29.2, first5->last5 28.5->30.3 (+1.8; original +7.8, fix 1 +3.4). Pictures (pulled/selfprev_fix.jpg): last frames keep road texture instead of greying out.
 - sd_run1 RUNNING (loading data). lat512_full_low 850/850. One enc-low shard still running -> low_lidar / low_mix_* then start. Aug copies 691/1700.

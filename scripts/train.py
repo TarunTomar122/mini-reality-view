@@ -151,9 +151,9 @@ for step in range(start, 0 if a.eval_only else a.steps):
                     zc = torch.randn(len(pidx), 4, 18, 32, device=dev)
                     pin, ps = torch.randn_like(zc), torch.ones(len(pidx), device=dev)  # single-frame mode
                     pctx = ema.context(ptok, pry)
-                    for t0, t1 in [(1.0, 0.5), (0.5, 0.0)]:
-                        vv = ema(zc, torch.full((len(pidx),), t0, device=dev), None, prev=pin, s_noise=ps, ctx=pctx).float()
-                        zc = zc + (t1 - t0) * vv
+                    for ta, tb in [(1.0, 0.5), (0.5, 0.0)]:
+                        vv = ema(zc, torch.full((len(pidx),), ta, device=dev), None, prev=pin, s_noise=ps, ctx=pctx).float()
+                        zc = zc + (tb - ta) * vv
                 pv = pv.clone(); pv[msk] = zc.float() * lat_std
         kw["prev"], kw["s_noise"] = prev_input(pv, hp)
     if a.enc2:

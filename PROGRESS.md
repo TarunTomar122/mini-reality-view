@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 11:20
+- mix_high 9k/30k (loss 0.22). c-selfprev 2.4k/20k (its "min" column is wrong: the self-prev loop reused the timer variable t0; renamed to ta/tb for future runs, training itself unaffected).
+- Trust masks for the 70 trainval low splats done. Encoding low splat keys without / with trust masks (tokens reused from enc_full): 3750618 / 3750619 -> data/enc_splat_tv_low{,_trust}.
+- Low lidar targets 430/850; enc-low (4 shards) waits on them.
+- One rsync dropped mid-transfer (unexpected EOF); retried fine.
+
 ## 2026-11-25 10:45
 - Video drift fix 1+2 combined (s_prev 0.3 + reset every 8): L1 26.76, LPIPS 0.376, first5->last5 27.5->30.4 (~same as s_prev 0.3 alone). Single-frame full_b stays flat (29.4->29.6), so the remaining +3 is real drift.
 - Fix 3 started: train.py --self_prev 0.5 — for half the samples the previous frame is drawn by the model itself (EMA, 2 steps, single-frame mode, from the previous keyframe's camera tokens) instead of the perfect key; fine-tune full_c for 20k steps, lr 1e-4 (c-selfprev 3750591, H200 18 GB slice).

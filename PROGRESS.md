@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 15:15
+- sd_run1 2k/40k (loss 0.19). low_mix_nomask 39.8k/40k, low_lidar 13k, low_mix_trust 12k. Evals queued after each: low_mix_{nomask,trust} vs low splat keys with trust masks, style 1 (3750831/32); low_lidar vs low lidar keys (3750833). Aug copies 1213/1700.
+
 ## 2026-11-25 14:45
 - sd_run1 RUNNING: 34,149 lidar-low frames (28,130 train) + 2,783 splat-low-trust frames (2,303 train); ~1.8 min/100 steps -> 40k ~ 12 h. low_lidar 3.6k, low_mix_nomask 11.6k, low_mix_trust 4.2k (of 40k). Aug copies running.
 

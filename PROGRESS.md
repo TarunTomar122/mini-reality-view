@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:05 — SD 5k preview
+- sd_run1 at 5k (eval_only copy runs/sd_run1_5k, DDIM 25, CFG 2, style 1) on 4 val scenes vs low splat keys with trust: masked L1 33.5, LPIPS 0.390 (low_mix_nomask DiT 45M on 12 scenes: 34.1 / 0.405; different res, rough comparison).
+  Pictures (pulled/sd5k.jpg): photo-like streets (trunks, kerbs, lane lines, poles, trucks) roughly where the key has them (truck ahead on tree-lined road matches); one scene is still leafy noise; positions not precise yet. Big qualitative jump over the DiTs.
+- ScenarioNet (nuScenes-mini replay in MetaDrive) installing; test job follows (sim-scn).
+
 ## 2026-11-25 17:00 — Experiment S feasibility, step 1: MetaDrive works
 - envs/sim (Python 3.11, metadrive-simulator via uv on the login node; the compute node timed out downloading a Python build). Headless render on a 2080 Ti: env up 60 s; 6 rig cameras + low drone camera in 0.16 s per frame (448x252).
 - Pictures (pulled/sim_test, docs/figs/sim_metadrive_*.jpg): rig directions correct; drone key complete and sharp (every lane line/kerb). But the procedural world is an empty highway in grassy hills: no buildings, trees, parked cars; traffic distant -> big domain gap to nuScenes city streets. Ego car visible in the drone shot (real keys have none) -> hide it in sim drone shots.

@@ -115,6 +115,15 @@ The last frames keep their road texture instead of fading to grey.
 
 ![Last frame of a scene: key, original video model, self-trained video model](docs/figs/selfprev_fix.jpg)
 
+**Starting from Stable Diffusion changes the look completely (early result).** We kept Stable Diffusion 1.5 frozen
+and taught it our task with a small camera adapter (the camera tokens and rays replace its text prompt) and LoRA
+layers. After only 5,000 of 40,000 training steps it draws photo-like streets with tree trunks, kerbs, lane lines,
+poles and trucks, roughly where the answer key has them (for example a truck ahead on a tree-lined road). On 4 unseen
+scenes: pixel error 33.5, LPIPS 0.390, already ahead of our from-scratch model on the same kind of key (34.1 / 0.405).
+Exact positions are not precise yet. Training continues.
+
+![Splat key (left) and the Stable Diffusion renderer after 5k steps (right), unseen scenes](docs/figs/sd5k.jpg)
+
 ## What we learned
 
 - **Data matters most at first.** Trained on 8 scenes, the model memorises them perfectly (pixel error 3) and draws a

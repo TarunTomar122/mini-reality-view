@@ -24,12 +24,16 @@ p.add_argument("--out", required=True)
 p.add_argument("--save_gifs", type=int, default=8)
 p.add_argument("--truth_enc", default="", help="take target latents/coverage from here (e.g. splat targets); tokens still from --enc")
 p.add_argument("--style", type=int, default=-1)
+p.add_argument("--reset_every", type=int, default=0, help="video: restart from pure noise every N frames (0 = never)")
+p.add_argument("--rays", default="data/calib_rays.pt")
 a = p.parse_args()
 dev = "cuda"
 os.makedirs(a.out, exist_ok=True)
 ck = torch.load(a.ckpt, map_location=dev)
 ar, lat_std = ck["args"], ck["lat_std"]
-m = Renderer(d=ar["d"], depth=ar["depth"], heads=ar["heads"], prev=ar["prev"], n_styles=2 if ar.get("enc2") else 0).to(dev).eval()
+use_rays = bool(ar.get("rays"))
+RAYS = torch.load(a.rays) if use_rays else None
+m = Renderer(d=ar["d"], depth=ar["depth"], heads=ar["heads"], prev=ar["prev"], n_styles=2 if ar.get("enc2") else 0, rays=use_rays).to(dev).eval()
 m.load_state_dict(ck["ema"])
 vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval().half()
 lp = lpips.LPIPS(net="alex").to(dev).eval()
@@ -49,10 +53,10 @@ def decode(z):
 
 
 @torch.no_grad()
-def sample(tok, prev=None, s=None, seed=0):
+def sample(tok, prev=None, s=None, seed=0, rays=None):
     g = torch.Generator(device=dev).manual_seed(seed)
     x = torch.randn(tok.shape[0], 4, 18, 32, device=dev, generator=g)
-    ctx = m.context(tok)
+    ctx = m.context(tok, rays)
     ts = torch.linspace(1, 0, a.steps + 1, device=dev)
     for i in range(a.steps):
         with torch.autocast("cuda", dtype=AMP):
@@ -80,15 +84,15 @@ for si, n in enumerate(val_names):
     if ar["prev"]:
         outs, prev = [], None
         for i in range(len(tok)):
-            if prev is None:
+            if prev is None or (a.reset_every and i % a.reset_every == 0):
                 pin, s = torch.randn(1, 4, 18, 32, device=dev), torch.ones(1, device=dev)
             else:
                 s = torch.full((1,), a.s_prev, device=dev)
                 pin = (1 - a.s_prev) * prev / lat_std + a.s_prev * torch.randn_like(prev)
-            z = sample(tok[i:i + 1], pin, s, seed=i); outs.append(z); prev = z
+            z = sample(tok[i:i + 1], pin, s, seed=i, rays=None if RAYS is None else RAYS[n][None].to(dev)); outs.append(z); prev = z
         pred = torch.cat(outs)
     else:
-        pred = torch.cat([sample(tok[i:i + 8], seed=i) for i in range(0, len(tok), 8)])
+        pred = torch.cat([sample(tok[i:i + 8], seed=i, rays=None if RAYS is None else RAYS[n][None].expand(len(tok[i:i + 8]), -1, -1, -1).to(dev)) for i in range(0, len(tok), 8)])
     P, G = decode(pred), decode(gt)
     l1, lpv = scores(P, G, cov)
     bl1, blp = scores(decode(mean_lat.expand(len(gt), -1, -1, -1)), G, cov)

@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 10:00
+- ssh master had gone stale ("Connection closed by UNKNOWN port 65535"): ssh -O exit mlp, reconnect -> fine.
+- Stage 5 video model full_c (512x16, 80k) on 30 val scenes, whole-scene rollouts, 4 steps, s_prev 0.1: masked L1 29.95, LPIPS 0.389 (single-frame full_b 27.8 / 0.374). DRIFT: L1 first 5 frames 27.4 -> last 5 frames 35.2. Stage counts as failed; rescues:
+  fix 1: more noise on the previous frame at run time (s_prev 0.3, 0.5: 3750530/31); fix 2: restart from pure noise every 8 frames (3750532); fix 3 if needed: retrain on the model's own rollouts.
+- Experiment A finished (40k each): evals 3750528 (no rays) / 3750529 (rays). evaluate.py now handles rays (+ --reset_every).
+- enc_splat_tv done (70 scenes). Style-mix run mix_high: init full_b, lidar keys (style 0) + trainval splat keys high drone (style 1), mix 0.5, lr 1e-4, 30k steps (3750533).
+- Low-drone lidar keys for all 850 scenes: 8 target shards -> 4 encode shards with --tokens_from data/enc_full (no DINOv2 rerun) -> data/enc_full_low. Trust masks for the 70 trainval low splats queued after the last re-render (4 shards).
+
 ## 2026-11-25 09:15
 - Trust masks v2 (opposite views count half): mean trust per scene low 0.38-0.54, high 0.30-0.63. The dark band at the bottom of the low-drone masks is unchanged: it is the ground under/right around our own car (bottom of the low-drone frame ~ the ego position), which no camera sees -> correctly untrusted (the final view draws the car there). v1 diagnosis was wrong; the angle change is kept as reasonable.
 - Experiment A smoothed train loss (no rays / rays): 10-15k 0.841/0.826, 20-25k 0.746/0.753, 28-34k 0.681/0.667. Small edge for rays so far; single-batch losses were misleading.

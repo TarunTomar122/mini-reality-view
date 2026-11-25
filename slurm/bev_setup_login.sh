@@ -12,7 +12,7 @@ conda activate $ENV
 conda install -y -q --override-channels -c nvidia/label/cuda-11.3.1 -c conda-forge cuda-toolkit gcc=10 gxx=10
 pip install -q torch==1.10.2+cu113 torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/cu113/torch_stable.html
 pip install -q mmcv-full==1.4.0 -f https://download.openmmlab.com/mmcv/dist/cu113/torch1.10.0/index.html
-pip install -q mmdet==2.14.0 mmsegmentation==0.14.1 "numpy<1.20" "numba==0.53.0" "nuscenes-devkit==1.1.9" \
+pip install --timeout 60 --retries 5 --progress-bar off mmdet==2.14.0 mmsegmentation==0.14.1 "numpy<1.20" "numba==0.53.0" "nuscenes-devkit==1.1.9" \
     "timm<0.6" "einops" "fvcore" "iopath" "setuptools<60" "yapf==0.40.1" "lyft_dataset_sdk" "networkx<2.6" \
     "trimesh==2.35.39" "scikit-image<0.20" "plyfile" "tensorboard" "pandas<2"
 mkdir -p bev && cd bev

@@ -23,6 +23,7 @@ p.add_argument("sdir"); p.add_argument("nroot"); p.add_argument("ver"); p.add_ar
 p.add_argument("--scenes", type=int, default=100)
 p.add_argument("--every", type=int, default=2, help="use every n-th keyframe")
 p.add_argument("--shard", default="0/1")
+p.add_argument("--skip", default="", help="comma list of scenes to skip (e.g. ones where MetaDrive hangs)")
 a = p.parse_args()
 CAMS = ["CAM_FRONT_LEFT", "CAM_FRONT", "CAM_FRONT_RIGHT", "CAM_BACK_LEFT", "CAM_BACK", "CAM_BACK_RIGHT"]
 W, H, DW, DH = 448, 252, 512, 288
@@ -70,7 +71,16 @@ chosen = chosen[si::sn]
 print("scenarios", len(names), "train candidates", len(cands), "this shard", len(chosen), flush=True)
 os.makedirs(f"{a.out}/cams", exist_ok=True); os.makedirs(f"{a.out}/keys", exist_ok=True)
 n_pairs = 0
+SKIP = set(x for x in a.skip.split(",") if x)
 for idx, sc_name in chosen:
+    kd = f"{a.out}/keys/{sc_name}"
+    # resume: DONE = finished; STARTED without DONE = a previous attempt hung or died here -> skip it;
+    # a folder without markers is from the first (marker-less) run: finished unless listed in --skip
+    if sc_name in SKIP or os.path.exists(f"{kd}/DONE") or os.path.exists(f"{kd}/STARTED") or \
+            (os.path.isdir(kd) and not os.path.exists(f"{kd}/STARTED")):
+        print("skip", sc_name, flush=True)
+        continue
+    os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()
     scene = by_name[sc_name]
     toks, t = [], scene["first_sample_token"]
     while t:
@@ -108,6 +118,7 @@ for idx, sc_name in chosen:
         rgba = np.concatenate([im[..., ::-1], np.full(im.shape[:2] + (1,), 255, np.uint8)], -1)
         Image.fromarray(rgba, "RGBA").save(f"{od_k}/{k:03d}_{tok}.png")
         n_pairs += 1
+    open(f"{od_k}/DONE", "w").close()
     print(sc_name, "pairs so far", n_pairs, flush=True)
 env.close()
 print("SIM_RENDER_DONE", n_pairs)

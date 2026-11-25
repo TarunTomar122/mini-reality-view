@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 20:45
+- Sim render shards 2 and 3 hung since ~18:52 (MetaDrive stuck inside env.step on scene-1046 / scene-1082, one pair each; logs empty because grep was block-buffered). 64/100 scenes. Fix: sim_render.py resumes (DONE / STARTED markers; marker-less folders from the first run count as done) + --skip; slurm/sim_render.sh retries each shard up to 6x with a 25 min timeout per attempt (a hung scene keeps STARTED and is skipped next time), grep --line-buffered. Encoders skip empty scenes / frames without all 6 cameras. Resubmitted shards 2/3 as 3751244/45; sim-enc-0/1 and sim-lat retargeted to them (scontrol), arms follow as before.
+- BEV env: pip step (mmdet/mmseg/numba/nuscenes-devkit...) sat 40 min at 0.6% CPU (network stall) -> killed, rerun with --timeout 60 --retries 5, not quiet (logs/bev_setup_login2.log).
+- sd_run1 12.5k (~48 steps/min).
+
 ## 2026-11-25 20:10 — Judge validation result
 - Controls on SD-10k renders (240 renders each): car F1 normal / tokens rolled (rays kept) / wrong street:
   Mask2Former 0.260 / 0.026 / 0.028; SegFormer 0.124 / 0.016 / 0.012. Kerb error 1.47 / 1.53 / 1.58 m (m2f), 1.43 / 1.55 / 1.52 m (SegFormer).

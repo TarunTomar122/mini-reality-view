@@ -45,6 +45,9 @@ for sc in scenes[si::sn]:
     if os.path.exists(f"data/enc_sim_aug/{sc}.pt"):
         continue
     keys = sorted({os.path.basename(f).rsplit("_CAM_", 1)[0] for f in glob.glob(f"{a.cams}/{sc}/*.jpg")})
+    keys = [kk for kk in keys if len(glob.glob(f"{a.cams}/{sc}/{kk}_CAM_*.jpg")) == 6]
+    if not keys:
+        continue
     s0 = nusc.get("sample", by_name[sc]["first_sample_token"])
     cs = {c: nusc.get("calibrated_sensor", nusc.get("sample_data", s0["data"][c])["calibrated_sensor_token"]) for c in CAMS}
     T, R, TA, RA, stoks = [], [], [], [], []

@@ -24,6 +24,8 @@ for sc in scenes[si::sn]:
     if os.path.exists(dst):
         continue
     files = sorted(f for f in glob.glob(f"{a.targets}/{sc}/*.png"))
+    if not files:
+        continue
     lats, covs, toks = [], [], []
     for i in range(0, len(files), 8):
         ch = files[i:i + 8]

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:40
+- The 19:02 OOM happened during the STOP save (ckpt.pt.tmp half written at 19:02): memory near the limit + save spike. The STOP file was still there when the restart started -> removed (with the partial .tmp) before the restart reached its first step; otherwise it would have paused at once. sd_run1 3751192: cover_min keeps 0.639 (lidar) / 0.658 (splat) of latent cells; 56,260 + 4,606 train rows; peak RSS 126 GB while loading, 78 GB after the duplicate rows are freed.
+- Judge on the lidar answer keys (120 judge frames): Mask2Former F1 0.02, SegFormer 0.00. The segmenters do not see cars in dotted lidar keys, so keys cannot serve as the ceiling / resolution check. Remaining validation = roll_tokens + swap_scene controls (renders 3751193/96 moved to any GPU).
+- Sim renders 58/100 scenes. (Note: timestamps of the last few entries above ran ~45 min ahead of the clock.)
+
 ## 2026-11-25 20:10 — Experiment W plan converged; judge ceiling check
 - Council W: Fable round 1 (council/bev-s1-fable.md) + my second view -> council/PLAN-bev.md. BEVFormer-base BEV grid (train-only checkpoint) as an extra input next to DINOv2, cached offline (48x32 x 256 in ego metres); first arm W2 = pixel-aligned warp of the grid into the drone latent (ground + 1 m height samples) added after conv_in; phone rows get a BEV null; 15% dropout; control = sim arm A; same go rule. Fallbacks StreamPETR, SparseBEV; later candidate Depth Anything 3 (no leakage, phone-friendly).
 - Env: slurm/bev_setup_login.sh running on the login node (conda py3.8, torch 1.10.2+cu113, mmcv-full 1.4.0, CUDA 11.3 + gcc 10, repos, checkpoint, can_bus) -> then slurm/bev_build.sh on an A6000 (mmdet3d 0.17.1 + detectron2 ops).

@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 18:20
+- sd_run1 resume confirmed: "resumed at 10000", 56,260 lidar train rows (clean + phone copy) + 4,606 splat rows; 10.8k steps.
+- train_sd.py: --set keydir:tokdir:style:rows[:aug+aug] (fixed rows per set, each set with its own seeded generator for indices/timesteps/noise/dropout -> paired real draws across arms), --n_styles 3 (style 2 = sim), --seed, --save_at; tokens files may carry their own rays (sim). CameraAdapter(n_styles). Old path (no --set) unchanged for sd_run1.
+- Pilot arms queued (slurm/sim_arms.sh) after the sim encodes: A 3751099 (real 11 lidar + 5 splat, 7k, snapshots 3k/5k/7k); B1 3751100 (2k sim-only, 16 sim rows) -> B2 3751101 (init B1, real 5k, snapshots 3k/5k); C 3751102 (real + 2 sim rows + 2 twin rows, 5k). All: seed 7, phone copies, H200 18 GB slice.
+- low_mix_trust retrain at 36.8k/40k; sim conversion still running.
+- Next: the geometry judge (renders of the judge set + Mask2Former/SegFormer vs projected nuScenes boxes/map + validation checks).
+
 ## 2026-11-25 17:50
 - SD restart done by the watcher: sd_run1 stopped at ckpt step 10000 and resumed as job 3751069 (17:32) with --tokens_aug data/enc_aug_0, mem 120G (loading data).
 - Corrected trust comparison, arm 1 (true-colour trusted splat keys, 12 val scenes): low_mix_nomask L1 27.2 / LPIPS 0.399 (mean image 33.1 / 0.524). low_mix_trust retrain at 8.2k/40k.

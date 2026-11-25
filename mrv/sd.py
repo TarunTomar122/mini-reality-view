@@ -7,13 +7,13 @@ LORA_TARGETS = ["to_q", "to_k", "to_v", "to_out.0", "proj_in", "proj_out", "ff.n
 
 
 class CameraAdapter(nn.Module):
-    def __init__(s, d=768, n_cam=6, layers=2):
+    def __init__(s, d=768, n_cam=6, layers=2, n_styles=2):
         super().__init__()
         s.inp = nn.Sequential(nn.LayerNorm(384), nn.Linear(384, d))
         s.ray = nn.Sequential(nn.Linear(6, d), nn.SiLU(), nn.Linear(d, d))
         s.cam = nn.Parameter(torch.zeros(1, n_cam, 1, d))
         s.register_buffer("pos", sincos_2d(9, 16, d)[None, None], persistent=False)
-        s.style = nn.Embedding(2, d)
+        s.style = nn.Embedding(n_styles, d)  # 0 lidar key, 1 splat key, 2 sim key
         s.null = nn.Parameter(torch.zeros(1, n_cam * 144 + 1, d))
         enc = nn.TransformerEncoderLayer(d, 12, 4 * d, batch_first=True, norm_first=True, activation="gelu")
         s.mix = nn.TransformerEncoder(enc, layers)

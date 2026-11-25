@@ -39,6 +39,11 @@ p.add_argument("--sample_steps", type=int, default=25)
 p.add_argument("--cfg", type=float, default=2.0)
 p.add_argument("--render_style", type=int, default=1)
 p.add_argument("--eval_only", action="store_true")
+p.add_argument("--set", action="append", default=[],
+               help="keydir:tokdir:style:rows[:augdir+augdir]; repeatable. Fixed rows per batch per set, paired random draws.")
+p.add_argument("--n_styles", type=int, default=2)
+p.add_argument("--seed", type=int, default=0)
+p.add_argument("--save_at", default="", help="comma list of steps to keep a copy of the checkpoint (ckpt_<step>.pt)")
 a = p.parse_args()
 os.makedirs(a.out, exist_ok=True)
 dev = "cuda"
@@ -50,17 +55,22 @@ RAYS = torch.load(a.rays)
 
 
 # ---------------- data ----------------
-def load_set(keydir, style):
+def load_set(keydir, style, tokdir=None, augdirs=None):
+    tokdir = tokdir or a.tokens
+    augdirs = [x for x in a.tokens_aug.split(",") if x] if augdirs is None else augdirs
     T, L, C, R, S, names = [], [], [], [], [], []
     for f in sorted(glob.glob(f"{keydir}/*.pt")):
         sc = os.path.basename(f)[:-3]
         k = torch.load(f)
-        e = torch.load(f"{a.tokens}/{sc}.pt")
+        if not os.path.exists(f"{tokdir}/{sc}.pt"):
+            continue
+        e = torch.load(f"{tokdir}/{sc}.pt")
         pos = {t: i for i, t in enumerate(e["sample_tokens"])}
         ix = [pos[t] for t in k["sample_tokens"]]
         T.append(e["tokens"][ix]); L.append(k["lat"]); C.append(k["cover"])
-        R.append(RAYS[sc][None].expand(len(ix), -1, -1, -1)); S += [style] * len(ix); names += [sc] * len(ix)
-        for ad in [x for x in a.tokens_aug.split(",") if x]:
+        R.append(e["rays"][ix] if "rays" in e else RAYS[sc][None].expand(len(ix), -1, -1, -1))
+        S += [style] * len(ix); names += [sc] * len(ix)
+        for ad in augdirs:
             if sc in VAL or not os.path.exists(f"{ad}/{sc}.pt"):
                 continue  # augmented copies only for training scenes
             g = torch.load(f"{ad}/{sc}.pt")
@@ -76,8 +86,20 @@ def split(d):
     return {k: (v[tr] if torch.is_tensor(v) else [x for x, m in zip(v, tr) if m]) for k, v in d.items()}
 
 
-sets = [load_set(a.keys, 0)] + ([load_set(a.keys2, 1)] if a.keys2 else [])
-train = [split(s) for s in sets]
+ROWS = []
+if a.set:
+    sets = []
+    for spec in a.set:
+        parts = spec.split(":")
+        keydir, tokdir, style, rows = parts[0], parts[1], int(parts[2]), int(parts[3])
+        augs = parts[4].split("+") if len(parts) > 4 and parts[4] else []
+        sets.append(load_set(keydir, style, tokdir, augs)); ROWS.append(rows)
+        sets[-1]["tokdir"] = tokdir
+    a.bs = sum(ROWS)
+    print("batch rows per set", ROWS, "-> bs", a.bs, flush=True)
+else:
+    sets = [load_set(a.keys, 0)] + ([load_set(a.keys2, 1)] if a.keys2 else [])
+train = [split({k: v for k, v in s.items() if k != "tokdir"}) for s in sets]
 for s, t in zip(sets, train):
     print("set", len(s["L"]), "frames,", len(t["L"]), "train", flush=True)
 lat_scale = 1.0  # latents are already x0.18215 (SD convention)
@@ -93,7 +115,7 @@ for n_, p_ in unet.named_parameters():
         p_.data = p_.data.to(AMP)  # frozen base weights in half precision, LoRA weights stay fp32
 unet.enable_gradient_checkpointing()
 unet.to(dev)
-adapter = CameraAdapter().to(dev)
+adapter = CameraAdapter(n_styles=a.n_styles).to(dev)
 params = [p_ for p_ in unet.parameters() if p_.requires_grad] + list(adapter.parameters())
 print("trainable params (M)", round(sum(p_.numel() for p_ in params) / 1e6, 1), flush=True)
 opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=0.0)
@@ -114,6 +136,24 @@ if os.path.exists(ck):
 
 def lora_state():
     return {k: v for k, v in unet.state_dict().items() if "lora" in k}
+
+
+GENS = [torch.Generator().manual_seed(a.seed * 1000 + i) for i in range(len(ROWS))]
+
+
+def batch_paired():
+    """Fixed rows per set, each set with its own random stream (indices, timesteps, noise, dropout), so runs that
+    share a set (e.g. the real rows of arms A, B, C) see identical draws for it."""
+    out = []
+    for si, (t_, k) in enumerate(zip(train, ROWS)):
+        g = GENS[si]
+        idx = torch.randint(0, len(t_["L"]), (k,), generator=g)
+        x0 = t_["L"][idx].float()
+        tt = torch.randint(0, sched.config.num_train_timesteps, (k,), generator=g)
+        eps = torch.randn(x0.shape, generator=g)
+        drop = torch.rand(k, generator=g) < 0.1
+        out.append((t_["T"][idx], x0, t_["C"][idx], t_["R"][idx], t_["S"][idx], tt, eps, drop))
+    return [torch.cat([o[i] for o in out]).to(dev) for i in range(8)]
 
 
 def batch(n):
@@ -143,13 +183,17 @@ log = open(f"{a.out}/log.jsonl", "a"); t_start = time.time()
 scaler = torch.amp.GradScaler(enabled=AMP == torch.float16)
 unet.train(); adapter.train()
 for step in range(start, 0 if a.eval_only else a.steps):
-    tok, x0, cov, rays, sty = batch(a.bs)
-    x0 = x0.float() * lat_scale
-    t = torch.randint(0, sched.config.num_train_timesteps, (a.bs,), device=dev)
-    eps = torch.randn_like(x0)
+    if ROWS:
+        tok, x0, cov, rays, sty, t, eps, drop = batch_paired()
+        x0 = x0.float() * lat_scale
+    else:
+        tok, x0, cov, rays, sty = batch(a.bs)
+        x0 = x0.float() * lat_scale
+        t = torch.randint(0, sched.config.num_train_timesteps, (a.bs,), device=dev)
+        eps = torch.randn_like(x0)
+        drop = torch.rand(a.bs, device=dev) < 0.1
     ab = acp[t].view(-1, 1, 1, 1)
     xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps
-    drop = torch.rand(a.bs, device=dev) < 0.1
     lr = a.lr * min(1, (step + 1) / 500)
     for g in opt.param_groups:
         g["lr"] = lr
@@ -167,6 +211,8 @@ for step in range(start, 0 if a.eval_only else a.steps):
         print(r, flush=True); log.write(json.dumps(r) + "\n"); log.flush()
     if (step + 1) % 5000 == 0 or step + 1 == a.steps:
         save(step + 1)
+    if str(step + 1) in a.save_at.split(","):
+        save(step + 1); import shutil; shutil.copy(ck, f"{a.out}/ckpt_{step + 1}.pt")
     if _stop["flag"] or (step % 50 == 0 and os.path.exists(f"{a.out}/STOP")):
         save(step + 1)
         print("PAUSED at", step + 1, flush=True)
@@ -205,7 +251,10 @@ def decode(z):
     return torch.cat([vae.decode(z[i:i + 8] / 0.18215).sample.float() for i in range(0, len(z), 8)]).clamp(-1, 1)
 
 
-ev = sets[-1] if a.render_style == 1 and len(sets) > 1 else sets[0]
+if ROWS:  # render against the real key set of the requested style
+    ev = next((s_ for s_ in sets if int(s_["S"][0]) == a.render_style and s_["tokdir"] == a.tokens), sets[0])
+else:
+    ev = sets[-1] if a.render_style == 1 and len(sets) > 1 else sets[0]
 val_names = sorted({n for n in ev["names"] if n in VAL})[: a.render_scenes]
 metrics = {}
 for sc in val_names:

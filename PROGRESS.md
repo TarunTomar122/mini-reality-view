@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 06:40
+- Public repo created (user request): https://github.com/TarunTomar122/mini-reality-view — README in the style of the user's spiking-vsr write-up, figures in docs/figs, explainer moved to docs/explainer.html, Slurm log paths made relative (no usernames in the repo). Kept updated as results come in.
+- Experiment A code: scripts/calib.py (per-scene K + cam->ego -> Plücker rays per pooled patch, data/calib_rays.pt, job 3750368), Renderer(rays=True) adds an MLP ray embedding in context(), train.py --rays. SD1.5 UNet/VAE downloaded; Difix downloading.
+
 ## 2026-11-25 06:30 — two more experiments approved (user, side chat)
 A) Camera calibration as input (camera-only, Tesla-like): add a per-patch ray embedding (ego-frame direction from K + cam->ego, plus camera origin; Plücker or dir+origin -> MLP) to the DINOv2 tokens in Renderer.context(); store K and cam->ego (or the 16x9 ray grid) at encode time. Compare with vs without rays.
 B) Lidar as an input (NOT camera-only, labelled as a non-Tesla variant): current keyframe sweep only, e.g. BEV grid (~100 m x 100 m at 0.5 m: height/occupancy/intensity) -> small CNN -> extra cross-attention tokens, or lidar projected into the chase view concatenated to the latent. Compare with camera-only on val (masked L1, LPIPS, pictures).

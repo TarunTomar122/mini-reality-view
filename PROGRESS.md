@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:25 — ScenarioNet replay works
+- Needed: setuptools<81 (pkg_resources) in envs/sim and the nuScenes map expansion v1.3 (downloaded to data/nuscenes/maps and data/nuscenes_full/maps). nuScenes-mini converted to data/scn_mini.
+- Pictures (pulled/sim_scn.jpg, docs/figs/sim_scenarionet.jpg): real layouts with logged cars, trucks, pedestrians, barriers, crosswalks at their recorded places; scenery is still grass hills (no buildings). A silver car at the bottom of some drone views = probably our own car (hide failed) or the rear-axle origin offset -> part of the replay verification step. Cameras still at 70 deg (real: ~65 front/side, ~89 back).
+- Council round 3: Astra = include C now, ~8 GPU-h (B: 2k sim then 5k real; A to 7k for equal updates), automatic scoring with frozen Mask2Former Swin-L Cityscapes (cars IoU>=0.3 one-to-one vs projected nuScenes hulls, road-edge distance in metres), validation checks. Waiting for Fable round 3.
+
 ## 2026-11-25 17:15 — trust-mask comparison INVALID (bug found in the pictures), fixed and rerunning
 - First numbers looked like a big win (low_mix_trust vs trusted splat keys: L1 25.7 / LPIPS 0.321; low_mix_nomask 34.1 / 0.405; mean 34.4 / 0.497), but the pictures (pulled/trust_result.jpg) showed the keys darkened wherever trust is low and the trust model drawing dark patches.
 - Cause: scripts/encode.py premultiplied RGB by alpha for every key. Right for lidar keys (alpha = covered), wrong for trust-masked splat keys (alpha = loss weight only). The truth used for scoring was also darkened, favouring the model trained on it. The SD path is NOT affected (encode_latents.py keeps splat colours).

@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:20 — Sim plan final (council/PLAN-sim.md)
+- Round 4: Astra accepts Fable's two points: B's sim phase trains adapter + LoRA; placement check = graded ground shifts 0.5/1/2 m (F1 must fall at each step, >= 0.15 at 1 m). Final plan written to council/PLAN-sim.md.
+- Step 1 started: ScenarioNet conversion of v1.0-trainval (scn-convert, 8 CPUs) -> data/scn_full. Next: replay verification script (intrinsics/FOV per camera, ego origin + hide, overlays).
+
 ## 2026-11-25 17:15 — Sim council converged (rounds 1-3); SD restart armed
 - Agreed plan (council/s3-astra.md, council/s3-fable.md): first verify the ScenarioNet replay (per-camera intrinsics/FOV, ego origin + hide, overlays; stop on systematic offsets). Render ~2,000 ego-hidden replay pairs from official train scenes (512x288 -> crop 32 rows, low drone), clean + phone-augmented inputs. Three arms from identical init with paired real batches (16 real rows: 11 lidar + 5 splat): A real only; B 2k sim updates then 5k real (A extended to 7k for equal updates); C real + 2 sim-camera rows + 2 real-camera rows targeting the replay key. Style rows 0 lidar / 1 splat / 2 sim, shared learned null. Score every arm at 3k and 5k real steps.
   Geometry judge: frozen Mask2Former Swin-L Cityscapes panoptic (cars conf >= 0.5, road), one-to-one matches IoU >= 0.3 to projected nuScenes vehicle hulls within 30 m (>= 8 px), F1; road-edge distance in ground metres vs projected drivable-area boundaries (capped 2 m); 4 frames x 30 val scenes outside the final 30, 2 paired seeds; second judge SegFormer-B5 must agree on the sign; validation checks must pass first (graded shifts, camera shuffle).

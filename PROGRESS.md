@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 13:15
+- mix_high DONE (init full_b; lidar style 0 + trainval high splats style 1, mix 0.5, 30k, final loss ~0.14). Evals: full_b vs splat keys (3750742), mix_high style 1 vs splat keys (3750743) on the val scenes that have splats; mix_high style 0 vs lidar keys on 30 val scenes (3750744).
+- Low lidar targets 850/850 DONE; enc-low and lat512-low running -> then low_lidar / low_mix_{nomask,trust} and sd_run1 start.
+- c-selfprev 18.8k/20k. Augmented copies running (copy 0: 89/850).
+
 ## 2026-11-25 12:50
 - Aug test OK: augmented tokens align with clean ones (same sample order), mean cosine to clean tokens 0.81. Launched 2 full augmented copies of all 850 scenes (8 jobs) -> data/enc_aug_{0,1}.
 - train_sd.py: --tokens_aug (phone-like copies as extra training rows, train scenes only, own rays) and --init. CameraAdapter + LORA_TARGETS moved to mrv/sd.py.

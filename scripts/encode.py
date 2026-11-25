@@ -67,7 +67,9 @@ for scene in scenes[si::sn]:
             if h is not None:
                 toks.append(h.reshape(len(chunk), 6, -1, 384).cpu())
             t = torch.from_numpy(np.stack(tg)).to(dev)  # (B,144,256,4)
-            rgb = t[..., :3] * t[..., 3:]
+            # lidar keys: alpha = covered, so holes become black; splat keys: alpha is only a loss weight (trust),
+            # so their colours must stay untouched
+            rgb = t[..., :3] if "splat" in a.targets else t[..., :3] * t[..., 3:]
             z = vae.encode(rgb.permute(0, 3, 1, 2) * 2 - 1).latent_dist.mean * 0.18215
             lats.append(z.half().cpu())
             covs.append(F.avg_pool2d(t[..., 3][:, None], 8)[:, 0].half().cpu())

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:15 — trust-mask comparison INVALID (bug found in the pictures), fixed and rerunning
+- First numbers looked like a big win (low_mix_trust vs trusted splat keys: L1 25.7 / LPIPS 0.321; low_mix_nomask 34.1 / 0.405; mean 34.4 / 0.497), but the pictures (pulled/trust_result.jpg) showed the keys darkened wherever trust is low and the trust model drawing dark patches.
+- Cause: scripts/encode.py premultiplied RGB by alpha for every key. Right for lidar keys (alpha = covered), wrong for trust-masked splat keys (alpha = loss weight only). The truth used for scoring was also darkened, favouring the model trained on it. The SD path is NOT affected (encode_latents.py keeps splat colours).
+- Fix: encode.py keeps splat colours ("splat" in --targets). Old encodes kept as data/enc_splat_tv_low_trust_BAD_premult, old run as runs/low_mix_trust_bad. Re-encode (3751033) -> retrain low_mix_trust (3751034) -> re-score both arms against the true-colour trusted keys (eval-lownm2, eval-lowtr2). Minor: earlier splat encodes without trust (opacity alpha ~1) were premultiplied too; effect small (sky only).
+- Sim council round 3 running (council/sim2real-round3.md).
+
 ## 2026-11-25 17:25 — Sim council round 1 done, round 2 running
 - Both seats: ScenarioNet nuScenes replays first; skip MetaDrive procedural maps; CARLA only after a positive pilot (+ Vulkan check); cheap pilot before any big run. Astra: ~3.6 GPU-h pilot, go only if sim pretrain improves car-placement F1 by >= 5 points on held-out real scenes while meeting kerb/appearance thresholds; controls for equal real exposure and equal total updates. Fable: use sim for layout not looks; keep ~20% sim rows in the mix with their own style token instead of only pretraining; "twin keys" (ScenarioNet-rendered complete key of the same real moment paired with the real cameras); layout metric = nuScenes map + 3D boxes projected into the drone view vs a segmenter on our renders, validated first; ~8 GPU-h pilot.
 - Fable's checks: nuScenes intrinsics give ~65 deg HFOV for five cameras and ~89 deg for the back camera (our sim test used 70 for all); ScenarioNet ego origin may be the rear axle with length/width swapped -> alignment overlay first.

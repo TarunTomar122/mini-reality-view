@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:50 — Sim step 1 (replay verification) PASSED
+- scripts/sim_verify.py on 5 mini scenes: replayed car centres vs nuScenes annotations 0.0 m (after one constant map offset per scene; spread 0.0); sim ego origin = logged ego (rear axle, 0.0 m), so cameras placed from calibrated_sensor are right; per-camera HFOV from intrinsics ~65 deg (back ~90 deg); hiding all children of agent.origin except the camera hides our car (~2.5% of drone pixels change).
+- Lens vs K: first 18.6 px median (fail) -> fix 1: standalone Panda3D lens matches K exactly, so not the lens maths; fix 2: MetaDrive's lens is a standard PerspectiveLens; the principal-point film offset had the wrong sign (local test: +sign 22 px, -sign 0 px). After the fix: 0.00001 px. Pictures: pulled/sim_verify.jpg / docs/figs/sim_verify.jpg.
+- Next: step 2 (render ~2,000 ego-hidden replay pairs from official train scenes once scn-convert finishes; encode clean + phone-aug tokens, 512x256 sim keys) and the geometry judge.
+
 ## 2026-11-25 17:35 — Owner: game-like look is fine if accurate
 Go rule for sim now rests only on placement (car F1 >= +0.05 or kerb error -10%, CI excluding zero, no regression on the other); LPIPS and "sim look" are reported, not used to reject (council/PLAN-sim.md updated).
 

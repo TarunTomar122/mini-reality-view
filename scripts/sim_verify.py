@@ -47,7 +47,7 @@ def cam_pose(cs):
     K = np.array(cs["camera_intrinsic"]) * np.array([[448 / 1600], [252 / 900], [1]])
     hfov = 2 * math.degrees(math.atan(W / 2 / K[0, 0]))
     vfov = 2 * math.degrees(math.atan(H / 2 / K[1, 1]))
-    shift = ((K[0, 2] - W / 2) / (W / 2), -(K[1, 2] - H / 2) / (H / 2))  # lens film offset in [-1,1] units
+    shift = (-(K[0, 2] - W / 2) / (W / 2), (K[1, 2] - H / 2) / (H / 2))  # Panda3D film offset (sign checked: 0 px vs K)
     return pos, tmp.getHpr(), hfov, vfov, shift, K, R
 
 

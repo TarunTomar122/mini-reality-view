@@ -57,65 +57,80 @@ RAYS = torch.load(a.rays)
 
 
 # ---------------- data ----------------
+def stack(chunks):
+    """Concatenate a list of tensors into one preallocated tensor, freeing each chunk after copying, so the peak is
+    one copy plus one chunk (torch.cat would hold the whole list and the result at once)."""
+    n = sum(len(x) for x in chunks)
+    out = torch.empty((n,) + tuple(chunks[0].shape[1:]), dtype=chunks[0].dtype)
+    o = 0
+    for i in range(len(chunks)):
+        m = len(chunks[i]); out[o:o + m] = chunks[i]; o += m; chunks[i] = None
+    return out
+
+
 def load_set(keydir, style, tokdir=None, augdirs=None):
+    """-> (train rows, val rows). Rows of val scenes are kept apart from the start (never copied twice: ~61k token
+    rows are ~40 GB, and holding a full set plus a train copy hit the 120 GB job limit)."""
     tokdir = tokdir or a.tokens
     augdirs = [x for x in a.tokens_aug.split(",") if x] if augdirs is None else augdirs
-    T, L, C, R, S, names = [], [], [], [], [], []
+    parts = {p: dict(T=[], L=[], C=[], R=[], S=[], names=[]) for p in ("train", "val")}
     for f in sorted(glob.glob(f"{keydir}/*.pt")):
         sc = os.path.basename(f)[:-3]
-        k = torch.load(f)
         if not os.path.exists(f"{tokdir}/{sc}.pt"):
             continue
+        k = torch.load(f)
+        P = parts["val" if sc in VAL else "train"]
         e = torch.load(f"{tokdir}/{sc}.pt")
         pos = {t: i for i, t in enumerate(e["sample_tokens"])}
         ix = [pos[t] for t in k["sample_tokens"]]
-        T.append(e["tokens"][ix]); L.append(k["lat"]); C.append(k["cover"])
-        R.append(e["rays"][ix] if "rays" in e else RAYS[sc][None].expand(len(ix), -1, -1, -1))
-        S += [style] * len(ix); names += [sc] * len(ix)
+        P["T"].append(e["tokens"][ix]); P["L"].append(k["lat"]); P["C"].append(k["cover"])
+        P["R"].append(e["rays"][ix] if "rays" in e else RAYS[sc][None].expand(len(ix), -1, -1, -1))
+        P["S"] += [style] * len(ix); P["names"] += [sc] * len(ix)
+        del e
         for ad in augdirs:
             if sc in VAL or not os.path.exists(f"{ad}/{sc}.pt"):
                 continue  # augmented copies only for training scenes
             g = torch.load(f"{ad}/{sc}.pt")
             gp = {t: i for i, t in enumerate(g["sample_tokens"])}
             gx = [gp[t] for t in k["sample_tokens"]]
-            T.append(g["tokens"][gx]); L.append(k["lat"]); C.append(k["cover"]); R.append(g["rays"][gx])
-            S += [style] * len(gx); names += [sc] * len(gx)
-    return dict(T=torch.cat(T), L=torch.cat(L), C=torch.cat(C), R=torch.cat(R), S=torch.tensor(S), names=names)
-
-
-def split(d):
-    tr = torch.tensor([n not in VAL for n in d["names"]])
-    return {k: (v[tr] if torch.is_tensor(v) else [x for x, m in zip(v, tr) if m]) for k, v in d.items()}
+            P["T"].append(g["tokens"][gx]); P["L"].append(k["lat"]); P["C"].append(k["cover"]); P["R"].append(g["rays"][gx])
+            P["S"] += [style] * len(gx); P["names"] += [sc] * len(gx)
+            del g
+    out = []
+    for p in ("train", "val"):
+        P = parts[p]
+        if not P["L"]:
+            out.append(dict(T=torch.zeros(0), L=torch.zeros(0), C=torch.zeros(0), R=torch.zeros(0), S=torch.zeros(0, dtype=torch.long), names=[]))
+            continue
+        out.append(dict(T=stack(P["T"]), L=stack(P["L"]), C=stack(P["C"]), R=stack([r.contiguous() for r in P["R"]]),
+                        S=torch.tensor(P["S"]), names=P["names"]))
+    return out
 
 
 ROWS = []
+specs = []
 if a.set:
-    sets = []
     for spec in a.set:
-        parts = spec.split(":")
-        keydir, tokdir, style, rows = parts[0], parts[1], int(parts[2]), int(parts[3])
-        augs = parts[4].split("+") if len(parts) > 4 and parts[4] else []
-        sets.append(load_set(keydir, style, tokdir, augs)); ROWS.append(rows)
-        sets[-1]["tokdir"] = tokdir
+        parts_ = spec.split(":")
+        augs = parts_[4].split("+") if len(parts_) > 4 and parts_[4] else []
+        specs.append((parts_[0], int(parts_[2]), parts_[1], augs)); ROWS.append(int(parts_[3]))
     a.bs = sum(ROWS)
     print("batch rows per set", ROWS, "-> bs", a.bs, flush=True)
 else:
-    sets = [load_set(a.keys, 0)] + ([load_set(a.keys2, 1)] if a.keys2 else [])
+    specs = [(a.keys, 0, a.tokens, None)] + ([(a.keys2, 1, a.tokens, None)] if a.keys2 else [])
+train, sets = [], []  # sets = val rows only (used by the final render)
+for keydir, style, tokdir, augs in specs:
+    tr, va = load_set(keydir, style, tokdir, augs)
+    va["tokdir"] = tokdir
+    train.append(tr); sets.append(va)
+    print("set", keydir, len(tr["L"]) + len(va["L"]), "frames,", len(tr["L"]), "train", flush=True)
 if a.cover_min:
-    for s, thr in zip(sets, map(float, a.cover_min.split(","))):
-        kept = (s["C"] >= thr).float().mean().item()
-        s["C"] = s["C"] * (s["C"] >= thr)
+    for tr, va, thr in zip(train, sets, map(float, a.cover_min.split(","))):
+        kept = (tr["C"] >= thr).float().mean().item()
+        for d in (tr, va):
+            if len(d["C"]):
+                d["C"] = d["C"] * (d["C"] >= thr)
         print(f"cover_min {thr}: {kept:.3f} of latent cells keep weight", flush=True)
-train = [split({k: v for k, v in s.items() if k != "tokdir"}) for s in sets]
-for s, t in zip(sets, train):
-    print("set", len(s["L"]), "frames,", len(t["L"]), "train", flush=True)
-# keep only the val rows each set needs for the final render, so the training rows are not held twice in RAM
-# (61k token rows are ~40 GB; holding sets + train copies plus allocator growth hit 126 GB and an OOM kill)
-for s in sets:
-    vm = torch.tensor([n in VAL for n in s["names"]])
-    for k in ("T", "L", "C", "R", "S"):
-        s[k] = s[k][vm]
-    s["names"] = [n for n, m in zip(s["names"], vm) if m]
 import gc; gc.collect()
 lat_scale = 1.0  # latents are already x0.18215 (SD convention)
 

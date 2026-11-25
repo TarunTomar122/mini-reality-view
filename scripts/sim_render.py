@@ -7,7 +7,7 @@ For every chosen keyframe (scenario step = keyframe * 5 at 10 Hz) of a scene:
     512x288 -> data/sim/keys/<scene>/<k>_<token>.png (alpha 255 = fully trusted: the sim key is complete)
 usage: python sim_render.py <scenario_dir> <nuscenes_root> <version> <out_dir> --scenes 100 --every 2 --shard i/n
 """
-import argparse, math, os
+import argparse, faulthandler, math, os
 import numpy as np
 from PIL import Image
 from pyquaternion import Quaternion
@@ -87,7 +87,10 @@ for idx, sc_name in chosen:
     s0 = nusc.get("sample", toks[0])
     poses = {c: cam_pose(nusc.get("calibrated_sensor", nusc.get("sample_data", s0["data"][c])["calibrated_sensor_token"])) for c in CAMS}
     env.reset(seed=idx)
-    os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()  # after reset: a crash at start-up is not a bad scene
+    os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()
+    # per-scene watchdog in C (works even if MetaDrive hangs inside native code holding the GIL): dump the stack and
+    # exit after 5 min; the wrapper restarts and this scene is skipped (STARTED without DONE)
+    faulthandler.dump_traceback_later(300, exit=True)  # after reset: a crash at start-up is not a bad scene
     cam, drone = env.engine.get_sensor("rgb"), env.engine.get_sensor("drone")
     drone.lens.setFov(60, 2 * math.degrees(math.atan(math.tan(math.radians(30)) * DH / DW)))
     od_c, od_k = f"{a.out}/cams/{sc_name}", f"{a.out}/keys/{sc_name}"
@@ -118,6 +121,7 @@ for idx, sc_name in chosen:
         rgba = np.concatenate([im[..., ::-1], np.full(im.shape[:2] + (1,), 255, np.uint8)], -1)
         Image.fromarray(rgba, "RGBA").save(f"{od_k}/{k:03d}_{tok}.png")
         n_pairs += 1
+    faulthandler.cancel_dump_traceback_later()
     open(f"{od_k}/DONE", "w").close()
     print(sc_name, "pairs so far", n_pairs, flush=True)
 env.close()

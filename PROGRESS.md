@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 18:50 — Geometry judge built (council/PLAN-sim.md step 4)
+- Session moved to another account after a usage limit; T3 orchestration tools (scheduled-task / delegate) are not available in this session, cluster work continues as before.
+- scripts/sd_render.py: renders a checkpoint on the judge set = val scenes (sorted, with tokens) 30-59, 4 evenly spaced keyframes x 2 seeds, style 1, DDIM 25, CFG 2; --shuffle_cams rolls the six cameras by 3 (front<->back) for the validation control.
+- scripts/judge_gt.py: exact truth in the low-drone view: nuScenes vehicle.car boxes within 30 m (>= 1 lidar pt) -> projected 3D corners -> convex hulls painted far->near, kept if visible part >= 8 px tall and >= 50% of the hull; drivable_area from the map expansion on a 0.2 m ground grid -> road mask + boundary points in ego metres; label shifts 0/0.5/1/2 m forward for validation (job 3751142 -> data/judge_gt).
+- scripts/judge_score.py: Mask2Former Swin-L Cityscapes panoptic (cars score >= 0.5, road) or SegFormer-B5 (car connected components >= 30 px); predictions whose bottom pixel is on the ground within 30 m; one-to-one Hungarian matching at IoU >= 0.3 -> pooled F1; kerb error = symmetric mean nearest distance (ground metres, capped 2 m) between predicted road boundary and map boundary within 30 m in view; --compare = paired scene bootstrap 95% CIs. Mask2Former + SegFormer weights downloading on the login node (logs/dl_judge.log).
+- Judge validation will use SD's 10k checkpoint (copied to runs/judge_ckpt_sd10k.pt): renders normal + shuffled cameras -> scores at shifts 0/0.5/1/2 m and shuffled; both judges.
+
 ## 2026-11-25 18:40
 - VPN offline 18:15-18:30 at the user's request (not reconnected); back fine, no job lost.
 - Full ScenarioNet conversion is slow and memory-bound (~250/850 scenes in 75 min, MaxRSS 50 GB at a 48 GB request: one full nuScenes index per worker). The pilot needs only 100 train scenes -> scripts/scn_convert_subset.py (ScenarioNet's own write_to_directory, 100 evenly spread train scenes, 2 workers) -> data/scn_pilot (job 3751130). The full conversion keeps running for scaling later.

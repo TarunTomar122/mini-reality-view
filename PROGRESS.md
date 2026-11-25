@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 07:20
+- calib_rays.pt done (850 scenes, 6x144 Plücker rays each). Lidar keys at the low drone done for mini (coverage 0.21-0.81, about the same as high).
+- Experiment A launched: 45M DiT, all 700 train scenes, 40k steps, bs 64, identical except --rays: runs/A_norays vs runs/A_rays.
+
+## 2026-11-25 07:15
+- Stage 7 step baselines, full_b on 30 val scenes: 1 step L1 28.9 / LPIPS 0.381; 2 steps 27.5 / 0.383; 4 steps 27.8 / 0.374. One step is already within 0.007 LPIPS of four -> flow-matching paths are nearly straight here; distillation (10.6k/15k, loss 0.031) can only close a small gap.
+- full-train-c 59.8k/80k. Trainval splats 59/70. Mini low/high re-renders running; trust masks queued behind them.
+
 ## 2026-11-25 06:50
 - Trainval splats 51/70; full-train-c 54k/80k; distillation + 1/2-step baselines running; SD1.5 UNet/VAE + Difix + peft downloaded (DL_DONE). CPU jobs (calib rays, lidar-low) and the mini low/high re-renders still queued.
 - Step 1 code: scripts/trust_masks.py — lift each drone pixel with the splat depth, project into the 6 real cameras of that keyframe, visible = in image, in front, < 60 m, not behind a nearer lidar surface (per-camera lidar depth map at 1/4 res, 5x5 min-spread); weight by cos(angle between drone and real view) x exp(-dist/60); trust = opacity x sqrt(best). Written as key alpha. Queued after the mini re-renders (3750396 low, 3750397 high).

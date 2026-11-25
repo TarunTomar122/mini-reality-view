@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 16:35 — plan: fold side-job lessons into sd_run1 (user approved)
+- train_sd.py can now pause safely: `touch runs/<out>/STOP` (checked every 50 steps) or scancel/SIGTERM -> saves ckpt.pt (atomic) and exits; rerunning with the same --out resumes (step, optimizer, LoRA, adapter). Data/args may change on resume; model shape may not.
+- Both phone-augmented copies done (data/enc_aug_0, data/enc_aug_1, 850 scenes each).
+- RESTART PLAN for sd_run1 (old code, no pause handler): wait for its 10k checkpoint (log shows step 10000 and ckpt.pt mtime updates), scancel it, then resubmit with the SAME --out runs/sd_run1 plus `--tokens_aug data/enc_aug_0` and `--mem 120G` (one copy to keep RAM down), on gpu:h200_1g.18gb:1, time 2 days. Splat keys: keep data/lat512_splat_tv_low_trust if low_mix_trust beats low_mix_nomask on trusted pixels (eval-lowtr), else switch --keys2 to a no-trust 512 encode (encode_latents.py on data/targets_splat_tv_low).
+
 ## 2026-11-25 16:20 — NEW EXPERIMENT S (user, side chat): sim pretraining -> real fine-tune
 In a simulator the answer key is perfect (every pixel known, no holes/smears). Pretrain the SD renderer (same camera adapter + LoRA, rays, DINOv2 tokens, low drone 9 m back / 4.5 m up / look 15 m ahead at 0.5 m, 60 deg HFOV) on sim pairs: 6 cameras placed like the nuScenes rig (positions, yaw, FOV) -> drone view. Then fine-tune on real keys and compare with real-only at equal real steps. Do NOT stop sd_run1 or the low_* runs.
 Simulator (cheapest working wins; findings logged here): 1) MetaDrive + ScenarioNet (pip, Panda3D, headless EGL; ScenarioNet can replay nuScenes layouts); 2) CARLA 0.9.x -RenderOffScreen (better graphics, ~20 GB, Vulkan, apptainer?) if 1 is too cartoonish or easy; 3) fallback SHIFT-like synthetic data only if both fail.

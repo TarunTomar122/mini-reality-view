@@ -126,6 +126,19 @@ def batch(n):
 
 
 # ---------------- train ----------------
+# Pause safely: `touch <out>/STOP` (checked every 50 steps) or scancel (SIGTERM) -> save a checkpoint and exit.
+# Restart with the same --out to continue from that step (data/args may change, model shape may not).
+import signal
+_stop = {"flag": False}
+signal.signal(signal.SIGTERM, lambda *_: _stop.__setitem__("flag", True))
+signal.signal(signal.SIGUSR1, lambda *_: _stop.__setitem__("flag", True))
+
+
+def save(step_done):
+    torch.save({"adapter": adapter.state_dict(), "lora": lora_state(), "opt": opt.state_dict(), "step": step_done, "args": vars(a)}, ck + ".tmp")
+    os.replace(ck + ".tmp", ck)
+
+
 log = open(f"{a.out}/log.jsonl", "a"); t_start = time.time()
 scaler = torch.amp.GradScaler(enabled=AMP == torch.float16)
 unet.train(); adapter.train()
@@ -153,7 +166,13 @@ for step in range(start, 0 if a.eval_only else a.steps):
         r = {"step": step, "loss": round(loss.item(), 4), "gn": round(gn.item(), 3), "lr": lr, "min": round((time.time() - t_start) / 60, 1)}
         print(r, flush=True); log.write(json.dumps(r) + "\n"); log.flush()
     if (step + 1) % 5000 == 0 or step + 1 == a.steps:
-        torch.save({"adapter": adapter.state_dict(), "lora": lora_state(), "opt": opt.state_dict(), "step": step + 1, "args": vars(a)}, ck)
+        save(step + 1)
+    if _stop["flag"] or (step % 50 == 0 and os.path.exists(f"{a.out}/STOP")):
+        save(step + 1)
+        print("PAUSED at", step + 1, flush=True)
+        if os.path.exists(f"{a.out}/STOP"):
+            os.remove(f"{a.out}/STOP")
+        raise SystemExit(0)
 
 # ---------------- render val scenes ----------------
 unet.eval(); adapter.eval()

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 20:10 — Experiment W plan converged; judge ceiling check
+- Council W: Fable round 1 (council/bev-s1-fable.md) + my second view -> council/PLAN-bev.md. BEVFormer-base BEV grid (train-only checkpoint) as an extra input next to DINOv2, cached offline (48x32 x 256 in ego metres); first arm W2 = pixel-aligned warp of the grid into the drone latent (ground + 1 m height samples) added after conv_in; phone rows get a BEV null; 15% dropout; control = sim arm A; same go rule. Fallbacks StreamPETR, SparseBEV; later candidate Depth Anything 3 (no leakage, phone-friendly).
+- Env: slurm/bev_setup_login.sh running on the login node (conda py3.8, torch 1.10.2+cu113, mmcv-full 1.4.0, CUDA 11.3 + gcc 10, repos, checkpoint, can_bus) -> then slurm/bev_build.sh on an A6000 (mmdet3d 0.17.1 + detectron2 ops).
+- Judge ceiling/resolution: scripts/judge_keys.py turns the lidar answer keys of the 120 judge frames into a renders folder (runs/judge/keys_lidar); scored by m2f + SegFormer at shifts 0/1/2 m (3751199-204).
+
 ## 2026-11-25 19:55 — Judge validation round 1; sd_run1 OOM
 - sd_run1 (3751069) was OOM-killed at 19:02 (MaxRSS 126 GB of 120 GB, ~13.6k steps) before the STOP: steps 10k-13.6k lost (checkpoint only every 5k). Cause: training rows held twice in RAM (sets + train copies, ~61k fp16 token rows ~40 GB each) plus slow allocator growth. Fix in train_sd.py: after the split keep only val rows in `sets`; checkpoint every 1k; MALLOC_ARENA_MAX=2 in py.sbatch. The restart with the hole fix (3751176) was cancelled while still loading and resubmitted with the memory fix: 3751192 (resumes from 10k, --hole_w 0 --cover_min 0.8,0.3).
 - Judge validation on SD-10k renders (30 val scenes x 4 frames x 2 seeds = 240):

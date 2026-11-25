@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:15 — Sim council round 1 (user asked: research, not winging it)
+- Council: Astra (codex gpt-6.2-astra, xhigh) and Fable (claude-fable-5-2, high), same brief council/sim2real-brief.md: literature on mixing sim and real for conditional generation and driving view synthesis, simulator choice, data recipe, training recipe for SD+LoRA+adapter, geometry-aware evaluation, cheap go/no-go pilot. Outputs: council/s1-astra.md, council/s1-fable.md.
+- Round 2 (after both): swap plans so each critiques the other and they converge (council/s2-*.md); then build the agreed plan. No sim training until then; data-generation tooling (ScenarioNet test) continues.
+
 ## 2026-11-25 17:05 — SD 5k preview
 - sd_run1 at 5k (eval_only copy runs/sd_run1_5k, DDIM 25, CFG 2, style 1) on 4 val scenes vs low splat keys with trust: masked L1 33.5, LPIPS 0.390 (low_mix_nomask DiT 45M on 12 scenes: 34.1 / 0.405; different res, rough comparison).
   Pictures (pulled/sd5k.jpg): photo-like streets (trunks, kerbs, lane lines, poles, trucks) roughly where the key has them (truck ahead on tree-lined road matches); one scene is still leafy noise; positions not precise yet. Big qualitative jump over the DiTs.

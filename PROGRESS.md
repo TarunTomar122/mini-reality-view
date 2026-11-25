@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 20:10 — Judge validation result
+- Controls on SD-10k renders (240 renders each): car F1 normal / tokens rolled (rays kept) / wrong street:
+  Mask2Former 0.260 / 0.026 / 0.028; SegFormer 0.124 / 0.016 / 0.012. Kerb error 1.47 / 1.53 / 1.58 m (m2f), 1.43 / 1.55 / 1.52 m (SegFormer).
+- Verdict (written before the sim results): car F1 is valid for whether cars come out in the right places (10x drop with wrong inputs, both judges), with coarse resolution (-0.04 at a 1 m label shift, -0.09 at 2 m; the pre-set 1 m criterion of 0.15 fails). Kerb error barely moves (+4-10% with the wrong street) -> treat as weak; a sim "go" must come from car F1 (rule unchanged: >= 0.05 F1, CI excludes zero, both judges agree), and the write-up says placement differences under ~1-2 m are below the judge's resolution.
+- Picture: pulled/judge_controls.jpg (docs/figs/judge_controls.jpg): yellow = projected nuScenes cars; with the right cameras, drawn cars sit in most outlines.
+- sd_run1 resumed at 10000 (STOP removed in time), 11k at 19 min (~53 steps/min -> 40k in ~9 h); RSS 76 GB. Sim renders 60/100 (2 of 4 shards done). BEV env: conda part done, pip installs running.
+
 ## 2026-11-25 19:40
 - The 19:02 OOM happened during the STOP save (ckpt.pt.tmp half written at 19:02): memory near the limit + save spike. The STOP file was still there when the restart started -> removed (with the partial .tmp) before the restart reached its first step; otherwise it would have paused at once. sd_run1 3751192: cover_min keeps 0.639 (lidar) / 0.658 (splat) of latent cells; 56,260 + 4,606 train rows; peak RSS 126 GB while loading, 78 GB after the duplicate rows are freed.
 - Judge on the lidar answer keys (120 judge frames): Mask2Former F1 0.02, SegFormer 0.00. The segmenters do not see cars in dotted lidar keys, so keys cannot serve as the ceiling / resolution check. Remaining validation = roll_tokens + swap_scene controls (renders 3751193/96 moved to any GPU).

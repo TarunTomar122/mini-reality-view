@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 11:50
+- mix_high 14.6k/30k (loss 0.19); c-selfprev 6.6k/20k; low lidar targets 613/850; low splat keys encoded with/without trust (enc_splat_tv_low, enc_splat_tv_low_trust).
+- Queued after enc-low (all 45M + rays, 40k, bs 64): low_lidar (3750659, step-2 model comparison vs A_rays at the high drone), low_mix_nomask (3750660) vs low_mix_trust (3750661) (step-1 trust-mask comparison; splat mix 0.3).
+
 ## 2026-11-25 11:50 — Step 3 started early (user asked): SD 1.5 renderer
 - scripts/train_sd.py: frozen SD 1.5 UNet (base weights bf16/fp16) + LoRA r=64 on attention/proj/ff + CameraAdapter (DINOv2 tokens 384->768, + ray MLP, per-camera + 2D positions, style token, 2-layer transformer -> 865 tokens replacing the CLIP text tokens) + learned null tokens (10% drop) for CFG. SD's own DDPM schedule, epsilon prediction, coverage/trust-weighted loss (hole_w 0.05), 512x256 keys (latent 4x32x64). Render: DDIM 25 steps, CFG 2.0. 42.9M trainable.
 - Smoke test (300 steps, 70 trainval splat keys low+trust, H200 1g.18gb, bf16): runs, ~1.7 min / 100 steps at bs 16. Pictures (pulled/sd_smoke.jpg): photo-like street textures already (trees, road, buildings), not yet following the cameras (as expected at 300 steps). 2 val scenes LPIPS 0.428.

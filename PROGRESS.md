@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 22:30
+- Sim watchdog works (shard 3: two scenes timed out at 5 min, skipped). 90 scene folders. Encoders 3751308-10 switched to afterany on the shards (the running shard 3 wrapper still has only 6 attempts; if it runs out, encode what is there rather than block the arms).
+- Arm A 3751356 loading (25 min in). BEV build 3751357 queued for an A6000. sd_run1 18.4k.
+
 ## 2026-11-25 22:00
 - Arm A (3751138) was OOM-killed while loading (MaxRSS = 120 GB limit; sd_run1 had peaked at the same limit and survived by luck). train_sd.py loading rewritten: load_set splits train / val scenes as it reads and builds each tensor by copying chunks into a preallocated buffer (freeing each chunk), so token rows are never held twice. Tested on a tiny set (3 lidar scenes incl. one val + 2 splat scenes, 30 steps + render): OK. Arm A resubmitted: 3751356.
 - Sim shard 3 keeps hitting hanging scenes (scene-0378 hung 25 min). sim_render.py: per-scene C-level watchdog (faulthandler.dump_traceback_later(300, exit=True)) -> exit after 5 min, wrapper restarts, scene skipped; wrapper now allows 20 attempts (applies to newly submitted shards; the running one picks up the watchdog at its next attempt). 85/100 scene folders.

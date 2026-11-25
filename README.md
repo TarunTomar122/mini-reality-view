@@ -54,6 +54,13 @@ They cost about 1.5–2 GPU-hours per scene, so we can only afford them for some
 
 ![Lidar keys (left) vs splat keys (right)](docs/figs/splat_vs_lidar.jpg)
 
+**Lower drone, cleaner splats.** The real cameras are 1.5 m up, so from 8.5 m the splat scene shows coloured floaters
+and smears where no camera ever looked. Moving the drone to 9 m behind and 4.5 m up, and re-rendering the same splat
+models (no retraining), removes most of them: parked cars, facades and the excavator come out sharper, and the sky
+appears. Some smearing stays at the bottom corners, right behind the car, which no camera sees.
+
+![Splat keys from the high drone (left) and the low drone (right)](docs/figs/splat_high_vs_low.jpg)
+
 ## What we got so far
 
 Data: nuScenes (850 driving scenes of 20 s, Boston and Singapore, 6 cameras, keyframes at 2 Hz). Every number below is

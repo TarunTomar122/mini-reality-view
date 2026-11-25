@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 18:40
+- VPN offline 18:15-18:30 at the user's request (not reconnected); back fine, no job lost.
+- Full ScenarioNet conversion is slow and memory-bound (~250/850 scenes in 75 min, MaxRSS 50 GB at a 48 GB request: one full nuScenes index per worker). The pilot needs only 100 train scenes -> scripts/scn_convert_subset.py (ScenarioNet's own write_to_directory, 100 evenly spread train scenes, 2 workers) -> data/scn_pilot (job 3751130). The full conversion keeps running for scaling later.
+- Because Slurm copies batch scripts at submission, the queued chain was resubmitted on scn_pilot: render 3751131-34 -> sim-enc 3751135/36 + sim-lat 3751137 -> arms A 3751138, B1 3751139 -> B2 3751140, C 3751141.
+- sd_run1 11.7k.
+
 ## 2026-11-25 18:20
 - sd_run1 resume confirmed: "resumed at 10000", 56,260 lidar train rows (clean + phone copy) + 4,606 splat rows; 10.8k steps.
 - train_sd.py: --set keydir:tokdir:style:rows[:aug+aug] (fixed rows per set, each set with its own seeded generator for indices/timesteps/noise/dropout -> paired real draws across arms), --n_styles 3 (style 2 = sim), --seed, --save_at; tokens files may carry their own rays (sim). CameraAdapter(n_styles). Old path (no --set) unchanged for sd_run1.

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 19:50
+- scn-subset 3751130 done (100 pilot scenes). Sim renders 3751131-34 running: 38/100 scenes in 8 min. Checked scene-0001 by eye (pulled/sim_pairs_check.jpg): the trucks and parked car sit in the same places in the 6 cameras and in the drone key; our own car is hidden; the look is game-like (allowed by the owner, the go rule is placement only).
+- Judge truth 3751146 and SD-10k judge renders 3751144/45 running; 10 validation scorers queued behind them.
+- sd_run1 12.7k.
+
 ## 2026-11-25 19:00
 - judge-gt crashed: shapely 1.8.5 (pinned by nuscenes-devkit) has a numpy-1 build of shapely.vectorized that breaks under numpy 2.4 -> point-in-polygon now via matplotlib.path (exterior minus holes). Rerun 3751146.
 - Judge models downloaded (Mask2Former Swin-L Cityscapes panoptic, SegFormer-B5).

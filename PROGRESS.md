@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:00 — Experiment S feasibility, step 1: MetaDrive works
+- envs/sim (Python 3.11, metadrive-simulator via uv on the login node; the compute node timed out downloading a Python build). Headless render on a 2080 Ti: env up 60 s; 6 rig cameras + low drone camera in 0.16 s per frame (448x252).
+- Pictures (pulled/sim_test, docs/figs/sim_metadrive_*.jpg): rig directions correct; drone key complete and sharp (every lane line/kerb). But the procedural world is an empty highway in grassy hills: no buildings, trees, parked cars; traffic distant -> big domain gap to nuScenes city streets. Ego car visible in the drone shot (real keys have none) -> hide it in sim drone shots.
+- Cluster has apptainer/singularity (CARLA container possible); login node has no Vulkan ICD dir (check on a GPU node).
+- Next: ScenarioNet nuScenes replay in MetaDrive (real layouts + real traffic, simple graphics) and, in parallel, a CARLA apptainer Vulkan test.
+
 ## 2026-11-25 16:35 — plan: fold side-job lessons into sd_run1 (user approved)
 - train_sd.py can now pause safely: `touch runs/<out>/STOP` (checked every 50 steps) or scancel/SIGTERM -> saves ckpt.pt (atomic) and exits; rerunning with the same --out resumes (step, optimizer, LoRA, adapter). Data/args may change on resume; model shape may not.
 - Both phone-augmented copies done (data/enc_aug_0, data/enc_aug_1, 850 scenes each).

@@ -5,7 +5,8 @@ A splat render is only trustworthy where a real camera actually saw that surface
   2. move the point into the ego frame of that keyframe and project it into the 6 real cameras (nuScenes calibration);
   3. a camera "sees" it if it lands inside the image, in front, not hidden behind a nearer surface (judged from that
      keyframe's lidar projected into the same camera), and not too far away;
-  4. weight by how similar the real camera's viewing direction is to the drone's (splats are view-dependent).
+  4. weight by how similar the real camera's viewing direction is to the drone's (splats are view-dependent);
+     opposite directions still get half weight, since flat ground looks the same from both sides.
 trust = splat opacity x best camera's weight. Written as the key's alpha (RGB unchanged), so encode.py /
 encode_latents.py weight the loss by it.
 """
@@ -87,7 +88,8 @@ for sc in scenes[si::sn]:
             d_real = p_w - cam_pos
             d_drone = p_w - drone_w
             cos = (d_real * d_drone).sum(1) / (np.linalg.norm(d_real, axis=1) * np.linalg.norm(d_drone, axis=1) + 1e-6)
-            w = visible * np.clip(cos, 0, 1) * np.exp(-zc.clip(0) / a.max_dist)
+            # opposite viewing directions still count half: flat ground looks the same from both sides
+            w = visible * (0.5 + 0.5 * np.clip(cos, 0, 1)) * np.exp(-zc.clip(0) / a.max_dist)
             best = np.maximum(best, np.nan_to_num(w))
         trust = (rgba[..., 3] / 255.0) * np.sqrt(best.reshape(H, W))
         trust[~np.isfinite(D) | (D <= 0)] = 0

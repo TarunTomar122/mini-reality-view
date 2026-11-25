@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 08:45
+- Trust masks v1 done on mini (low drone mean trust 0.30-0.51 per scene, high drone 0.13-0.50 -> low drone keys more trustworthy, matches the pictures). Pictures (pulled/trust_masks.jpg): street, cars and facades trusted, sky not; but the road right behind the car was untrusted although the back camera sees it — the angle weight clip(cos,0,1) gave 0 when the real and drone views point in opposite directions. Fix 1: weight 0.5 + 0.5*clip(cos) (flat ground looks the same from both sides). Rerun 3750477/78.
+- Experiment A at 24k/40k: train loss with rays 0.658 vs 0.738 without (clear gap).
+- enc_splat_tv 28/70 encoded; low re-renders of the 70 trainval splats running (7 jobs); full-train-c 75.8k/80k; mini scene 9 splat finally running on the A6000.
+
 ## 2026-11-25 08:15
 - All 70 trainval splat scenes done -> encoding them (enc-splat-tv 3750446); low-drone re-renders of the 70 queued (7 jobs x 10 scenes, 3750447-53).
 - Step 2 keys: mini splat re-render at the LOW drone done. Pictures (pulled/splat_high_vs_low.jpg): far fewer floaters and colour junk, sharper cars/facades/excavator, sky now visible; remaining smears at the bottom corners (right behind the car, unseen by any camera) and one sky glitch (scene-0655). Low drone is clearly the better key; model comparison at both heights still to do.

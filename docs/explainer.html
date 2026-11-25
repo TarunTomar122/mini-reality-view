@@ -1,0 +1,782 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mini Reality View</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+body{margin:0}
+img{max-width:100%}
+
+/* Layout: one reading column; every stage is a strip that reads IN → step → OUT, stacking top-to-bottom on phones. Sensor views sit on dark "screens" in both themes. */
+:root{
+  --bg:#F1F3F2; --surface:#FFFFFF; --ink:#17201F; --muted:#55625E; --line:#D3DAD7;
+  --accent:#C98400; --accent-ink:#7E5300; --model:#2F55C4; --run:#1F7A52; --test:#7A4FB0;
+  --screen:#0E1514; --screen-ink:#C9D4D1; --chip:#E6EBE9;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#0D1211; --surface:#141B1A; --ink:#E4EAE8; --muted:#98A6A2; --line:#26312F;
+  --accent:#E9A21C; --accent-ink:#F2B847; --model:#7C98FF; --run:#57C38C; --test:#B793EA;
+  --screen:#070B0A; --screen-ink:#C9D4D1; --chip:#1C2523; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0D1211; --surface:#141B1A; --ink:#E4EAE8; --muted:#98A6A2; --line:#26312F;
+  --accent:#E9A21C; --accent-ink:#F2B847; --model:#7C98FF; --run:#57C38C; --test:#B793EA;
+  --screen:#070B0A; --screen-ink:#C9D4D1; --chip:#1C2523; color-scheme:dark}
+
+body{background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:16px;line-height:1.55}
+.wrap{max-width:1060px;margin:0 auto;padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:40px 88px;display:grid;gap:56px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.1}
+h1{font-size:clamp(2.2rem,6vw,3.4rem);letter-spacing:-.01em}
+h2{font-size:clamp(1.45rem,3.4vw,1.9rem)}
+p{margin:0;max-width:68ch}
+code,.mono{font-family:var(--f-mono);font-size:.84em}
+a{color:inherit}
+.label{font-family:var(--f-mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted)}
+.lede{font-size:1.12rem;color:var(--muted);margin-top:14px}
+header.top{display:grid;gap:6px}
+
+/* overview */
+.overview{display:grid;gap:18px}
+.sys{display:flex;flex-wrap:wrap;align-items:stretch;gap:10px}
+.sys .node{flex:1 1 140px;min-width:0;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:grid;gap:4px;align-content:start}
+.sys .node b{font-family:var(--f-display);font-size:1.05rem}
+.sys .node span{font-size:.86rem;color:var(--muted)}
+.sys .node.model{border-color:var(--model);box-shadow:inset 0 0 0 1px var(--model)}
+.sys .arr{align-self:center;color:var(--muted);font-family:var(--f-mono)}
+.loop{font-size:.9rem;color:var(--muted);border-left:3px solid var(--model);padding-left:12px}
+nav.stages{display:flex;flex-wrap:wrap;gap:8px}
+nav.stages a{display:flex;gap:8px;align-items:center;text-decoration:none;background:var(--chip);border-radius:999px;padding:6px 12px 6px 8px;font-size:.88rem}
+nav.stages a:hover,nav.stages a:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+nav.stages i{font-style:normal;font-family:var(--f-mono);font-size:.78rem;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;color:#fff}
+.k-data{background:var(--accent)} .k-train{background:var(--model)} .k-speed{background:var(--run)} .k-test{background:var(--test)}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:.86rem;color:var(--muted)}
+.legend span{display:flex;gap:6px;align-items:center}
+.legend span::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--c)}
+
+/* stage */
+.stage{display:grid;gap:18px;scroll-margin-top:16px;padding-top:28px;border-top:1px solid var(--line)}
+.stage-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:10px 14px}
+.num{font-family:var(--f-display);font-size:2.6rem;line-height:1;color:var(--accent-ink);font-variant-numeric:tabular-nums}
+.tag{font-family:var(--f-mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:#fff;border-radius:4px;padding:2px 7px;align-self:center}
+.stage-head h2{flex:1 1 100%}
+.flow{display:grid;grid-template-columns:minmax(0,1fr) 132px minmax(0,1fr);gap:14px;align-items:center}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px;display:grid;gap:10px;min-width:0}
+.panel>.label b{color:var(--ink);font-weight:500}
+.step{display:grid;justify-items:center;gap:6px;text-align:center;font-size:.84rem;color:var(--muted)}
+.step strong{color:var(--ink);font-weight:600;font-size:.9rem}
+.step svg{width:100%;max-width:120px;height:22px}
+.step svg path{stroke:var(--muted);fill:none;stroke-width:2}
+.step svg path.head{fill:var(--muted);stroke:none}
+canvas.screen{display:block;width:100%;height:auto;border-radius:6px;background:var(--screen)}
+.cams{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px}
+.cams figure{margin:0;display:grid;gap:3px}
+.cams figcaption{font-family:var(--f-mono);font-size:9.5px;color:var(--muted);letter-spacing:.04em}
+.files{font-family:var(--f-mono);font-size:12px;color:var(--muted);line-height:1.7;overflow-x:auto;white-space:nowrap}
+.duo{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px}
+.quad{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:6px}
+.quad canvas{image-rendering:pixelated}
+.cap{font-size:.84rem;color:var(--muted)}
+.shapes{display:grid;grid-template-columns:max-content minmax(0,1fr);gap:6px 18px;margin:0;font-size:.92rem}
+.shapes dt{font-family:var(--f-mono);font-size:11px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);padding-top:3px}
+.shapes dd{margin:0;min-width:0}
+.shapes dd code{background:var(--chip);border-radius:4px;padding:1px 5px;overflow-wrap:anywhere}
+.ctrl{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-family:var(--f-mono);font-size:12px;color:var(--muted)}
+.ctrl input[type=range]{flex:1 1 160px;accent-color:var(--model)}
+button.play{font:inherit;font-family:var(--f-mono);font-size:12px;background:var(--model);color:#fff;border:0;border-radius:6px;padding:7px 12px;cursor:pointer}
+button.play:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.formula{font-family:var(--f-mono);font-size:.9rem;background:var(--chip);border-radius:6px;padding:8px 12px;overflow-x:auto;white-space:nowrap}
+.trio{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.trio figure{margin:0;display:grid;gap:4px}
+.trio figcaption{font-size:.8rem;color:var(--muted)}
+.trio figcaption b{color:var(--ink);font-family:var(--f-mono);font-weight:500}
+/* chart */
+.chart{display:grid;gap:10px}
+.bar-row{display:grid;grid-template-columns:minmax(110px,190px) minmax(0,1fr);gap:12px;align-items:center;font-size:.9rem}
+.track{position:relative;height:22px;background:linear-gradient(to right,var(--line) 1px,transparent 1px) 0 0/16.6667% 100%;border-right:1px solid var(--line)}
+.fill{height:100%;background:var(--accent);border-radius:0 4px 4px 0;display:flex;align-items:center;justify-content:flex-end}
+.fill span{font-family:var(--f-mono);font-size:11px;color:var(--ink);transform:translateX(calc(100% + 6px));white-space:nowrap}
+.axis{display:grid;grid-template-columns:minmax(110px,190px) minmax(0,1fr);gap:12px}
+.ticks{position:relative;height:18px;font-family:var(--f-mono);font-size:10.5px;color:var(--muted)}
+.ticks span{position:absolute;transform:translateX(-50%);white-space:nowrap}
+.ticks span:first-child{transform:none}
+.ticks span:last-child{transform:translateX(-100%)}
+@media (max-width:760px){
+  .flow{grid-template-columns:minmax(0,1fr)}
+  .step svg{transform:rotate(90deg);width:40px;height:40px}
+  .sys .arr{transform:rotate(90deg);flex-basis:100%;text-align:center}
+  .sys .node{flex-basis:100%}
+}
+@media (max-width:480px){.cams figcaption{font-size:8.5px}.quad{grid-template-columns:repeat(2,minmax(0,1fr))}.bar-row,.axis{grid-template-columns:minmax(0,1fr)} .axis>div:first-child{display:none}}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+<header class="top">
+  <span class="label">Learning project · copying Tesla's Reality View at home</span>
+  <h1>Mini Reality View</h1>
+  <p class="lede">Every stage of the project, with what goes in and what comes out. All the pictures are drawn from one made-up street, so you can follow the same scene through the whole pipeline.</p>
+</header>
+
+<section class="overview" aria-labelledby="ov">
+  <h2 id="ov">The finished system</h2>
+  <div class="sys">
+    <div class="node"><b>6 car cameras</b><span>Photos from all around the car, every frame</span></div>
+    <div class="arr">→</div>
+    <div class="node"><b>DINOv2</b><span>Pretrained and frozen. Turns each photo into tokens</span></div>
+    <div class="arr">→</div>
+    <div class="node model"><b>Renderer (small DiT)</b><span>Paints the drone view from the tokens</span></div>
+    <div class="arr">→</div>
+    <div class="node"><b>Drone-view video</b><span>What you'd show on the screen</span></div>
+  </div>
+  <p class="loop">Each new frame is fed back into the renderer, with a little noise added, to help draw the next one. That keeps the video smooth.</p>
+  <div class="legend">
+    <span style="--c:var(--accent)">Make training data</span>
+    <span style="--c:var(--model)">Train the model</span>
+    <span style="--c:var(--run)">Make it fast</span>
+    <span style="--c:var(--test)">Test and grow</span>
+  </div>
+  <nav class="stages" aria-label="Stages">
+    <a href="#stage-1"><i class="k-data">1</i>Load the data</a>
+    <a href="#stage-2"><i class="k-data">2</i>Answer key</a>
+    <a href="#stage-3"><i class="k-data">3</i>Shrink to numbers</a>
+    <a href="#stage-4"><i class="k-train">4</i>Train on frames</a>
+    <a href="#stage-5"><i class="k-train">5</i>Make it video</a>
+    <a href="#stage-6"><i class="k-data">6</i>Better answer key</a>
+    <a href="#stage-7"><i class="k-speed">7</i>Make it fast</a>
+    <a href="#stage-8"><i class="k-test">8</i>Test</a>
+    <a href="#stage-9"><i class="k-test">9</i>Scale up</a>
+  </nav>
+</section>
+
+<!-- STAGE 1 -->
+<section class="stage" id="stage-1">
+  <div class="stage-head"><span class="num">1</span><span class="tag k-data">Data</span><h2>Load one moment of driving</h2></div>
+  <p>nuScenes stores each moment (a "sample") as separate files. Its devkit lines them up: which 6 photos and which lidar sweep belong together, where each camera sits on the car, and where the car is in the world.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · raw files for one moment</span>
+      <div class="cams" id="cams1"></div>
+      <div class="files">samples/CAM_FRONT/…jpg  (×6 cameras)<br>samples/LIDAR_TOP/…pcd.bin<br>v1.0-mini/calibrated_sensor.json, ego_pose.json</div>
+    </div>
+    <div class="step"><strong>nuScenes devkit</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      lines up time, places sensors on the car</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · everything in one 3D frame, seen from above</span>
+      <canvas class="screen" id="bev1" width="520" height="320" aria-label="Top-down view: lidar points around the car with six camera view cones"></canvas>
+      <span class="cap">Dots are lidar hits, coloured by height. Shaded wedges are what each camera sees. The white box is your car.</span>
+    </div>
+  </div>
+  <dl class="shapes">
+    <dt>In</dt><dd><code>6 × 900×1600×3</code> photos, <code>~34,000 × (x, y, z)</code> lidar points, sensor positions</dd>
+    <dt>Out</dt><dd>The same data, plus the maths to map any 3D point into any photo</dd>
+    <dt>Tesla</dt><dd>8 cameras and no lidar</dd>
+  </dl>
+</section>
+
+<!-- STAGE 2 -->
+<section class="stage" id="stage-2">
+  <div class="stage-head"><span class="num">2</span><span class="tag k-data">Data</span><h2>Build the drone-view answer key</h2></div>
+  <p>No real car has a drone filming it, so you make the answer images yourself. Give each lidar point the colour of the photo pixel it lands on, then look at the coloured points from a virtual camera 13 m behind and 8.5 m above the car.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · uncoloured lidar points + the 6 photos</span>
+      <canvas class="screen" id="bev2" width="520" height="320" aria-label="Top-down lidar points without colour"></canvas>
+      <div class="cams" id="cams2"></div>
+    </div>
+    <div class="step"><strong>Colour points, move the camera</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      a few lines of numpy</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · one drone-view target image</span>
+      <canvas class="screen" id="chase2" width="512" height="288" aria-label="Drone view made from coloured lidar points, with gaps"></canvas>
+      <span class="cap">Black gaps are places the lidar never hit. That's fine for a first version. Stage 6 fills them in. Your own car never shows up in its own sensors, so you draw a car model on top at the end.</span>
+    </div>
+  </div>
+  <dl class="shapes">
+    <dt>Out</dt><dd><code>144×256×3</code> image per moment, saved as <code>targets/scene-0061/000123.png</code></dd>
+    <dt>Tesla</dt><dd>A huge offline "world model" makes these targets at near pixel-perfect quality</dd>
+  </dl>
+</section>
+
+<!-- STAGE 3 -->
+<section class="stage" id="stage-3">
+  <div class="stage-head"><span class="num">3</span><span class="tag k-data">Data</span><h2>Shrink everything into numbers</h2></div>
+  <p>Models train much faster on compact numbers than on raw pixels. You convert everything once and save it to disk. Inputs and targets each get their own converter.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · one camera photo (×6)</span>
+      <canvas class="screen" id="front3" width="448" height="252" aria-label="Front camera photo"></canvas>
+    </div>
+    <div class="step"><strong>DINOv2-small</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      frozen, you never train it</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · a 32 × 18 grid of tokens</span>
+      <canvas class="screen" id="tok3" width="448" height="252" aria-label="Grid of tokens; similar things share similar colours"></canvas>
+      <canvas class="screen" id="vec3" width="384" height="34" aria-label="One token drawn as 384 bars"></canvas>
+      <span class="cap">Each square is one token: 384 numbers that describe that 14×14 patch (road, car edge, window…). Similar things get similar numbers, shown here as similar colours. The strip shows one token's 384 numbers.</span>
+    </div>
+  </div>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · one drone-view target</span>
+      <canvas class="screen" id="tgt3" width="256" height="144" aria-label="Drone-view target image"></canvas>
+    </div>
+    <div class="step"><strong>Stable Diffusion VAE</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      encoder half</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · a 32 × 18 × 4 "latent"</span>
+      <div class="quad" id="lat3"></div>
+      <span class="cap">4 small maps of numbers instead of a full picture: 48× fewer numbers. The renderer learns to draw these. The VAE's decoder turns them back into a picture at the very end.</span>
+    </div>
+  </div>
+  <dl class="shapes">
+    <dt>Photos</dt><dd><code>6 × 252×448×3</code> → <code>6 × 576 tokens × 384</code>, saved as <code>features/…/000123.pt</code></dd>
+    <dt>Target</dt><dd><code>144×256×3</code> (110,592 numbers) → <code>18×32×4</code> (2,304 numbers), saved as <code>latents/…/000123.pt</code></dd>
+    <dt>Tesla</dt><dd>"Universal Vision Encoder" features, the same ones the driving model uses</dd>
+  </dl>
+</section>
+
+<!-- STAGE 4 -->
+<section class="stage" id="stage-4">
+  <div class="stage-head"><span class="num">4</span><span class="tag k-train">Training</span><h2>Teach the renderer, one frame at a time</h2></div>
+  <p>Take a real target, mix in a random amount of noise, and ask the model: given these camera tokens, which way leads back to the clean picture? After millions of examples, it can start from pure noise and walk step by step to a picture that matches the cameras. Drag the slider to see what the model is shown.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · camera tokens + noisy target + noise level</span>
+      <canvas class="screen" id="noisy4" width="256" height="144" aria-label="Target image mixed with noise"></canvas>
+      <div class="ctrl"><label for="t4">noise level</label><input type="range" id="t4" min="0" max="100" value="60"><output id="t4v" for="t4">t = 0.60</output></div>
+    </div>
+    <div class="step"><strong>Renderer (DiT)</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      ~30–130M parameters</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · its guess at the clean frame</span>
+      <canvas class="screen" id="clean4" width="256" height="144" aria-label="Clean drone-view frame"></canvas>
+      <span class="cap">The loss is how far the guess is from the truth. That error is what trains it.</span>
+    </div>
+  </div>
+  <div class="formula">noisy = (1 − t) · frame + t · noise      ← "flow matching": the model learns the direction from noisy back to frame</div>
+  <dl class="shapes">
+    <dt>Tesla</dt><dd>The same idea, a "mean-flow" model of about 1B parameters</dd>
+  </dl>
+</section>
+
+<!-- STAGE 5 -->
+<section class="stage" id="stage-5">
+  <div class="stage-head"><span class="num">5</span><span class="tag k-train">Training</span><h2>Make it video</h2></div>
+  <p>Same model with one extra input: the previous drone frame with a bit of noise on it. The noise stops it copying the old frame blindly, so small mistakes don't snowball. When it runs, each output becomes the next input. Press play.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · tokens for now + previous frame with noise</span>
+      <canvas class="screen" id="prev5" width="320" height="180" aria-label="Previous frame with noise"></canvas>
+      <div class="ctrl"><button class="play" id="play5" type="button">▶ Play</button><span id="f5">frame 0</span></div>
+    </div>
+    <div class="step"><strong>Renderer (DiT)</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      then feed the output back</div>
+    <div class="panel">
+      <span class="label"><b>Out</b> · the new frame</span>
+      <canvas class="screen" id="now5" width="320" height="180" aria-label="New drone-view frame"></canvas>
+    </div>
+  </div>
+  <dl class="shapes">
+    <dt>Tesla</dt><dd>Elon: it "takes in the previous reality-view generation with added noise and then denoises it to the current visualization"</dd>
+  </dl>
+</section>
+
+<!-- STAGE 6 -->
+<section class="stage" id="stage-6">
+  <div class="stage-head"><span class="num">6</span><span class="tag k-data">Data</span><h2>Upgrade the answer key</h2></div>
+  <p>Train on holey targets and the model learns to draw holes. So rebuild each 20-second scene as Gaussian splats (OmniRe, in the drivestudio repo): hundreds of thousands of coloured, fuzzy blobs fitted to match the photos. Render the splats from the drone camera, then redo stages 3–5 with these sharper targets.</p>
+  <div class="flow">
+    <div class="panel">
+      <span class="label"><b>In</b> · the old lidar target</span>
+      <canvas class="screen" id="old6" width="320" height="180" aria-label="Old lidar-based target with gaps"></canvas>
+      <span class="cap">The rebuild actually uses the photos, lidar and car positions of the whole scene.</span>
+    </div>
+    <div class="step"><strong>OmniRe splat rebuild</strong>
+      <svg viewBox="0 0 120 22" aria-hidden="true"><path d="M2 11 H108"/><path class="head" d="M106 4 L118 11 L106 18 Z"/></svg>
+      slow, but once per scene</div>
+    <div class="panel">
+      <div class="duo">
+        <figure style="margin:0;display:grid;gap:4px"><canvas class="screen" id="blob6" width="320" height="180" aria-label="Scene drawn as separate fuzzy blobs"></canvas><figcaption class="cap">Up close it's blobs</figcaption></figure>
+        <figure style="margin:0;display:grid;gap:4px"><canvas class="screen" id="splat6" width="320" height="180" aria-label="Splat scene rendered as a complete image"></canvas><figcaption class="cap">Rendered: no holes</figcaption></figure>
+      </div>
+      <span class="label"><b>Out</b> · a splat scene + new targets</span>
+    </div>
+  </div>
+  <dl class="shapes">
+    <dt>Out</dt><dd>One <code>.ply</code> splat file per scene, plus new <code>144×256×3</code> targets from any camera position you like</dd>
+    <dt>Tesla</dt><dd>Showed a fast "generative Gaussian splatting" rebuild in 2025</dd>
+  </dl>
+</section>
+
+<!-- STAGE 7 -->
+<section class="stage" id="stage-7">
+  <div class="stage-head"><span class="num">7</span><span class="tag k-speed">Speed</span><h2>Make it fast</h2></div>
+  <p>Each denoising step is one full pass through the model, so fewer steps means more frames per second. Train the model to take bigger jumps (distillation, or a mean-flow model like Tesla's), make it smaller, and measure frames per second.</p>
+  <div class="trio">
+    <figure><canvas class="screen" id="s50" width="256" height="144" aria-label="Frame made with 50 steps"></canvas><figcaption><b>50 steps</b> · sharpest · 50× the work</figcaption></figure>
+    <figure><canvas class="screen" id="s4" width="256" height="144" aria-label="Frame made with 4 steps"></canvas><figcaption><b>4 steps</b> · nearly as good · 4×</figcaption></figure>
+    <figure><canvas class="screen" id="s1" width="256" height="144" aria-label="Frame made with 1 step"></canvas><figcaption><b>1 step</b> · softer · 1×</figcaption></figure>
+  </div>
+  <dl class="shapes">
+    <dt>Goal</dt><dd>Faster than real time on one GPU at <code>144×256</code></dd>
+    <dt>Tesla</dt><dd>8 frames per run, played at 36 fps, on half of one AI accelerator chip in the car</dd>
+  </dl>
+</section>
+
+<!-- STAGE 8 -->
+<section class="stage" id="stage-8">
+  <div class="stage-head"><span class="num">8</span><span class="tag k-test">Testing</span><h2>Test on streets it has never seen</h2></div>
+  <p>Keep some scenes out of training. Run the model on them and compare against their real targets. The error map is bright wherever it's wrong. In this example it put one car in the wrong place and forgot another.</p>
+  <div class="trio">
+    <figure><canvas class="screen" id="gt8" width="256" height="144" aria-label="True target"></canvas><figcaption><b>Truth</b> · target from stage 6</figcaption></figure>
+    <figure><canvas class="screen" id="pr8" width="256" height="144" aria-label="Model output"></canvas><figcaption><b>Model</b> · what it drew</figcaption></figure>
+    <figure><canvas class="screen" id="er8" width="256" height="144" aria-label="Error map"></canvas><figcaption><b>Error</b> · bright = wrong</figcaption></figure>
+  </div>
+  <dl class="shapes">
+    <dt>Scores</dt><dd><code>LPIPS</code>: does each frame look different from the truth? <code>FID</code>: do frames look real overall? Then run it for 30 s and check whether it drifts.</dd>
+  </dl>
+</section>
+
+<!-- STAGE 9 -->
+<section class="stage" id="stage-9">
+  <div class="stage-head"><span class="num">9</span><span class="tag k-test">Scaling</span><h2>Scale up</h2></div>
+  <p>The code stays the same and only the data grows. More cities and more hours mean it stops memorising Boston and starts handling streets it has never seen. Bars show total recorded driving per dataset, on a log scale (approximate).</p>
+  <div class="chart" role="img" aria-label="Recorded driving per dataset: nuScenes-mini 3 minutes, Argoverse 2 about 4 hours, nuScenes about 5.6 hours, Waymo Open about 11 hours, NVIDIA PhysicalAI-AV about 1,700 hours">
+    <div class="bar-row"><span>nuScenes-mini</span><div class="track"><div class="fill" style="width:12.4%"><span>3 min</span></div></div></div>
+    <div class="bar-row"><span>Argoverse 2</span><div class="track"><div class="fill" style="width:43.7%"><span>4.2 h</span></div></div></div>
+    <div class="bar-row"><span>nuScenes</span><div class="track"><div class="fill" style="width:45.7%"><span>5.6 h</span></div></div></div>
+    <div class="bar-row"><span>Waymo Open</span><div class="track"><div class="fill" style="width:50.8%"><span>~11 h</span></div></div></div>
+    <div class="bar-row"><span>NVIDIA PhysicalAI-AV</span><div class="track"><div class="fill" style="width:87.3%"><span>~1,700 h</span></div></div></div>
+    <div class="axis"><div></div><div class="ticks"><span style="left:0">36 s</span><span style="left:16.67%">6 min</span><span style="left:33.33%">1 h</span><span style="left:50%">10 h</span><span style="left:66.67%">100 h</span><span style="left:83.33%">1k h</span><span style="left:100%">10k h</span></div></div>
+  </div>
+  <p class="cap">Tesla pulls clips from millions of cars, a pool many times bigger than all of these combined.</p>
+</section>
+</div>
+
+<script>
+(() => {
+const D = Math.PI / 180;
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const norm = a => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+const mix = (a, b, t) => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t];
+const rgb = c => `rgb(${clamp(c[0] | 0, 0, 255)},${clamp(c[1] | 0, 0, 255)},${clamp(c[2] | 0, 0, 255)})`;
+let seed = 7;
+const rnd = () => { seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0; return seed / 4294967296; };
+const LIGHT = norm([0.35, 0.55, 0.85]);
+
+const COL = { sky1: [120, 165, 210], sky2: [206, 222, 234], grass: [98, 124, 86], road: [72, 76, 80], walk: [160, 156, 148], yellow: [228, 178, 40], white: [236, 236, 230] };
+const CLS = { sky: [70, 110, 235], ground: [90, 175, 80], road: [140, 70, 190], walk: [230, 120, 170], marking: [150, 85, 200], car: [250, 150, 40], ego: [250, 150, 40], building: [40, 185, 170], tree: [70, 205, 90], person: [240, 60, 60] };
+const EGO_Y = -1.75;
+
+// ---------- scene ----------
+const B = (x0, x1, y0, y1, z0, z1, color, cls) => ({ x0, x1, y0, y1, z0, z1, color, cls });
+const statics = [];
+const bcols = [[178, 160, 140], [150, 155, 168], [192, 176, 150], [132, 122, 118], [172, 150, 134], [140, 152, 142], [200, 190, 172]];
+const segs = [[-45, -27], [-25, -9], [-7, 9], [11, 24], [27, 44], [47, 62], [65, 84], [87, 110]];
+segs.forEach((s, i) => {
+  const h1 = 7 + ((i * 37) % 11), h2 = 6 + ((i * 53) % 13);
+  statics.push(B(s[0], s[1], 11, 19 + (i % 3) * 3, 0, h1, bcols[i % 7], 'building'));
+  statics.push(B(s[0] + 2, s[1] + 1, -(19 + ((i + 1) % 3) * 3), -11, 0, h2, bcols[(i + 3) % 7], 'building'));
+});
+[-26, -8, 10, 25.5, 45.5, 63.5, 85.5].forEach(x => [8.7, -8.7].forEach(y => {
+  statics.push(B(x - 0.15, x + 0.15, y - 0.15, y + 0.15, 0, 2.2, [96, 78, 60], 'tree'));
+  statics.push(B(x - 1.3, x + 1.3, y - 1.3, y + 1.3, 2.2, 4.6, [72, 122, 70], 'tree'));
+}));
+statics.push(B(19.7, 20.2, -8.6, -8.1, 0, 1.75, [200, 60, 60], 'person'));
+
+const CARS = [
+  { x: 14, y: -1.75, v: 2.0, c: [40, 90, 170] },
+  { x: 27, y: -5.25, v: 1.6, c: [180, 40, 40] },
+  { x: 9, y: 1.75, v: -2.6, c: [62, 62, 68] },
+  { x: 40, y: 5.25, v: -2.2, c: [205, 205, 198] },
+  { x: -13, y: -5.25, v: 2.3, c: [90, 132, 92] },
+  { x: -11, y: -1.75, v: 2.0, c: [150, 150, 162] },
+  { x: 55, y: -1.75, v: 2.0, c: [210, 170, 60] },
+];
+function carBoxes(x, y, c, cls) {
+  return [
+    B(x - 2.0, x + 2.0, y - 0.85, y + 0.85, 0.05, 0.3, [24, 24, 28], cls),
+    B(x - 2.25, x + 2.25, y - 0.92, y + 0.92, 0.3, 1.0, c, cls),
+    B(x - 1.1, x + 1.0, y - 0.8, y + 0.8, 1.0, 1.5, c.map(v => v * 0.72 + 20), cls),
+  ];
+}
+function sceneAt(t = 0, ego = false, perturb = false) {
+  const boxes = statics.slice();
+  CARS.forEach((c, i) => {
+    let x = c.x + c.v * t, y = c.y;
+    if (perturb) { if (i === 2) return; if (i === 1) x += 3.2; if (i === 0) y += 0.4; }
+    boxes.push(...carBoxes(x, y, c.c, 'car'));
+  });
+  if (ego) boxes.push(...carBoxes(t * 2, EGO_Y, [236, 236, 236], 'ego'));
+  return { boxes, egoX: t * 2 };
+}
+const quad = (x0, x1, y0, y1) => [[x0, y0, 0], [x1, y0, 0], [x1, y1, 0], [x0, y1, 0]];
+const FLATS = [
+  { poly: quad(-200, 300, -200, 200), c: COL.grass, cls: 'ground' },
+  { poly: quad(-200, 300, -7, 7), c: COL.road, cls: 'road' },
+  { poly: quad(-200, 300, 7, 10.5), c: COL.walk, cls: 'walk' },
+  { poly: quad(-200, 300, -10.5, -7), c: COL.walk, cls: 'walk' },
+  { poly: quad(-200, 300, 0.05, 0.25), c: COL.yellow, cls: 'marking' },
+  { poly: quad(-200, 300, -0.25, -0.05), c: COL.yellow, cls: 'marking' },
+];
+for (let k = -10; k < 32; k++) {
+  FLATS.push({ poly: quad(k * 9, k * 9 + 3, 3.4, 3.6), c: COL.white, cls: 'marking' });
+  FLATS.push({ poly: quad(k * 9, k * 9 + 3, -3.6, -3.4), c: COL.white, cls: 'marking' });
+}
+function groundColor(x, y) {
+  const ay = Math.abs(y);
+  if (ay <= 7) {
+    if (ay > 0.05 && ay < 0.25) return COL.yellow;
+    if (Math.abs(ay - 3.5) < 0.1 && (((x % 9) + 9) % 9) < 3) return COL.white;
+    return COL.road;
+  }
+  return ay <= 10.5 ? COL.walk : COL.grass;
+}
+
+// ---------- camera + rasteriser ----------
+function makeCam(pos, target, fov, W, H) {
+  const f = norm(sub(target, pos)), r = norm(cross(f, [0, 0, 1])), u = cross(r, f);
+  return { pos, f, r, u, W, H, focal: (W / 2) / Math.tan(fov * D / 2) };
+}
+const toCam = (c, p) => { const d = sub(p, c.pos); return [dot(d, c.r), dot(d, c.u), dot(d, c.f)]; };
+const NEAR = 0.15;
+function clipNear(pts) {
+  const out = [];
+  for (let i = 0; i < pts.length; i++) {
+    const a = pts[i], b = pts[(i + 1) % pts.length], ain = a[2] >= NEAR, bin = b[2] >= NEAR;
+    if (ain) out.push(a);
+    if (ain !== bin) { const t = (NEAR - a[2]) / (b[2] - a[2]); out.push([a[0] + t * (b[0] - a[0]), a[1] + t * (b[1] - a[1]), NEAR]); }
+  }
+  return out;
+}
+const proj = (c, q) => [c.W / 2 + q[0] * c.focal / q[2], c.H / 2 - q[1] * c.focal / q[2]];
+function drawPoly(ctx, cam, poly, fill) {
+  const q = clipNear(poly.map(p => toCam(cam, p)));
+  if (q.length < 3) return;
+  ctx.beginPath();
+  q.forEach((p, i) => { const s = proj(cam, p); i ? ctx.lineTo(s[0], s[1]) : ctx.moveTo(s[0], s[1]); });
+  ctx.closePath(); ctx.fillStyle = fill; ctx.fill();
+  ctx.strokeStyle = fill; ctx.lineWidth = 0.6; ctx.stroke();
+}
+function boxFaces(b) {
+  const { x0, x1, y0, y1, z0, z1 } = b;
+  return [
+    { n: [0, 0, 1], v: [[x0, y0, z1], [x1, y0, z1], [x1, y1, z1], [x0, y1, z1]] },
+    { n: [-1, 0, 0], v: [[x0, y0, z0], [x0, y1, z0], [x0, y1, z1], [x0, y0, z1]] },
+    { n: [1, 0, 0], v: [[x1, y0, z0], [x1, y1, z0], [x1, y1, z1], [x1, y0, z1]] },
+    { n: [0, -1, 0], v: [[x0, y0, z0], [x1, y0, z0], [x1, y0, z1], [x0, y0, z1]] },
+    { n: [0, 1, 0], v: [[x0, y1, z0], [x1, y1, z0], [x1, y1, z1], [x0, y1, z1]] },
+  ];
+}
+const boxDist = (b, p) => Math.hypot(Math.max(b.x0 - p[0], 0, p[0] - b.x1), Math.max(b.y0 - p[1], 0, p[1] - b.y1), Math.max(b.z0 - p[2], 0, p[2] - b.z1));
+const shadeFace = (color, n) => color.map(v => v * (0.5 + 0.5 * Math.max(0, dot(n, LIGHT))));
+
+function render(ctx, cam, o = {}) {
+  const { t = 0, ego = false, ids = false, perturb = false } = o;
+  const sc = sceneAt(t, ego, perturb);
+  if (ids) { ctx.fillStyle = rgb(CLS.sky); ctx.fillRect(0, 0, cam.W, cam.H); }
+  else { const g = ctx.createLinearGradient(0, 0, 0, cam.H); g.addColorStop(0, rgb(COL.sky1)); g.addColorStop(0.65, rgb(COL.sky2)); ctx.fillStyle = g; ctx.fillRect(0, 0, cam.W, cam.H); }
+  for (const fl of FLATS) drawPoly(ctx, cam, fl.poly, rgb(ids ? CLS[fl.cls] : fl.c));
+  const order = sc.boxes.map(b => ({ b, d: boxDist(b, cam.pos) })).sort((a, b) => b.d - a.d);
+  for (const { b, d } of order) {
+    const fog = Math.min(1, d / 170) * 0.55;
+    for (const f of boxFaces(b)) {
+      if (dot(f.n, sub(cam.pos, f.v[0])) <= 0) continue;
+      const col = ids ? CLS[b.cls] : mix(shadeFace(b.color, f.n), COL.sky2, fog);
+      drawPoly(ctx, cam, f.v, rgb(col));
+    }
+  }
+}
+const CAMS = [['FRONT_LEFT', 55], ['FRONT', 0], ['FRONT_RIGHT', -55], ['BACK_LEFT', 110], ['BACK', 180], ['BACK_RIGHT', -110]];
+function carCam(yawDeg, W, H, t = 0) {
+  const y = yawDeg * D, ex = t * 2;
+  const pos = [ex + Math.cos(y) * 1.2, EGO_Y + Math.sin(y) * 0.6, 1.6];
+  return makeCam(pos, [pos[0] + Math.cos(y), pos[1] + Math.sin(y), pos[2] - 0.06], 70, W, H);
+}
+function chaseCam(W, H, t = 0) {
+  const ex = t * 2;
+  return makeCam([ex - 13, -1.0, 8.5], [ex + 12, -1.0, 0], 60, W, H);
+}
+const off = (w, h) => { const c = document.createElement('canvas'); c.width = w; c.height = h; return c; };
+const ctxOf = c => c.getContext('2d');
+
+// ---------- lidar ----------
+function rayBox(o, d, b) {
+  let tmin = -Infinity, tmax = Infinity, n = null;
+  const lo = [b.x0, b.y0, b.z0], hi = [b.x1, b.y1, b.z1];
+  for (let i = 0; i < 3; i++) {
+    if (Math.abs(d[i]) < 1e-9) { if (o[i] < lo[i] || o[i] > hi[i]) return null; continue; }
+    let t1 = (lo[i] - o[i]) / d[i], t2 = (hi[i] - o[i]) / d[i];
+    const nn = [0, 0, 0]; nn[i] = -1;
+    if (t1 > t2) { const s = t1; t1 = t2; t2 = s; nn[i] = 1; }
+    if (t1 > tmin) { tmin = t1; n = nn; }
+    if (t2 < tmax) tmax = t2;
+    if (tmin > tmax) return null;
+  }
+  if (tmax < 0 || tmin < 0.01 || !n) return null;
+  return { t: tmin, n };
+}
+function lidar() {
+  const o = [0, EGO_Y, 1.9], sc = sceneAt(0, false), pts = [];
+  for (let k = 0; k < 32; k++) {
+    const el = (-24 + k * (30 / 31)) * D;
+    for (let a = 0; a < 360; a += 0.8) {
+      const az = a * D, d = [Math.cos(el) * Math.cos(az), Math.cos(el) * Math.sin(az), Math.sin(el)];
+      let best = 70, hit = null;
+      if (d[2] < -1e-6) { const tg = -o[2] / d[2]; if (tg < best) { best = tg; hit = { g: true }; } }
+      for (const bx of sc.boxes) { const r = rayBox(o, d, bx); if (r && r.t < best) { best = r.t; hit = { bx, n: r.n }; } }
+      if (!hit) continue;
+      const p = [o[0] + d[0] * best, o[1] + d[1] * best, Math.max(0, o[2] + d[2] * best)];
+      pts.push({ p, c: hit.g ? groundColor(p[0], p[1]) : shadeFace(hit.bx.color, hit.n) });
+    }
+  }
+  return pts;
+}
+const LIDAR = lidar();
+
+function drawBEV(cv, { colored = false, frustums = true } = {}) {
+  const ctx = ctxOf(cv), W = cv.width, H = cv.height, xmin = -32, s = W / 96;
+  const X = x => (x - xmin) * s, Y = y => H / 2 - y * s;
+  ctx.fillStyle = '#0B1110'; ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = '#16201F'; ctx.fillRect(0, Y(7), W, 14 * s);
+  ctx.strokeStyle = '#24302E'; ctx.lineWidth = 1;
+  for (const b of statics) if (b.cls === 'building') ctx.strokeRect(X(b.x0), Y(b.y1), (b.x1 - b.x0) * s, (b.y1 - b.y0) * s);
+  if (frustums) {
+    CAMS.forEach(([, yaw], i) => {
+      const y = yaw * D, R = 26, h = 35 * D, cx = X(0), cy = Y(EGO_Y);
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.lineTo(cx + Math.cos(y - h) * R * s, cy - Math.sin(y - h) * R * s);
+      ctx.lineTo(cx + Math.cos(y + h) * R * s, cy - Math.sin(y + h) * R * s);
+      ctx.closePath(); ctx.fillStyle = i % 2 ? 'rgba(233,162,28,0.10)' : 'rgba(124,152,255,0.12)'; ctx.fill();
+      ctx.strokeStyle = i % 2 ? 'rgba(233,162,28,0.45)' : 'rgba(124,152,255,0.5)'; ctx.stroke();
+    });
+  }
+  for (const pt of LIDAR) {
+    const [x, y, z] = pt.p;
+    if (x < xmin || x > xmin + 96 || Math.abs(y) > H / 2 / s) continue;
+    let c;
+    if (colored) c = rgb(pt.c);
+    else if (z < 0.15) c = 'rgba(110,150,150,0.55)';
+    else { const k = clamp(z / 10, 0, 1); c = rgb(mix([90, 200, 255], [255, 170, 60], k)); }
+    ctx.fillStyle = c; ctx.fillRect(X(x) - 0.8, Y(y) - 0.8, 1.6, 1.6);
+  }
+  ctx.fillStyle = '#F2F2F2'; ctx.fillRect(X(-2.25), Y(EGO_Y + 0.92), 4.5 * s, 1.84 * s);
+  if (frustums) {
+    ctx.font = '11px "IBM Plex Mono", monospace'; ctx.fillStyle = '#C9D4D1';
+    ctx.fillText('FRONT →', X(14), Y(EGO_Y) - 30);
+  }
+}
+function drawPoints(cv, pts, { t = 0, size = 0.12, minPx = 1.5, maxPx = 4, round = false, alpha = 1, bg = '#0B1110' } = {}) {
+  const ctx = ctxOf(cv), cam = chaseCam(cv.width, cv.height, t);
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, cv.width, cv.height);
+  const list = [];
+  for (const pt of pts) { const q = toCam(cam, pt.p); if (q[2] < NEAR) continue; const s = proj(cam, q); if (s[0] < -20 || s[0] > cv.width + 20 || s[1] < -20 || s[1] > cv.height + 20) continue; list.push([q[2], s, pt.c, pt.r || size]); }
+  list.sort((a, b) => b[0] - a[0]);
+  ctx.globalAlpha = alpha;
+  for (const [z, s, c, r] of list) {
+    const px = clamp(r * cam.focal / z, minPx, maxPx);
+    ctx.fillStyle = rgb(c);
+    if (round) { ctx.beginPath(); ctx.arc(s[0], s[1], px, 0, Math.PI * 2); ctx.fill(); }
+    else ctx.fillRect(s[0] - px / 2, s[1] - px / 2, px, px);
+  }
+  ctx.globalAlpha = 1;
+}
+
+// ---------- stage 1 + 2 ----------
+const camCanvases = [];
+function buildCams(hostId, small) {
+  const host = document.getElementById(hostId);
+  CAMS.forEach(([name, yaw]) => {
+    const fig = document.createElement('figure');
+    const cv = off(small ? 192 : 320, small ? 108 : 180); cv.className = 'screen';
+    cv.setAttribute('aria-label', `${name.replace('_', ' ').toLowerCase()} camera photo`);
+    const cap = document.createElement('figcaption'); cap.textContent = 'CAM_' + name;
+    fig.append(cv, cap); host.append(fig);
+    render(ctxOf(cv), carCam(yaw, cv.width, cv.height));
+  });
+}
+buildCams('cams1', false);
+buildCams('cams2', true);
+drawBEV(document.getElementById('bev1'));
+drawBEV(document.getElementById('bev2'), { frustums: false });
+drawPoints(document.getElementById('chase2'), LIDAR, { size: 0.11, minPx: 1.4, maxPx: 4 });
+
+// ---------- stage 3 ----------
+const front = document.getElementById('front3');
+render(ctxOf(front), carCam(0, front.width, front.height));
+{
+  const idc = off(448, 252); render(ctxOf(idc), carCam(0, 448, 252), { ids: true });
+  const id = ctxOf(idc).getImageData(0, 0, 448, 252).data;
+  const tok = document.getElementById('tok3'), tc = ctxOf(tok);
+  tc.fillStyle = '#0B1110'; tc.fillRect(0, 0, 448, 252); seed = 3;
+  for (let gy = 0; gy < 18; gy++) for (let gx = 0; gx < 32; gx++) {
+    const i = ((gy * 14 + 7) * 448 + gx * 14 + 7) * 4;
+    const j = () => (rnd() - 0.5) * 46;
+    tc.fillStyle = rgb([id[i] + j(), id[i + 1] + j(), id[i + 2] + j()]);
+    tc.fillRect(gx * 14 + 1, gy * 14 + 1, 12, 12);
+  }
+  const vec = document.getElementById('vec3'), vc = ctxOf(vec);
+  vc.fillStyle = '#0B1110'; vc.fillRect(0, 0, 384, 34); seed = 21;
+  for (let k = 0; k < 384; k++) {
+    const v = (rnd() + rnd() + rnd() - 1.5) * 1.3;
+    vc.fillStyle = v >= 0 ? '#E9A21C' : '#7C98FF';
+    const h = Math.abs(v) * 13; vc.fillRect(k, v >= 0 ? 17 - h : 17, 1, h);
+  }
+}
+const CHASE = off(256, 144); render(ctxOf(CHASE), chaseCam(256, 144), { ego: true });
+ctxOf(document.getElementById('tgt3')).drawImage(document.getElementById('chase2'), 0, 0, 256, 144);
+{
+  const small = off(32, 18), sx = ctxOf(small);
+  sx.imageSmoothingQuality = 'high'; sx.drawImage(document.getElementById('chase2'), 0, 0, 32, 18);
+  const px = sx.getImageData(0, 0, 32, 18).data, n = 32 * 18;
+  const ch = [0, 1, 2, 3].map(() => new Float32Array(n));
+  const lum = new Float32Array(n);
+  for (let i = 0; i < n; i++) lum[i] = (0.3 * px[i * 4] + 0.59 * px[i * 4 + 1] + 0.11 * px[i * 4 + 2]) / 255;
+  for (let i = 0; i < n; i++) {
+    const r = px[i * 4] / 255, g = px[i * 4 + 1] / 255, b = px[i * 4 + 2] / 255, x = i % 32;
+    ch[0][i] = lum[i]; ch[1][i] = r - g; ch[2][i] = b - (r + g) / 2;
+    ch[3][i] = x < 31 ? Math.abs(lum[i] - lum[i + 1]) - 0.05 : 0;
+  }
+  const host = document.getElementById('lat3');
+  ch.forEach((a, ci) => {
+    let mean = 0; for (const v of a) mean += v; mean /= n;
+    let m = 1e-6; for (const v of a) m = Math.max(m, Math.abs(v - mean));
+    const cv = off(32, 18); cv.className = 'screen'; cv.setAttribute('aria-label', `latent channel ${ci + 1}`);
+    const c = ctxOf(cv), img = c.createImageData(32, 18);
+    for (let i = 0; i < n; i++) {
+      const v = (a[i] - mean) / m;
+      const col = v >= 0 ? mix([26, 34, 34], [240, 168, 40], v) : mix([26, 34, 34], [110, 145, 255], -v);
+      img.data.set([col[0], col[1], col[2], 255], i * 4);
+    }
+    c.putImageData(img, 0, 0); host.append(cv);
+  });
+}
+
+// ---------- stage 4 ----------
+{
+  const clean = document.getElementById('clean4'); ctxOf(clean).drawImage(CHASE, 0, 0);
+  const cd = ctxOf(CHASE).getImageData(0, 0, 256, 144).data;
+  seed = 99; const N = new Uint8ClampedArray(cd.length);
+  for (let i = 0; i < cd.length; i++) N[i] = 128 + (rnd() + rnd() + rnd() - 1.5) * 150;
+  const nc = ctxOf(document.getElementById('noisy4')), img = nc.createImageData(256, 144);
+  const slider = document.getElementById('t4'), out = document.getElementById('t4v');
+  const draw = () => {
+    const t = slider.value / 100;
+    for (let i = 0; i < cd.length; i += 4) {
+      img.data[i] = (1 - t) * cd[i] + t * N[i];
+      img.data[i + 1] = (1 - t) * cd[i + 1] + t * N[i + 1];
+      img.data[i + 2] = (1 - t) * cd[i + 2] + t * N[i + 2];
+      img.data[i + 3] = 255;
+    }
+    nc.putImageData(img, 0, 0); out.textContent = 't = ' + t.toFixed(2);
+  };
+  slider.addEventListener('input', draw); draw();
+}
+
+// ---------- stage 5 ----------
+{
+  const prev = document.getElementById('prev5'), now = document.getElementById('now5'), label = document.getElementById('f5'), btn = document.getElementById('play5');
+  const W = 320, H = 180, buf = off(W, H), bc = ctxOf(buf), pc = ctxOf(prev), nc = ctxOf(now);
+  const img = pc.createImageData(W, H);
+  let frame = 0, playing = false, last = 0;
+  const step = 0.25;
+  function show() {
+    const t = frame * step;
+    render(nc, chaseCam(W, H, t), { t, ego: true });
+    render(bc, chaseCam(W, H, t - step), { t: t - step, ego: true });
+    const d = bc.getImageData(0, 0, W, H).data;
+    for (let i = 0; i < d.length; i += 4) {
+      const n = (Math.random() + Math.random() - 1) * 170;
+      img.data[i] = d[i] * 0.72 + (128 + n) * 0.28;
+      img.data[i + 1] = d[i + 1] * 0.72 + (128 + n * 0.9) * 0.28;
+      img.data[i + 2] = d[i + 2] * 0.72 + (128 + n * 1.1) * 0.28;
+      img.data[i + 3] = 255;
+    }
+    pc.putImageData(img, 0, 0);
+    label.textContent = `frame ${frame}`;
+  }
+  function loop(ts) {
+    if (!playing) return;
+    if (ts - last > 80) { last = ts; frame = (frame + 1) % 90; show(); }
+    requestAnimationFrame(loop);
+  }
+  btn.addEventListener('click', () => {
+    playing = !playing; btn.textContent = playing ? '❚❚ Pause' : '▶ Play';
+    if (playing) requestAnimationFrame(loop);
+  });
+  frame = 1; show();
+}
+
+// ---------- stage 6 ----------
+{
+  drawPoints(document.getElementById('old6'), LIDAR, { size: 0.11, minPx: 1.2, maxPx: 3.5 });
+  const pts = []; const sp = 0.75; seed = 11;
+  for (let x = -26; x < 100; x += sp) for (let y = -16; y < 16; y += sp) {
+    const px = x + rnd() * sp, py = y + rnd() * sp;
+    pts.push({ p: [px, py, 0], c: groundColor(px, py), r: 0.6 });
+  }
+  for (const b of sceneAt(0, false).boxes) {
+    if (b.x1 < -26 || b.x0 > 100) continue;
+    for (const f of boxFaces(b)) {
+      const [a, bb, , d] = f.v, e1 = sub(bb, a), e2 = sub(d, a);
+      const l1 = Math.hypot(...e1), l2 = Math.hypot(...e2);
+      const n1 = Math.max(1, Math.ceil(l1 / sp)), n2 = Math.max(1, Math.ceil(l2 / sp));
+      const col = shadeFace(b.color, f.n), r = Math.min(0.6, Math.max(0.14, Math.min(l1 / n1, l2 / n2) * 0.8));
+      for (let i = 0; i < n1; i++) for (let j = 0; j < n2; j++) {
+        const u = (i + rnd()) / n1, v = (j + rnd()) / n2;
+        pts.push({ p: [a[0] + e1[0] * u + e2[0] * v, a[1] + e1[1] * u + e2[1] * v, a[2] + e1[2] * u + e2[2] * v], c: col, r });
+      }
+    }
+  }
+  drawPoints(document.getElementById('blob6'), pts, { round: true, size: 0.3, minPx: 0.8, maxPx: 6, alpha: 0.55 });
+  const s6 = document.getElementById('splat6'), sc6 = ctxOf(s6);
+  drawPoints(s6, pts, { round: true, minPx: 1.2, maxPx: 26, alpha: 0.95, bg: rgb(COL.sky1) });
+  // sky above the rebuilt area, as a renderer would show it
+  const g = sc6.createLinearGradient(0, 0, 0, 60); g.addColorStop(0, rgb(COL.sky1)); g.addColorStop(1, 'rgba(206,222,234,0)');
+  sc6.globalCompositeOperation = 'destination-over'; sc6.fillStyle = g; sc6.fillRect(0, 0, 320, 60); sc6.globalCompositeOperation = 'source-over';
+}
+
+// ---------- stage 7 ----------
+[['s50', 0], ['s4', 0.7], ['s1', 1.8]].forEach(([id, blur]) => {
+  const c = ctxOf(document.getElementById(id));
+  if (blur) c.filter = `blur(${blur}px)`;
+  c.drawImage(CHASE, 0, 0); c.filter = 'none';
+});
+
+// ---------- stage 8 ----------
+{
+  const gt = document.getElementById('gt8'), pr = document.getElementById('pr8'), er = document.getElementById('er8');
+  ctxOf(gt).drawImage(CHASE, 0, 0);
+  const tmp = off(256, 144); render(ctxOf(tmp), chaseCam(256, 144), { ego: true, perturb: true });
+  const pc = ctxOf(pr); pc.filter = 'blur(0.8px)'; pc.drawImage(tmp, 0, 0); pc.filter = 'none';
+  const a = ctxOf(gt).getImageData(0, 0, 256, 144).data, b = pc.getImageData(0, 0, 256, 144).data;
+  const ec = ctxOf(er), img = ec.createImageData(256, 144);
+  for (let i = 0; i < a.length; i += 4) {
+    const v = clamp((Math.abs(a[i] - b[i]) + Math.abs(a[i + 1] - b[i + 1]) + Math.abs(a[i + 2] - b[i + 2])) / 3 / 255 * 3.5, 0, 1);
+    const c = v < 0.5 ? mix([12, 18, 18], [233, 162, 28], v * 2) : mix([233, 162, 28], [255, 252, 235], (v - 0.5) * 2);
+    img.data[i] = c[0]; img.data[i + 1] = c[1]; img.data[i + 2] = c[2]; img.data[i + 3] = 255;
+  }
+  ec.putImageData(img, 0, 0);
+}
+})();
+</script>
+
+</body>
+</html>

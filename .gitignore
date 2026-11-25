@@ -1,0 +1,11 @@
+pulled/
+data/
+runs/
+logs/
+tmp/
+envs/
+hf/
+drivestudio/
+__pycache__/
+*.pyc
+.DS_Store

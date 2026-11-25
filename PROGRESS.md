@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-25 17:15 — Sim council converged (rounds 1-3); SD restart armed
+- Agreed plan (council/s3-astra.md, council/s3-fable.md): first verify the ScenarioNet replay (per-camera intrinsics/FOV, ego origin + hide, overlays; stop on systematic offsets). Render ~2,000 ego-hidden replay pairs from official train scenes (512x288 -> crop 32 rows, low drone), clean + phone-augmented inputs. Three arms from identical init with paired real batches (16 real rows: 11 lidar + 5 splat): A real only; B 2k sim updates then 5k real (A extended to 7k for equal updates); C real + 2 sim-camera rows + 2 real-camera rows targeting the replay key. Style rows 0 lidar / 1 splat / 2 sim, shared learned null. Score every arm at 3k and 5k real steps.
+  Geometry judge: frozen Mask2Former Swin-L Cityscapes panoptic (cars conf >= 0.5, road), one-to-one matches IoU >= 0.3 to projected nuScenes vehicle hulls within 30 m (>= 8 px), F1; road-edge distance in ground metres vs projected drivable-area boundaries (capped 2 m); 4 frames x 30 val scenes outside the final 30, 2 paired seeds; second judge SegFormer-B5 must agree on the sign; validation checks must pass first (graded shifts, camera shuffle).
+  Go rule: >= 0.05 F1 gain or >= 10% kerb-error reduction over A with paired scene-bootstrap 95% CI excluding zero, no regression on the other, masked splat LPIPS worse by <= 0.01, no sim look in pictures. Budget ~8 GPU-h.
+  Open (round 4 to Astra): B's sim phase trains adapter+LoRA (Fable) or adapter only (Astra); label-shift check as graded 0.5/1/2 m ground shifts (Fable) vs 24 px.
+- SD restart armed: watcher job 3751035 waits for sd_run1's next checkpoint (10k), scancels 3750658 and resumes runs/sd_run1 with --tokens_aug data/enc_aug_0, --mem 120G (same keys: lat512 lidar-low + splat-low-trust; SD path unaffected by the encode.py colour bug).
+
 ## 2026-11-25 17:25 — ScenarioNet replay works
 - Needed: setuptools<81 (pkg_resources) in envs/sim and the nuScenes map expansion v1.3 (downloaded to data/nuscenes/maps and data/nuscenes_full/maps). nuScenes-mini converted to data/scn_mini.
 - Pictures (pulled/sim_scn.jpg, docs/figs/sim_scenarionet.jpg): real layouts with logged cars, trucks, pedestrians, barriers, crosswalks at their recorded places; scenery is still grass hills (no buildings). A silver car at the bottom of some drone views = probably our own car (hide failed) or the rear-axle origin offset -> part of the replay verification step. Cameras still at 70 deg (real: ~65 front/side, ~89 back).

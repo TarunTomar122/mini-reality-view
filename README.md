@@ -132,7 +132,6 @@ Exact positions are not precise yet. Training continues.
   while its pictures are visibly sharper; LPIPS (0.41 → 0.37) tracks what you see.
 - **Splat keys break when the camera is too high.** The real cameras are 1.5 m up; at 8.5 m the splat scene shows
   floaters and smears where no camera ever looked.
-
 - **Trust masks help where the key is good, but the model then copies the key's holes.** We weighted the loss by how
   much each pixel of the splat key can be trusted (seen by a real camera, depth agrees with lidar). On 12 unseen scenes,
   scored only on trusted pixels, LPIPS improves from 0.399 to 0.364 and pixel error stays the same (27.2 vs 27.8).

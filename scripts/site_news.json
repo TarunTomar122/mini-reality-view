@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 15:35",
+  "text": "Where do the cars go wrong? A separate camera-only 3D detector (BEVFormer) finds the cars almost as well as the true labels do (0.42 vs 0.46 with the same box method), while our renderer reaches 42% of what it could. So the cameras do contain the positions; our model loses them on the way. Feeding the renderer the detector's 3D view is the next idea for placement."
+ },
+ {
   "when": "26 Nov, 13:40",
   "text": "10,000-step scores: a quarter of the data (E3, car score 0.32) does as well as all of it (E1, 0.29), so more data would not help yet. The perfect game picture through the same image compression scores 0.76, so we are at about 42% of what the judge can measure."
  },

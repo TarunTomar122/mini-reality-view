@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 07:00 — Owner's new direction: real photos in, game-style third-person view out
+- Owner: outputs still messy because the model copies messy keys -> idea: keep real camera photos as input but use the perfect game render as the answer key; and a third-person chase view (own car visible) instead of the drone.
+- sim_render.py: --view tpv (6 m behind the car centre, 2 m up, pitch -6 deg, own car shown), --keys_name, --keys_only, --only. Preview on 4 train scenes (tpv-preview 3751968, 2080 Ti, excluding damnii07): 51 keys in data/sim/keys_tpv. Sheets pulled/tpv_scene-*.jpg (6 real photos | third-person game key | old drone game key).
+- Possible tweak: the own car is cut off at the bottom edge -> move the camera ~1 m further back / a bit higher.
+- Waiting for the owner's go before rendering ~8k third-person keys.
+
 ## 2026-11-26 06:15 — PAUSED by the owner
 - Owner: "we stop here, pause all the jobs and let's chat". Cancelled all of this project's jobs (bev-try 3751843 running; sdB-sim 3751715, sdB-real 3751716, sd-run1-45k 3751718, phone-test 3751879 + judges 3751880/81 pending). Other projects' jobs untouched.
 - State kept on the cluster: runs/sd_run1/ckpt.pt (final 40k), runs/sd_run1_45k (copy, untrained), sim pilot arms (runs/simA|simB|simC), judge renders/scores (runs/judge), sim data (data/sim, 7,891 pairs; enc_sim / lat512_sim), BEV env (envs/bev, built) + infos pkl; phone_test.py ready, not run.

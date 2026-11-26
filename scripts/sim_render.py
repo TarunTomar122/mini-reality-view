@@ -24,7 +24,14 @@ p.add_argument("--scenes", type=int, default=100)
 p.add_argument("--every", type=int, default=2, help="use every n-th keyframe")
 p.add_argument("--shard", default="0/1")
 p.add_argument("--skip", default="", help="comma list of scenes to skip (e.g. ones where MetaDrive hangs)")
+p.add_argument("--view", default="drone", choices=["drone", "tpv"],
+               help="drone: 9 m back, 4.5 m up, own car hidden; tpv: third-person chase camera 6 m back, 2 m up, own car shown")
+p.add_argument("--keys_name", default="keys", help="sub-folder for the answer keys (e.g. keys_tpv)")
+p.add_argument("--keys_only", action="store_true", help="do not render the 6 rig cameras (already rendered)")
+p.add_argument("--only", default="", help="comma list of scenes: render just these (any train scene in sdir)")
 a = p.parse_args()
+VIEW = {"drone": dict(pos=[0, -9.0, 4.5], pitch=-math.degrees(math.atan2(4.0, 24.0)), hide_ego=True),
+        "tpv": dict(pos=[0, -6.0, 2.0], pitch=-6.0, hide_ego=False)}[a.view]
 CAMS = ["CAM_FRONT_LEFT", "CAM_FRONT", "CAM_FRONT_RIGHT", "CAM_BACK_LEFT", "CAM_BACK", "CAM_BACK_RIGHT"]
 W, H, DW, DH = 448, 252, 512, 288
 nusc = NuScenes(a.ver, a.nroot, verbose=False)
@@ -66,14 +73,16 @@ for i, fn in enumerate(names):
         cands.append((i, sc_name))
 step = max(1, len(cands) // a.scenes)
 chosen = cands[::step][: a.scenes]
+if a.only:
+    chosen = [c for c in cands if c[1] in set(a.only.split(","))]
 si, sn = map(int, a.shard.split("/"))
 chosen = chosen[si::sn]
 print("scenarios", len(names), "train candidates", len(cands), "this shard", len(chosen), flush=True)
-os.makedirs(f"{a.out}/cams", exist_ok=True); os.makedirs(f"{a.out}/keys", exist_ok=True)
+os.makedirs(f"{a.out}/cams", exist_ok=True); os.makedirs(f"{a.out}/{a.keys_name}", exist_ok=True)
 n_pairs = 0
 SKIP = set(x for x in a.skip.split(",") if x)
 for idx, sc_name in chosen:
-    kd = f"{a.out}/keys/{sc_name}"
+    kd = f"{a.out}/{a.keys_name}/{sc_name}"
     # resume: DONE = finished; STARTED without DONE = a previous attempt hung or died here -> skip it;
     # a folder without markers is from the first (marker-less) run: finished unless listed in --skip
     if sc_name in SKIP or os.path.exists(f"{kd}/DONE") or os.path.exists(f"{kd}/STARTED") or \
@@ -93,7 +102,7 @@ for idx, sc_name in chosen:
     faulthandler.dump_traceback_later(300, exit=True)  # after reset: a crash at start-up is not a bad scene
     cam, drone = env.engine.get_sensor("rgb"), env.engine.get_sensor("drone")
     drone.lens.setFov(60, 2 * math.degrees(math.atan(math.tan(math.radians(30)) * DH / DW)))
-    od_c, od_k = f"{a.out}/cams/{sc_name}", f"{a.out}/keys/{sc_name}"
+    od_c, od_k = f"{a.out}/cams/{sc_name}", f"{a.out}/{a.keys_name}/{sc_name}"
     os.makedirs(od_c, exist_ok=True); os.makedirs(od_k, exist_ok=True)
     cur = 0
     for k, tok in enumerate(toks):
@@ -105,17 +114,16 @@ for idx, sc_name in chosen:
             *_, term, trunc, _ = env.step([0, 0]); cur += 1; done = term or trunc
         if done:
             break
-        for c in CAMS:
+        for c in ([] if a.keys_only else CAMS):
             pos, hpr, hf, vf, sh = poses[c]
             cam.lens.setFov(hf, vf)
             fs = cam.lens.getFilmSize(); cam.lens.setFilmOffset(sh[0] * 0.5 * fs[0], sh[1] * 0.5 * fs[1])
             im = cam.perceive(to_float=False, new_parent_node=env.agent.origin, position=pos, hpr=hpr)
             Image.fromarray(im[..., ::-1]).save(f"{od_c}/{k:03d}_{tok}_{c}.jpg", quality=92)
-        hid = [ch for ch in env.agent.origin.getChildren() if "camera" not in ch.getName().lower()]
+        hid = [ch for ch in env.agent.origin.getChildren() if "camera" not in ch.getName().lower()] if VIEW["hide_ego"] else []
         for ch in hid:
             ch.hide()
-        im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=[0, -9.0, 4.5],
-                            hpr=[0, -math.degrees(math.atan2(4.0, 24.0)), 0])
+        im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
         for ch in hid:
             ch.show()
         rgba = np.concatenate([im[..., ::-1], np.full(im.shape[:2] + (1,), 255, np.uint8)], -1)

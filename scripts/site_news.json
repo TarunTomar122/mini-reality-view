@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 22:45",
+  "text": "Car map redesign signed by both AI reviewers: feed the car boxes straight into the model's first layer, reward getting the car pixels right, and hide the cameras half the time early on so the model has to use the map. Two bugs fixed first: detector car angles were mirrored, and the detector used lidar-based car positions (now camera calibration only)."
+ },
+ {
   "when": "26 Nov, 21:45",
   "text": "Car map re-tested with the bug fixed: the map now changes the picture, but the right map and a wrong map change it the same way (car score 0.315 vs 0.323; base model 0.318). So the add-on still does not use where the cars are. Early stop, valid this time; the two AI reviewers are redesigning it."
  },

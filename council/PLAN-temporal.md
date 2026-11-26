@@ -1,4 +1,4 @@
-# Temporal consistency and memory: merged plan (v5: all sign-off objections applied, W on shared transitions)
+# Temporal consistency and memory: FINAL plan (v5, signed by Astra and Fable, 26 Nov)
 
 Sources: council/temporal-brief.md; round 1 temporal-s1-astra.md, temporal-s1-fable.md; round 2 temporal-s2-astra.md,
 temporal-s2-fable.md. Where round 2 still differed, the choice below and the reason are given in [brackets].

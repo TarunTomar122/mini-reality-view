@@ -50,8 +50,8 @@ for tj in sorted(glob.glob(f"{a.keys}/*/ticks.json")):
         for c in CAMS:
             ts, fn = chains[c]
             j = int(np.argmin(np.abs(ts - t_us)))
-            files.append(fn[j]); offs.append(round((ts[j] - t_us) / 1000, 1))
-        ok = max(abs(o) for o in offs) <= a.max_ms and files != prev_files
+            files.append(fn[j]); offs.append(float(round((ts[j] - t_us) / 1000, 1)))
+        ok = bool(max(abs(o) for o in offs) <= a.max_ms and files != prev_files)
         if not ok or (rows and not rows[-1]["ok"]):
             seq += 1
         rows.append({"tick": tick, "t_us": int(t_us), "files": files, "off_ms": offs, "ok": ok, "seq": seq,

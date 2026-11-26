@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 18:30 — Car map P2 passed: camera-only BEVFormer
+- P2 (decision drives, hull F1 vs game-key cars, score >= 0.3; gate 0.397): standard (can_bus ego motion) 0.417; can_bus zeroed 0.444; zeroed + no previous grid 0.441; GT boxes 0.459. Camera-only mode (can_bus zeroed, previous grid kept) is used for every cache, so the car map needs no non-camera input.
+- P1 caches restarted in camera-only mode (old standard-mode outputs moved to tmp/old_std, data/bev_tpv cleared): train shards 3752812-15, decision 3752816, other val 3752817, final 3752818 (held; released one at a time within the 12-job cap).
+- Released held temporal jobs as slots freed: t10-enc-6/7, lit-2/3/4 (lit-0/1 finished). lit-5 still held.
+
 ## 2026-11-26 17:50 — Job cap: 12 running
 - Owner: at most 12 running jobs from this project (other slots for other projects). Cancelled + re-queued on hold t10-enc-6/7 (now 3752770/71) and lit-2..5 (now 3752772-75; they first remove half-done STARTED-without-DONE folders, so they must be released only after lit-0/1 end); held all other pending jobs (bevP1-train x4, bevP1-decision, troll x3, tmet x3, lit-lat). Dependencies retargeted (troll -> new encoders, lit-lat -> new lit jobs). Running now: 6 encoders, 2 lit, 2 P2, P1 other-val, P1 final.
 

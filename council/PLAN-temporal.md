@@ -1,4 +1,4 @@
-# Temporal consistency and memory: FINAL plan (v5, signed by Astra and Fable, 26 Nov)
+# Temporal consistency and memory: FINAL plan (v5 + amendments 1-2, signed by Astra and Fable, 26 Nov)
 
 Sources: council/temporal-brief.md; round 1 temporal-s1-astra.md, temporal-s1-fable.md; round 2 temporal-s2-astra.md,
 temporal-s2-fable.md. Where round 2 still differed, the choice below and the reason are given in [brackets].
@@ -60,8 +60,12 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
 - **Flips / ghosts (secondary):** share of track ticks whose matched status changes; unmatched render cars per frame
   and their lifetime.
 - **Placement:** judge_pair.py (car F1, road IoU) on every fifth tick, in rollout and cold.
-- **Drift:** late gap = LPIPS of the last 2 s minus the same frames cold, and the same for car F1; early gap (2 s from
-  tick 5) alongside. Clips >= 19 s only. No numerical comparison with the old DiT's +1.8 (a different quantity:
+- **Drift** [amendment 2, approved by Astra and Fable; council/temporal-amend2*.md]: evaluation rollouts run through
+  ticks rejected for offset (> 50 ms): the nearest bundle is fed and the history chain continues, but rejected ticks
+  are excluded from every metric and from flicker transitions. A rollout hard-breaks at a repeated bundle, a render
+  gap, or any camera > 100 ms off. Late gap = LPIPS (and car F1) on the fixed window ticks 150-169 minus the same
+  frames rendered cold from the same bundles; rollouts >= 170 ticks only (measured: decision 22/30, final 18/24, dev
+  5/6, train 85/144); early gap (2 s from tick 5) alongside; per-drive rollout length and rejected share reported. No numerical comparison with the old DiT's +1.8 (a different quantity:
   last-five minus first-five keyframe rollout L1 at 2 Hz) unless that cadence, window and scale are reproduced and the
   dataset difference is labelled.
 - **Lag:** at 5 s swap to another drive's cameras; ticks until car F1 vs the new keys reaches 80% of its cold value

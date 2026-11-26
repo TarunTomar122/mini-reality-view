@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 16:10 — Owner: both tracks in parallel
+- Car map: council brief council/carmap-brief.md (updating PLAN-bev.md for the third-person target: input form, init E3 vs E1, BEVFormer at 2 Hz vs 10 Hz, interaction with memory, 3 experiments with rules vs the 0.763 ceiling). Astra + Fable round 1 running.
+- Temporal (role: pick the memory method; final model = car map + winning memory method with a short retrain): temporal_encode fixed per amendment 2 (offset-rejected ticks encoded from their nearest bundle; hard flag) and restarted on 8 shards (3752726-33; the 2-shard run did 6 drives in 30 min). Lit keyframe re-render (3752694-99) + latents (3752700) queued.
+- Written: scripts/temporal_rollout.py (independent / warm / history; one sampling-noise tensor per drive and seed; separate history stream; through offset rejects; restart at hard breaks; --swap lag test; --shard) and scripts/temporal_metrics.py (placement every 5th accepted tick; key tracks; edge-car ID and W per transition for shared-transition comparisons; recall, flips, ghosts; late / early LPIPS gap vs the cold rollout; lag; --compare = drive-level paired bootstrap with seeds together). Lag threshold still uses a fixed 0.3 F1 reference (TODO: the other drive's cold F1).
+
 ## 2026-11-26 15:35 — Placement diagnostic (owner review item 4)
 - BEVFormer-base (camera-only, train-only checkpoint) run on the 30 decision drives (1,191 frames, boxes only; tmp/bev_boxes_decision.json). scripts/bev_box_judge.py: car boxes projected as hulls into the third-person view, matched to the cached game-key car masks (Mask2Former, IoU >= 0.3), 120 judge frames (seed 0):
   GT nuScenes car boxes 0.459 | BEVFormer boxes (score >= 0.3) 0.417 | our renderer E3 10k 0.318 (its own ceiling, true keys through the VAE: 0.763).

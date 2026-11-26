@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 10:40 — 5k batch submitted
+- All three arms stalled ~12 min at step 4,800 (10:17-10:29, same node saxa; shared filesystem / node slowness, ssh also slow), then continued; no loss.
+- 5k batch (after ckpt_5000 + step >= 5,100): tj-E1-5000 (+ VAE ceiling) 3752150, tj-E2-5000 3752151, tj-E3-5000 3752152, tj-E1-5000-swap 3752153, tj-E1/E3-5000-train 3752154/55, preview 5000 3752156.
+- Live page: https://taruntomar122.github.io/mini-reality-view/ (docs/index.html via scripts/build_site.py; scripts/update_site.sh pulls logs/scores/previews, rebuilds, pushes).
+
 ## 2026-11-26 09:55 — Experiment T preview at 2.5k (pictures only)
 - pulled/prev2500_scene-{0915,0563,0632}.jpg (6 real photos | game key | E1 | E2 | E3 | E1 wrong street), same noise per column.
 - E1 and E3 already match the game keys closely after 2.5k steps: road shape, crossings, rows of parked cars, trucks ahead (moving-traffic drive: both trucks and the near white car in place), the red barrier on the quiet street. E3 (quarter data) looks about as good as E1.

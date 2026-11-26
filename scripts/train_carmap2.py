@@ -44,7 +44,7 @@ SD = "sd-legacy/stable-diffusion-v1-5"
 TRAIN = set(json.load(open(a.lists))["train"])
 RAYS = torch.load(a.rays)
 BOX = {}
-for f in glob.glob(a.boxes):
+for f in [x for pat in a.boxes.split(",") for x in glob.glob(pat)]:  # comma-separated globs
     BOX.update(json.load(open(f)))
 def map_planes(frame):
     return pool(rasterize(frame))[:N_MAP]

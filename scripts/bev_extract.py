@@ -32,6 +32,8 @@ p.add_argument("--no_prev", action="store_true", help="P2: no previous BEV grid 
 p.add_argument("--fixed_calib", action="store_true", help="camera-only (drift check 26 Nov): camera -> lidar from the fixed rig calibration only; "
                "the converter's version also uses the per-camera timestamped ego poses (lidar-based localisation)")
 a = p.parse_args()
+if a.fixed_calib:
+    a.zero_canbus = True  # the dataset rebuilds can_bus from the ego pose in get_data_info; only the run-time zeroing works
 
 sys.path.insert(0, os.getcwd())
 from mmcv import Config
@@ -77,7 +79,6 @@ if a.fixed_calib:
             T = (s2e_t - l2e_t) @ np.linalg.inv(l2e_r).T
             dmax = max(dmax, float(np.abs(T - np.asarray(cam["sensor2lidar_translation"])).max()))
             cam["sensor2lidar_rotation"] = R.T; cam["sensor2lidar_translation"] = T
-        info["can_bus"] = np.zeros_like(np.asarray(info["can_bus"]))  # no ego motion / pose from the dataset
     print(f"fixed calibration: camera->lidar from the rig only (max change vs converter {dmax:.3f} m)", flush=True)
 print("split", a.split, "scenes", len(keep - done), "frames", len(ds.data_infos), flush=True)
 loader = build_dataloader(ds, samples_per_gpu=1, workers_per_gpu=4, dist=False, shuffle=False,

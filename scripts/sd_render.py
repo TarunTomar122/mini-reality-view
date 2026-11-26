@@ -63,7 +63,7 @@ if "branch" in ck or "mapconv" in ck:  # car map: 4-scale branch (train_carmap.p
         unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.load_state_dict(ck["mapconv"]); unet.conv_in.map.to(dev).float().eval()
         MC = True
     BOXES = {}
-    for f_ in _g.glob(a.carmap_boxes):
+    for f_ in [x for pat in a.carmap_boxes.split(",") for x in _g.glob(pat)]:  # comma-separated globs
         BOXES.update(_j.load(open(f_)))
     if a.carmap_oracle:
         from nuscenes.nuscenes import NuScenes

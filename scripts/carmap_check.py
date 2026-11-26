@@ -28,7 +28,7 @@ dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"
 drives = a.drives.split(",") if a.drives else json.load(open(a.lists))["dev"]
 BOX = {}
-for f in glob.glob(a.boxes):
+for f in [x for pat in a.boxes.split(",") for x in glob.glob(pat)]:  # comma-separated globs
     BOX.update(json.load(open(f)))
 RAYS = torch.load("data/calib_rays.pt")
 rows = {}

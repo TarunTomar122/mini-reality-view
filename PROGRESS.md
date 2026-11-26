@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 21:50 — car map diagnostic (partial, before it was cancelled)
+- scripts/carmap_diag.py ran on the 120 decision keyframes (reviewers: should have been dev; cancelled after X1 2k/4k and X2 2k; numbers kept for information only, not used for any decision). Single-step noise prediction is NOT affected by the render bug, so this speaks to training: at every t (100-900) eps-MSE with the right map equals the swapped map to within 1e-4 (e.g. X1 4k t=300: right 0.10658, swapped 0.10669, off 0.10627; X2 2k t=700: 0.01880 / 0.01882 / 0.01891); on map-covered cells right vs off differs by < 1% (X1 4k t=300: 0.21911 vs 0.22037). The branch's change to the prediction is 1-4% RMS and almost the same for right and swapped maps. Expectation: the fixed renders will still show a small map effect; the 2k rule decides.
+
 ## 2026-11-26 21:40 — drift check 1 outcome (Fable): car map renders were broken; arm C draw fixed
 - Fable (council/drift-20261126-2055-fable.md) found a real bug, confirmed on the cluster: diffusers 0.43 pops the down_intrablock_additional_residuals list it is given (unet_2d_condition.py:1141/1155/1190). sd_render.py built RES once per image and passed the same list to all 25 DDIM steps, so the car map acted on step 1 only and steps 2-25 were plain E3. Every car-map render so far is invalid: X1/X2 2k "dec" and "mapswap", pulled/cm2k_sheet.jpg, and therefore the 2k stop decision. Training and carmap_diag.py rebuild the list per call (unaffected).
   - Fix: a fresh list per step; sd_render.py also now refuses to render a frame with no boxes (was silently "map unavailable").

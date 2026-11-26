@@ -160,8 +160,29 @@ speckles on the road. The road is cleaner and the car score went up a little, bu
 
 ![Trusted splat key, model without trust weighting, model with trust weighting (low drone, unseen scenes)](docs/figs/trust_masks.jpg)
 
+- **Practising in a driving game first gives a head start, not a better result (so far).** We replayed 91 real
+  nuScenes drives in the MetaDrive simulator, where the drone-view answer is exact (1,388 picture pairs; it looks like
+  a video game). Three small versions of the renderer got the same real training: real only (A), 2,000 game steps
+  first (B), and game pairs mixed into every batch (C). Scored by the placement judge on 30 unseen scenes
+  (Mask2Former / SegFormer car score):
+
+  | Version | after 5k real steps | after 7k steps in total |
+  |---|---|---|
+  | A: real only | 0.033 / 0.033 | 0.123 / 0.092 |
+  | B: 2k game, then real | **0.096 / 0.076** | (= B at 5k real) |
+  | C: game mixed in | 0.000 / 0.005 | |
+
+  B is clearly ahead of A at the same number of real steps (+0.06, 95% interval +0.02 to +0.10), so the game teaches
+  something useful about where cars go. But at the same total number of training steps, A catches up (0.123 vs 0.096):
+  2,000 game steps were worth about as much as 2,000 more real steps. We are now testing it at full scale
+  (~8,000 game pairs, then the full real training) to see whether the head start survives.
+
+![Same unseen scenes: A at 5k, B at 5k real, C at 5k, A at 7k; yellow outlines are the real cars](docs/figs/sim_arms.jpg)
+
 ## What did not work
 
+- **Mixing game pictures into every batch.** Version C (above) drew realistic streets with almost no cars: its car
+  score at 5k steps was 0.00 against 0.03 for real-only training (95% interval -0.05 to -0.02).
 - **Distilling to one step.** We trained a one-step copy of the bigger renderer to reproduce its 4-step pictures from
   the same noise. Its pixel error is lower (27.4 vs 28.9 for the plain model at one step), but it looks slightly
   smoother and scores worse on LPIPS (0.394 vs 0.381). The plain model already takes almost straight paths from noise

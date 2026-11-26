@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 02:45 — SIM VERDICT
+- Arm C (real + 2 sim + 2 twin rows) vs A: C5k F1 0.000 vs 0.033, -0.033 [-0.052, -0.015] (m2f) / -0.029 [-0.057, -0.004] (SegFormer); C3k = A3k. Pictures (pulled/sim_arms.jpg): C draws realistic streets with almost no cars. C FAILS.
+- B passes the go rule at equal real steps (see 02:10) but not at equal updates (B5k vs A7k -0.026 / -0.015, CI incl. 0; m2f kerb +0.068 worse).
+- Decision rule (owner, 25 Nov): B passes, C does not -> render ~8,000 pairs and a new main run (5k sim, then real with sd_run1's settings), replacing sd_run1 only if it beats it at equal real steps. Followed, plus the plan's equal-update reference (sd_run1 continued to 45k). Flag for the owner: the equal-update result suggests a head start only; the scaled run (~17 h on an H200 slice) can still be cancelled before it starts.
+- Launched (slurm/sim8k_chain.sh): scn-8k convert 600 train scenes 3751703 -> 8 render shards 3751704-11 (2080 Ti, watchdog, 11 h attempts) -> sim-enc 3751712/13 + lat 3751714 -> sdB-sim 5k 3751715 -> sdB-real 40k 3751716 (--init sdB_sim, n_styles 3, cover_min, phone tokens; snapshots 10/20/30/40k). sd_run1 -> copy -> 45k: 3751717/18.
+- BEV prep running (create_data at ~1 sample/s for 34k samples -> ~9 h; 8 h limit risk, watch).
+- README: sim result (learned) + C (did not work) + figure.
+
 ## 2026-11-26 02:10 — Sim pilot: arm B scored
 - VPN dropped ~01:50, reconnected with FortiTray (no job lost).
 - BEV prep failed again: Python prefers a regular package over a namespace one anywhere on sys.path, and detectron2/tools has __init__.py while BEVFormer/tools has none. Added empty BEVFormer/tools/__init__.py (projects/ already had one); import check OK. Prep resubmitted 3751693 (trial 3751639 after it).

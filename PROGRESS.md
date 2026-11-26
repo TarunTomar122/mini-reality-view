@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 11:05 — Cluster I/O stall (Lustre home writes) — load shed
+- Since ~10:23 writes to /home stall (another project's 50 MB fsync > 10 s; reads fine). On request: cancelled tpvE2 3751988 (plan already leaned to stopping E2; its 5k checkpoint and 5k scoring 3752151 are kept) and its 10k judge 3751993; held pending xwarm 3752205-08 and tj-E1/E3-10000 3751991/95 (release with scontrol release when writes recover). E1/E3 keep training (one 515 MB ckpt each ~15 min). f28-p3g is not ours.
+
 ## 2026-11-26 10:55 — Next experiment: temporal consistency (owner request)
 - Owner saw a 10 s clip (real sweeps ~12 Hz through E1 ckpt_2500, fixed noise; side chat, tmp/xvid_*): mostly stable, but edge cars change model/shape between frames, and no memory of objects that leave view. Temporal consistency / memory is the next experiment once E1/E2/E3 pick the starting point.
 - Council (no improvising): brief council/temporal-brief.md (options: inference warm start, Tesla-style previous-frame conditioning with self-rollout training, temporal input memory incl. BEVFormer, video/temporal attention modules; metrics: flicker/stability, 20 s drift, placement must not drop). Astra (gpt-6.2-astra, xhigh) and Fable (claude-fable-5-2, high) round 1 running via delegate_task.

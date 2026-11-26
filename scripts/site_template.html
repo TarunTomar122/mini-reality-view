@@ -80,17 +80,9 @@ details summary { cursor: pointer; color: var(--ink-3); font-size: 13px; margin-
 .empty { color: var(--ink-3); font-size: 14px; padding: 12px 0; }
 footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px solid var(--line); padding-top: 16px; }
 @media (max-width: 560px) { .news li { grid-template-columns: 1fr; gap: 2px; } h1 { font-size: 26px; } }
-.plan { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 12px; }
-@media (max-width: 640px) { .plan { grid-template-columns: 1fr; } }
-.track { display: grid; gap: 8px; align-content: start; }
-.track-h { font-weight: 600; display: flex; align-items: center; gap: 8px; margin-bottom: 2px; }
-.step { padding: 12px 14px; }
-.step-t { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; flex-wrap: wrap; }
-.step p { font-size: 14px; margin: 4px 0 0; }
-.step.final { border-color: var(--accent); }
-.rule { font-size: 14px; color: var(--ink-2); border-left: 3px solid var(--accent); padding: 8px 12px; background: var(--surface); border-radius: 0 8px 8px 0; }
-.down { text-align: center; color: var(--ink-3); font-size: 18px; line-height: 1; margin: 6px 0; }
-.flow { display: grid; gap: 0; margin-top: 4px; }
+/*PLANCSS*/.treewrap { margin-top: 12px; padding: 12px; overflow-x: auto; }
+.tree { display: block; width: 100%; min-width: 600px; height: auto; font-family: inherit; }
+/*/PLANCSS*/
 </style>
 </head>
 <body>
@@ -110,52 +102,11 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <div class="card stage"><span class="n">5</span><span>Longer training, speed, video, phone photos</span><span class="chip">next</span></div>
   </div>
 
+  <!--PLAN-->
   <h2>The plan from here</h2>
-  <p>One base model (E3, car score 0.32) and two add-ons. An add-on only goes into the final model if it passes its test.
-  Times are rough estimates (UK time) and slip whenever the cluster slows down.</p>
-  <div class="plan">
-    <div class="track">
-      <div class="track-h"><span class="dot" style="background:var(--s1)"></span>Memory: stop the video jumping</div>
-      <div class="card step"><div class="step-t"><b>Get the data ready</b><span class="chip run">now · ~26 Nov 19:00</span></div>
-        <p>Camera summaries for 10 moments a second; redraw the old answer pictures with proper shadows.</p></div>
-      <div class="card step"><div class="step-t"><b>Quick test, no training</b><span class="chip">~26 Nov midnight</span></div>
-        <p>No memory vs "start each frame from the last one" (strength 0.5 and 0.7), 6 practice drives.</p></div>
-      <div class="card step"><div class="step-t"><b>Train A, B, C</b><span class="chip">~3 h, done ~26 Nov 23:00</span></div>
-        <p>A: more training, no memory. B: sees the last frame. C: like B, plus practice on its own drawings.</p></div>
-      <div class="card step"><div class="step-t"><b>Score on 30 unseen drives</b><span class="chip">~27 Nov afternoon</span></div>
-        <p>Jumping between frames, cars in the right place, slow drift over a long drive.</p></div>
-      <div class="rule"><b>Winner:</b> B or C if it clearly beats A <i>and</i> the last-frame trick (B preferred, C only if
-        clearly steadier). Otherwise the trick, if it passed. Otherwise no memory.</div>
-    </div>
-    <div class="track">
-      <div class="track-h"><span class="dot" style="background:var(--s2)"></span>Car map: cars in the right place</div>
-      <div class="card step"><div class="step-t"><b>Run the car finder</b><span class="chip run">now · ~26 Nov 19:00</span></div>
-        <p>A camera-only 3D car finder (BEVFormer) marks every car on every training drive. Cameras-only check passed.</p></div>
-      <div class="card step"><div class="step-t"><b>Safety checks</b><span class="chip">~26 Nov 20:00</span></div>
-        <p>Is the car finder only good on drives it learned from? With the map switched off, is it still exactly E3?</p></div>
-      <div class="card step"><div class="step-t"><b>Train X1, X2</b><span class="chip">~3 h, done ~26 Nov 23:00</span></div>
-        <p>X1: car boxes drawn into the chase view. X2: boxes plus a richer map of the scene.</p></div>
-      <div class="card step"><div class="step-t"><b>Score on 30 unseen drives</b><span class="chip">~27 Nov early morning</span></div>
-        <p>Car score, road overlap, and wrong-street / wrong-map checks.</p></div>
-      <div class="rule"><b>Pass:</b> car score at least 0.38 (half the best possible 0.76) and at least +0.05 over E3.
-        Both pass: X2 only if clearly better, else X1. Neither: no car map, back to the research council.</div>
-    </div>
-  </div>
-  <div class="flow">
-    <div class="down">↓ &nbsp; ↓</div>
-    <div class="card step final"><div class="step-t"><b>X3: memory winner + car map winner</b><span class="chip">~27 Nov evening</span></div>
-      <p>The car map part is retrained for 10 frames a second; the memory part stays frozen. Must reach car score 0.38,
-      beat memory alone, keep the steadiness, follow a moved car quickly and never keep a car that has left.</p></div>
-    <div class="down">↓</div>
-    <div class="card step"><div class="step-t"><b>Final check on 24 drives nobody has looked at</b><span class="chip">~28 Nov morning</span></div>
-      <p>Passes: this is the final model. Fails: keep only the parts that did pass.</p></div>
-    <div class="down">↓</div>
-    <div class="card step"><div class="step-t"><b>Then</b><span class="chip">decided after X3</span></div>
-      <p>A longer training run, faster drawing (1 to 4 steps instead of 25), phone photos.</p></div>
-  </div>
-  <p class="small">If the memory winner needs no training, X3 is E3 + car map with the trick switched on. If no car map
-  passes, the final model is E3 + memory.</p>
-
+  <p>Rough times, UK. They slip when the cluster slows down.</p>
+  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 704" role="img" aria-label="Decision tree: E3 splits into a memory track and a car map track; each has a pass test; the winners combine in X3, which is checked on 24 unseen drives before it becomes the final model"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs><rect x="275.0" y="8" width="330" height="52" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="440" y="31.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">E3: our best model today</text><text x="440" y="48.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">cars 0.32 · data ready ~19:00 tonight</text><path d="M440 60 V84 H220 V108" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M440 84 H660 V108" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><rect x="75.0" y="110" width="290" height="52" rx="10" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="220" y="133.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Memory: train A, B, C</text><text x="220" y="150.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">done ~23:00 tonight</text><rect x="515.0" y="110" width="290" height="52" rx="10" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/><text x="660" y="133.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Car map: train X1, X2</text><text x="660" y="150.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">done ~23:00 tonight</text><path d="M220 162 V188" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 162 V188" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><polygon points="220,190 340,245 220,300 100,245" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="220" y="242" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">B or C clearly</text><text x="220" y="259" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">steadier?</text><polygon points="660,190 780,245 660,300 540,245" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="660" y="242" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Cars ≥ 0.38</text><text x="660" y="259" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">and +0.05?</text><text x="92" y="241" text-anchor="end" font-size="12" font-weight="400" fill="var(--ink-3)">verdict</text><text x="92" y="257" text-anchor="end" font-size="12" font-weight="600" fill="var(--ink-2)">Fri afternoon</text><text x="788" y="241" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">verdict</text><text x="788" y="257" text-anchor="start" font-size="12" font-weight="600" fill="var(--ink-2)">Fri morning</text><path d="M220 300 V318 H130 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M220 318 H310 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 300 V318 H570 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 318 H750 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><text x="136" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="316" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><text x="576" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="756" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><rect x="50.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="130" y="371.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">B or C</text><rect x="230.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="310" y="363.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">simple trick</text><text x="310" y="380.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">(or no memory)</text><rect x="490.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="570" y="371.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">X1 or X2</text><rect x="670.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="750" y="363.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink-2)">no car map</text><text x="750" y="380.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">final = E3 + memory</text><path d="M130 390 V408 H570 V390" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/><path d="M310 390 V408" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/><path d="M440 408 V428" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><rect x="275.0" y="430" width="330" height="52" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="440" y="453.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">X3: memory + car map together</text><text x="440" y="470.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">Fri evening</text><path d="M440 482 V498" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><polygon points="440,498 580,553 440,608 300,553" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="440" y="550" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Passes 24 drives</text><text x="440" y="567" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">nobody has seen?</text><text x="292" y="557" text-anchor="end" font-size="12" font-weight="600" fill="var(--ink-2)">Sat morning</text><path d="M440 608 V626 H330 V646" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M440 626 H550 V646" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><text x="336" y="640" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="556" y="640" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><rect x="240.0" y="648" width="180" height="48" rx="10" fill="var(--accent)" stroke="var(--accent)" stroke-width="1.5"/><text x="330" y="677.0" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">FINAL MODEL</text><rect x="460.0" y="648" width="180" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="550" y="669.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink-2)">keep the parts</text><text x="550" y="686.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">that passed</text></svg></div>
+  <!--/PLAN-->
   <h2>Running now</h2>
   <p>Three runs side by side: which starting point, and is the data enough?</p>
   <div class="runs" id="runs"></div>

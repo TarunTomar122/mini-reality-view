@@ -1,4 +1,4 @@
-# Car map: merged plan (v2: Astra's sign-off objections applied)
+# Car map: merged plan (v3: Astra's and Fable's sign-off objections applied)
 
 Sources: council/carmap-brief.md; rounds 1-2 carmap-s1/s2-astra.md, carmap-s1/s2-fable.md. Coordinator's choices on
 points still open after round 2 are marked [choice: ...]. Supersedes council/PLAN-bev.md for the third-person target.
@@ -19,7 +19,7 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
   verify map coverage for every X3 singles draw from all training drives excluding dev, plus every eligible dense tick
   for the selected box/grid feed [Astra s3].
 - P2 telemetry: BEVFormer aligns its previous grid with can_bus ego motion (from the ego pose). Rerun the decision-drive
-  hull test with can_bus zeroed (with and without the previous grid). If hull F1 >= 0.397 (0.417 - 0.02) that mode is
+  hull test (score >= 0.3, as for the 0.417 baseline) with can_bus zeroed (with and without the previous grid). If hull F1 >= 0.397 (0.417 - 0.02) that mode is
   used for every cache. Otherwise the standard mode is used and results are labelled "cameras + ego motion". For the
   final model [Astra s3]: audit detector alignment, per-camera transforms and 10 Hz box/grid propagation end to end;
   use fixed calibration and causal camera-derived motion throughout; after any motion-source change, rebuild affected
@@ -65,7 +65,10 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
 - Winner: select the sole passing arm if only one passes. If both pass, select X2 when either incremental threshold
   over X1 (>= +0.02 car F1 or >= +0.01 road IoU) passes with positive lower bound and the other point difference is
   non-negative; otherwise select X1 [Astra s3].
-- X3: lit VAE ceiling re-measured; car F1 >= max(0.382, half the lit ceiling); positive paired gain over memory alone;
+- X3: lit VAE ceiling re-measured; car F1 >= max(0.382, half the lit ceiling); positive paired gain over memory alone; placement for X3 is scored on all accepted ticks
+  (already segmented, no extra cost) and reported by ticks since the last detector refresh (0-4); the car F1 bar and the
+  paired gain over memory alone must both hold on the non-refresh ticks (phases 1-4 pooled), with the refresh-tick
+  figures reported beside them; the lit ceiling is re-measured on the same ticks [Fable s3];
   every signed temporal gate (PLAN-temporal.md) incl. flicker gains kept; median street-switch lag <= 5 ticks against
   the donor's cold F1; map checks: boxes shifted 2 m mid-rollout followed within 2 ticks, a deleted box gone within 5;
   an exited car persisting >= 0.5 s in two or more drives vetoes. Lock the temporal winner, map, comparators and gates

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 00:05 — car map P3 redone on fixed-calibration boxes; degradation re-fit on the 84
+- P3 (scripts/bev_leak.py --val_scenes, runs/judge/bevF_leak84.json): 30 seeded train drives (1,207 frames) vs the 84 calibration drives (3,378 frames): recall 0.846 vs 0.726, precision 0.784 vs 0.722, centre error 0.56 vs 0.64 m -> leak flag (as before). By distance recall 0.98/0.88/0.70 vs 0.94/0.79/0.51.
+- Degradation re-fit on the 84 (tmp/bevF_boxes_trainD.json; drop 3.7/10.2/27.0%, sigma 0.15/0.26/0.42 m, phantoms 0/0.05/0.24): degraded train30 vs 84 recall 0.94/0.78/0.51 vs 0.94/0.79/0.51, precision 0.94/0.80/0.49 vs 0.96/0.81/0.48, centre error 0.63 vs 0.64 m, flag off (runs/judge/bevF_leak84_degraded.json).
+- P3 hull F1 part: scripts/key_frames_cache.py (judge frames + Mask2Former key masks for key-only drives) -> bevbox-P3val84 (3753631 -> 3753632) and bevbox-P3train30 (3753635; first submission used one box shard only, cancelled). bev_box_judge.py now merges comma-separated box globs and works without renderer scores.
+- Branch-off = E3 on the same noise: zero-weight map conv checkpoint (runs/cmR_zero.pt) vs E3 on 2 dev drives (cmR-off 3753636, cmR-E3ref 3753637). Arm R timing (3753600) running on an A6000. tmpB done (4k). C cache from B@1k (3753630) waiting for an A6000.
+
 ## 2026-11-26 23:55 — flow-warped linking fails its bar; signed linking kept (precise, 66% coverage)
 - Dev re-scored with --link flow (tmet3, 6 methods): edge-car link share 0.759 with flow-warped IoU vs 0.656 signed (5,112 edge cars); W valid-pixel share 0.912. Ordering still holds (key video ID 0 / W 11.6; VAE ID -41% / W -53%; fresh noise ID +54% / W +37%; warm 0.7 ID -17% [-0.025, -0.009], W +0.04 [-1.2, +3.6], road -0.058; warm 0.5 collapses). 0.759 < the agreed 0.80 bar -> amendment 3 NOT adopted; keep the signed linking and state its coverage (both reviewers' rule).
 - Hand check of the SIGNED links on the two traffic-bearing dev turns (pulled/linkcheck.jpg; 24 random of 68 edge-car links on scene-0234 t95-140 and scene-0285 t90-135): 24 / 24 link the same car, no identity switches; some masks bleed onto an occluding car (#7, #16). So signed links are precise; the limit is coverage (66% of edge cars).

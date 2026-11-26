@@ -18,6 +18,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--train", nargs="+", required=True)
 p.add_argument("--train_scenes", required=True)
 p.add_argument("--val", nargs="+", required=True)
+p.add_argument("--val_scenes", default="", help="restrict the val side to these drives (e.g. the 84 calibration-fit drives)")
 p.add_argument("--thr", type=float, default=0.3)
 p.add_argument("--out", required=True)
 a = p.parse_args()
@@ -84,7 +85,7 @@ def score(B):
 
 
 tr = score(load(a.train, set(open(a.train_scenes).read().split())))
-va = score(load(a.val))
+va = score(load(a.val, set(open(a.val_scenes).read().split()) if a.val_scenes else None))
 flag = (abs(tr["all"]["recall"] - va["all"]["recall"]) > 0.05 or abs(tr["all"]["precision"] - va["all"]["precision"]) > 0.05
         or abs(tr["all"]["centre_err_m"] - va["all"]["centre_err_m"]) > 0.25 * va["all"]["centre_err_m"])
 res = {"train": tr, "val": va, "leak_flag": bool(flag)}

@@ -81,7 +81,9 @@ def match(P, G):
     r, c = linear_sum_assignment(-iou); return int((iou[r, c] >= 0.3).sum())
 
 
-BX = json.load(open(a.boxes))
+BX = {}
+for f_ in [x for pat in a.boxes.split(",") for x in sorted(glob.glob(pat))]:  # comma-separated globs
+    BX.update(json.load(open(f_)))
 idx = [it for it in json.load(open(f"{a.like}/index.json"))["items"] if it["seed"] == 0]
 tot = {k: [0, 0, 0] for k in ("gt", "bev")}; frames = []
 for it in idx:
@@ -128,7 +130,8 @@ for it in idx:
         rec[name] = [tp, len(m) - tp, len(keycars) - tp]
     frames.append(rec)
 f1 = lambda t: 2 * t[0] / max(1, 2 * t[0] + t[1] + t[2])
-ours = json.load(open(a.ours or f"{a.like}_m2f.json"))["summary"]
+of_ = a.ours or f"{a.like}_m2f.json"
+ours = json.load(open(of_))["summary"] if os.path.exists(of_) else {"f1": None}  # key-only frame sets have no renders
 summ = {"frames": len(frames), "gt_f1": f1(tot["gt"]), "bev_f1": f1(tot["bev"]), "ours_f1": ours["f1"], "tot": tot, "thr": a.thr}
 json.dump({"summary": summ, "frames": frames}, open(a.out, "w"), indent=1)
 print("BEVBOX", json.dumps(summ))

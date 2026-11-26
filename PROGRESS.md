@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 10:55 — Next experiment: temporal consistency (owner request)
+- Owner saw a 10 s clip (real sweeps ~12 Hz through E1 ckpt_2500, fixed noise; side chat, tmp/xvid_*): mostly stable, but edge cars change model/shape between frames, and no memory of objects that leave view. Temporal consistency / memory is the next experiment once E1/E2/E3 pick the starting point.
+- Council (no improvising): brief council/temporal-brief.md (options: inference warm start, Tesla-style previous-frame conditioning with self-rollout training, temporal input memory incl. BEVFormer, video/temporal attention modules; metrics: flicker/stability, 20 s drift, placement must not drop). Astra (gpt-6.2-astra, xhigh) and Fable (claude-fable-5-2, high) round 1 running via delegate_task.
+- Free baseline now: scripts/video_render.py (in repo) gets a warm-start option (previous output latent re-noised so a fraction s of the 25 DDIM steps remains, same fixed noise). Runs on the same two clips at s = 0.5 and 0.7: 3752205-08 -> tmp/xwarm<s>_<scene>.
+
 ## 2026-11-26 10:40 — 5k batch submitted
 - All three arms stalled ~12 min at step 4,800 (10:17-10:29, same node saxa; shared filesystem / node slowness, ssh also slow), then continued; no loss.
 - 5k batch (after ckpt_5000 + step >= 5,100): tj-E1-5000 (+ VAE ceiling) 3752150, tj-E2-5000 3752151, tj-E3-5000 3752152, tj-E1-5000-swap 3752153, tj-E1/E3-5000-train 3752154/55, preview 5000 3752156.

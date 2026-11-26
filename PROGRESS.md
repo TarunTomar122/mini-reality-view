@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 01:10
+- BEV env built (fix 2 worked): BEV_BUILD_OK torch 1.10.2+cu113, CUDA on 2080 Ti, mmdet3d 0.17.1, detectron2 v0.6.
+- BEV data prep 3751638 (create_data -> nuscenes_infos_temporal_{train,val}.pkl; symlinks bev/BEVFormer/data/{nuscenes,can_bus}). scripts/bev_extract.py: runs BEVFormer recurrently per scene in time order, takes the BEV embedding after each frame, resamples it onto our ego grid (x -8..41 m, y +-16.4 m, 96x64 bilinear -> 2x2 pool -> 48x32 x 256 fp16) via lidar2ego; --eval runs the official nuScenes detection metrics (= sanity gate). Trial on 2 val scenes queued (3751639).
+- Sim pilot, first scores: arm A 3k F1 0.006 / 0.004 (m2f / SegFormer), 5k 0.033 / 0.033; kerb 1.61 / 1.45 and 1.55 / 1.48 m. At 5k the pilot renderer draws road layout and barriers but almost no cars (pulled/simA5k_check.jpg) - the main run only placed cars at 10k (0.26). The pilot therefore measures whether sim makes cars appear sooner; go rule unchanged.
+- sd_run1 ~27k.
+
 ## 2026-11-26 00:35
 - BEV build (fix 2 of 3): mmdet3d 0.17.1 now compiles and imports (sysroot pin worked); detectron2 master failed (needs ATen/cuda/Atomic.cuh, torch >= 1.11). Pinned detectron2 v0.6 (torch 1.10 era); bev_build.sh skips mmdet3d when importable. Rebuild 3751589.
 - Sim pilot scoring queued (slurm/sim_judge.sh: render judge set + Mask2Former + SegFormer per snapshot): A 3k/5k (now) 3751590/91, A 7k 3751592 (after A), B 3k/5k 3751593/94 (after B2), C 3k/5k 3751595/96 (after C). Comparisons: B5k and C5k vs A5k (primary), B5k vs A7k (equal updates), 3k as a trend check.

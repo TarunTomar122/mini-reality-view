@@ -8,8 +8,9 @@ Per drive -> <out>/<scene>.pt with
   tokens (n, 6, 144, 384) fp16 (DINOv2-small, 448x252, 2x2 pooled, same as scripts/encode.py --pool 2),
   lat (n, 4, 32, 64) fp16 (SD VAE of the game key, top 32 rows cropped, x0.18215, same as encode_latents.py),
   key_token: sample token for ticks that are keyframes (else "").
-Calibrated rays stay in data/calib_rays.pt (per scene). Rejected ticks keep their latent (useful as targets) but
-get zero tokens and ok=False.
+Calibrated rays stay in data/calib_rays.pt (per scene). Amendment 2: ticks rejected only for offset (any camera
+50-100 ms off) are still encoded from their nearest bundle (ok=False, hard=False: rollouts run through them, metrics
+skip them); ticks with a camera > 100 ms off or a repeated bundle are hard breaks (hard=True, zero tokens).
 """
 import argparse, json, os
 import numpy as np
@@ -38,10 +39,13 @@ for sc in sorted(man)[si::sn]:
     if os.path.exists(f"{a.out}/{sc}.pt"):
         continue
     rows = man[sc]
-    toks, lats = [], []
+    toks, lats, hard = [], [], []
+    prev_files = None
     with torch.no_grad():
         for r in rows:
-            if r["ok"]:
+            h_ = max(abs(o) for o in r["off_ms"]) > 100 or r["files"] == prev_files
+            prev_files = r["files"]; hard.append(h_)
+            if not h_:
                 ims = [np.asarray(Image.open(f"{a.dataroot}/{f}").convert("RGB").resize((448, 252), Image.BICUBIC)) for f in r["files"]]
                 x = torch.from_numpy(np.stack(ims)).to(dev).permute(0, 3, 1, 2).float() / 255
                 h = dino(pixel_values=((x - MEAN) / STD).half()).last_hidden_state[:, 1:]
@@ -52,7 +56,7 @@ for sc in sorted(man)[si::sn]:
             k = torch.from_numpy(key).to(dev).permute(2, 0, 1)[None].float() / 127.5 - 1
             lats.append((vae.encode(k).latent_dist.mean * 0.18215)[0].half().cpu())
     torch.save({"ticks": torch.tensor([r["tick"] for r in rows]), "seq": torch.tensor([r["seq"] for r in rows]),
-                "ok": torch.tensor([r["ok"] for r in rows]), "tokens": torch.stack(toks), "lat": torch.stack(lats),
+                "ok": torch.tensor([r["ok"] for r in rows]), "hard": torch.tensor(hard), "tokens": torch.stack(toks), "lat": torch.stack(lats),
                 "key_token": [r["token"] or "" for r in rows]}, f"{a.out}/{sc}.pt")
     print(sc, len(rows), "ticks", sum(r["ok"] for r in rows), "usable", flush=True)
 print("TEMPORAL_ENCODE_DONE")

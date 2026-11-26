@@ -92,13 +92,11 @@ for di, sc in enumerate(drives):
         z0 = torch.randn(1, 4, 32, 64, generator=g).to(dev)
         gh = torch.Generator().manual_seed(zlib.crc32(f"hist|{sc}|{seed}".encode()))  # separate history-noise stream
         out, restart, prev = [], [], None
+        oks, hards, srct = [], [], []  # validity and tick of the bundle actually fed (the donor's after a swap)
         for i in range(n):
-            hard = bool(E["hard"][i])
-            if hard:
-                out.append(torch.zeros(4, 32, 64, dtype=torch.float16)); restart.append(True); prev = None
-                continue
             src, j, sc_r = (E2, min(i, len(E2["ticks"]) - 1), other) if (E2 is not None and i >= 50) else (E, i, sc)
-            if E2 is not None and i >= 50 and bool(src["hard"][j]):
+            oks.append(bool(src["ok"][j])); hards.append(bool(src["hard"][j])); srct.append(int(src["ticks"][j]))
+            if bool(src["hard"][j]):
                 out.append(torch.zeros(4, 32, 64, dtype=torch.float16)); restart.append(True); prev = None
                 continue
             tok = src["tokens"][j:j + 1].to(dev).float(); ry = RAYS[sc_r][None].to(dev).float()
@@ -121,7 +119,7 @@ for di, sc in enumerate(drives):
                 z = denoise(z0.clone(), TS, c, u)
             prev = z
             out.append(z[0].half().cpu())
-        torch.save({"ticks": E["ticks"][:n], "lat": torch.stack(out), "ok": E["ok"][:n], "hard": E["hard"][:n],
+        torch.save({"ticks": E["ticks"][:n], "src_ticks": torch.tensor(srct), "lat": torch.stack(out), "ok": torch.tensor(oks), "hard": torch.tensor(hards),
                     "restart": torch.tensor(restart), "swap_from": 50 if E2 is not None else -1, "other": other if E2 is not None else ""}, fo)
         print(sc, "seed", seed, n, "ticks", flush=True)
 print("ROLLOUT_DONE", a.method, a.s, a.split)

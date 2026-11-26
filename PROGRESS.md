@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 21:20 — drift check 1: Astra's review applied to the temporal scorer
+- Astra (council/drift-20261126-2055-astra.md): splits/seeds/stop rules/cap OK; P3 used 96 calibration drives (3,862 frames), not 150 as I wrote. Main finding: the temporal scorer did not match the signed plan -> fix before ranking. Applied (plan compliance, not plan changes):
+  - --compare: equal drive weights (seeds pooled inside a drive), paired seeds only (unpaired drives listed), ID / W per drive on shared transitions, drives with eligible but no shared transitions listed and the comparison marked can_pass = false. (Old pooled-transition W for warm 0.7 vs independent 25.7 / 25.7; Astra's equal-weight recompute 31.1 / 29.8.)
+  - W: backward warp with flow i -> j on the keys (was forward flow read at destination coordinates), valid = in-bounds and forward-backward consistent; valid / total car-pixel counts stored per transition.
+  - Drift: only rollouts whose history chain is unbroken through tick 169 (no restart in ticks 1-169); late car-F1 gap added beside the late LPIPS gap (and early gaps).
+  - Lag: rollouts now store ok / hard / tick of the bundle actually fed (the donor's after the swap); metrics use the donor tick for keys.
+- Old dev metric JSONs moved to runs/troll/v1_old/; dev re-scored with the fixed scorer: tmet2-indep_dev 3753234, warm07 3753235, keyvae 3753236, keys 3753237, warm05 3753238 (held, cap). Decision metrics (3753219-24, pending) will run the fixed code.
+- Still open from Astra: camera-only for BEVFormer (zeroed CAN bus but per-camera ego poses still enter its projection matrices), P3 hull F1 omitted, P5 same-noise branch-off render skipped, rasterizer paints mean-depth hulls, the car-map diagnostic used decision data (move to dev), arm C fills fewer than 50% own-history rows and C's cache shard must be timed before A/B 6k. Waiting for Fable before acting on these.
+
 ## 2026-11-26 21:05 — temporal metric check: hand mask check; lag reference fixed
 - Hand check of 20 random cached key masks (dev drives; pulled/maskcheck.jpg): no false car masks seen; the red/blue/purple/yellow sports-car models and parked rows are masked well; MISSED consistently: the white/silver sports car (3), boxy SUVs / jeeps (~5, likely read as truck by the Cityscapes model), one white car beside a masked car. Rough key-mask recall ~80-85% of visible cars, precision ~100%. Same segmenter on render and key, so missed models simply do not enter ID / W / recall (coverage loss, not bias toward a method). Noted for the council.
 - W coverage: transitions with a valid W (car pixels in the outer 20% columns) are ~80% of the ID transitions (e.g. 867 vs 1031 shared, 1149 vs 1396).

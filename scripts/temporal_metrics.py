@@ -41,23 +41,40 @@ if a.compare:
         return out
     A, B = (load_merged(f) for f in a.compare)
     runs = sorted(set(A["drives"]) & set(B["drives"]))  # "<scene>_s<seed>"
-    scenes = sorted({r.rsplit("_s", 1)[0] for r in runs})
+    seeds_of = lambda D, s_: {r.rsplit("_s", 1)[1] for r in D["drives"] if r.rsplit("_s", 1)[0] == s_}
+    all_sc = sorted({r.rsplit("_s", 1)[0] for r in runs})
+    # paired seeds: a drive enters only if both methods have the same full seed set for it
+    scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == seeds_of(B, s_)]
+    unpaired = [s_ for s_ in all_sc if s_ not in scenes]
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
-    def stats(pick_scenes):
-        pick = [r for s_ in pick_scenes for r in by_scene[s_]]  # bootstrap unit = drive, seeds kept together
-        res = {}
+    PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap", "lag_ticks")
+
+    def per_drive(s_):
+        """one value per drive (seeds pooled inside the drive): ID / W on SHARED transitions, others averaged over seeds"""
+        rs = by_scene[s_]; v = {}
         for name in ("ID", "W"):
-            ea, eb = [], []
-            for d in pick:
-                ta = {tuple(t[:4]): t[4] for t in A["drives"][d]["trans_" + name] if t[5]}
-                tb = {tuple(t[:4]): t[4] for t in B["drives"][d]["trans_" + name] if t[5]}
+            ea, eb, elig = [], [], 0
+            for d in rs:
+                ta = {tuple(t[:4]): t[4] for t in A["drives"][d]["trans_" + name] if t[5] and t[4] == t[4]}
+                tb = {tuple(t[:4]): t[4] for t in B["drives"][d]["trans_" + name] if t[5] and t[4] == t[4]}
+                elig += len({tuple(t[:4]) for t in A["drives"][d]["trans_" + name]} | {tuple(t[:4]) for t in B["drives"][d]["trans_" + name]})
                 for k in ta.keys() & tb.keys():
                     ea.append(ta[k]); eb.append(tb[k])
-            res[name] = (np.mean(ea) if ea else np.nan, np.mean(eb) if eb else np.nan, len(ea))
-        for name in ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap"):
-            va = [A["drives"][d][name] for d in pick if A["drives"][d].get(name) is not None]
-            vb = [B["drives"][d][name] for d in pick if B["drives"][d].get(name) is not None]
-            res[name] = (np.mean(va) if va else np.nan, np.mean(vb) if vb else np.nan, len(va))
+            v[name] = (np.mean(ea), np.mean(eb), len(ea), elig) if ea else (np.nan, np.nan, 0, elig)
+        for name in PER:
+            va = [A["drives"][d][name] for d in rs if A["drives"][d].get(name) is not None]
+            vb = [B["drives"][d][name] for d in rs if B["drives"][d].get(name) is not None]
+            v[name] = (np.mean(va), np.mean(vb), len(va), 0) if va and vb and len(va) == len(vb) else (np.nan, np.nan, 0, 0)
+        return v
+    PD = {s_: per_drive(s_) for s_ in scenes}
+    no_shared = {name: [s_ for s_ in scenes if PD[s_][name][2] == 0 and PD[s_][name][3] > 0] for name in ("ID", "W")}
+
+    def stats(pick_scenes):  # equal drive weights
+        res = {}
+        for name in ("ID", "W") + PER:
+            xs = [PD[s_][name] for s_ in pick_scenes if np.isfinite(PD[s_][name][0]) and np.isfinite(PD[s_][name][1])]
+            res[name] = (np.mean([x[0] for x in xs]) if xs else np.nan, np.mean([x[1] for x in xs]) if xs else np.nan,
+                         sum(x[2] for x in xs), len(xs))
         return res
     full = stats(scenes)
     rng = np.random.default_rng(0); boots = {k: [] for k in full}
@@ -65,12 +82,16 @@ if a.compare:
         s = stats(list(rng.choice(scenes, len(scenes))))
         for k in s:
             boots[k].append(s[k][0] - s[k][1])
-    out = {"A": a.compare[0], "B": a.compare[1], "drives": len(scenes), "runs": len(runs)}
-    for k, (x, y, n) in full.items():
+    out = {"A": a.compare[0], "B": a.compare[1], "drives": len(scenes), "runs": sum(len(v) for v in by_scene.values()),
+           "unpaired_drives": unpaired, "weighting": "equal per drive; seeds pooled within drive",
+           "no_shared_transition_drives": no_shared,
+           "shared_per_drive": {name: {s_: PD[s_][name][2] for s_ in scenes} for name in ("ID", "W")}}
+    for k, (x, y, n, nd) in full.items():
         bb = np.array(boots[k]); bb = bb[np.isfinite(bb)]
-        out[k] = {"A": round(float(x), 4), "B": round(float(y), 4), "diff": round(float(x - y), 4), "n": int(n),
+        out[k] = {"A": round(float(x), 4), "B": round(float(y), 4), "diff": round(float(x - y), 4), "n": int(n), "drives": int(nd),
                   "ci95": np.percentile(bb, [2.5, 97.5]).round(4).tolist() if len(bb) else None,
-                  "rel": round(float((x - y) / y), 3) if y and np.isfinite(y) and y > 0 else None}
+                  "rel": round(float((x - y) / y), 3) if y and np.isfinite(y) and y > 0 else None,
+                  "can_pass": (not no_shared.get(k)) if k in ("ID", "W") else None}
     print("TCOMPARE", json.dumps(out)); raise SystemExit
 
 import torch
@@ -174,7 +195,8 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
     R = torch.load(fr); ticks = R["ticks"].tolist(); acc = (R["ok"] & ~R["hard"]).tolist()
     swap = R.get("swap_from", -1); other = R.get("other", "")
     keysc = lambda i: other if (swap >= 0 and i >= swap) else sc
-    kt = lambda i: ticks[i]
+    src_ticks = R["src_ticks"].tolist() if "src_ticks" in R else ticks  # after a swap: the donor drive's tick
+    kt = lambda i: src_ticks[i]
     rimg, kimg, rseg, kseg = {}, {}, {}, {}
     for i in range(len(ticks)):
         if not acc[i]:
@@ -229,29 +251,45 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
                 dk = 1 - float(cls(kimg[j], kb_j) @ cls(kimg[i], kb_i)); dr = 1 - float(cls(rimg[j], kb_j) @ cls(rimg[i], kb_i))
                 trans_ID.append([sc, b, int(kt(i)), int(ids[g]), abs(dr - dk), bool(matched)])
                 with torch.no_grad():
-                    fl = raft(tens(kimg[j]), tens(kimg[i]))[-1]  # key flow j -> i (pixels)
-                    gy, gx = torch.meshgrid(torch.arange(256, device=dev), torch.arange(512, device=dev), indexing="ij")
-                    # backward-warp the render at j into frame i: sample render_j at (x - flow) approximately
-                    grid = torch.stack([(gx - fl[0, 0]) / 255.5 - 1, (gy - fl[0, 1]) / 127.5 - 1], -1)[None]
+                    # backward warp: for each pixel x of frame i, flow i -> j on the KEYS gives where it was at j;
+                    # sample render_j there. Valid = inside the image and forward-backward consistent.
+                    ki, kj = tens(kimg[i]), tens(kimg[j])
+                    fb = raft(ki, kj)[-1]; ff = raft(kj, ki)[-1]
+                    gy, gx = torch.meshgrid(torch.arange(256, device=dev, dtype=torch.float32), torch.arange(512, device=dev, dtype=torch.float32), indexing="ij")
+                    sx, sy = gx + fb[0, 0], gy + fb[0, 1]
+                    grid = torch.stack([sx / 255.5 - 1, sy / 127.5 - 1], -1)[None]
                     wr = F.grid_sample(tens(rimg[j]), grid, align_corners=True)
+                    ffw = F.grid_sample(ff, grid, align_corners=True)
+                    cyc = (fb + ffw).pow(2).sum(1)[0]; mag = fb.pow(2).sum(1)[0] + ffw.pow(2).sum(1)[0]
+                    valid = ((sx >= 0) & (sx <= 511) & (sy >= 0) & (sy <= 255) & (cyc < 0.01 * mag + 0.5)).cpu().numpy()
                     diff = (wr - tens(rimg[i])).abs().mean(1)[0].cpu().numpy() * 127.5
-                cm = mask.copy(); cm[:, 102:410] = False
-                trans_W.append([sc, b, int(kt(i)), int(ids[g]), float(diff[cm].mean()) if cm.any() else float("nan"), bool(matched and cm.any())])
+                cm = mask.copy(); cm[:, 102:410] = False; cmv = cm & valid
+                trans_W.append([sc, b, int(kt(i)), int(ids[g]), float(diff[cmv].mean()) if cmv.any() else float("nan"),
+                                bool(matched and cmv.any()), int(cmv.sum()), int(cm.sum())])
     d = {"car_f1": 2 * tp / max(1, 2 * tp + fp + fn), "road_iou": float(np.mean(roads)) if roads else None,
          "recall": float(np.mean(rec)) if rec else None, "flips": flips / max(1, len(trans_ID)), "ghosts": float(np.mean(ghosts)) if ghosts else None,
          "accepted": len(idx), "ticks": len(ticks), "trans_ID": trans_ID, "trans_W": trans_W}
-    # drift vs cold rollout of the same drive / seed
-    if a.cold and len(ticks) >= 170 and os.path.exists(f"{a.cold}/{b}.pt"):
+    # drift vs cold rollout of the same drive / seed: only rollouts whose history chain runs unbroken through tick 169
+    rst = R["restart"].tolist() if "restart" in R else [False] * len(ticks)
+    contiguous = len(ticks) >= 170 and not any(rst[1:170])
+    d["contiguous_170"] = contiguous
+    if a.cold and contiguous and os.path.exists(f"{a.cold}/{b}.pt"):
         C = torch.load(f"{a.cold}/{b}.pt")
         def win(lo, hi):
-            lr, lc = [], []
+            lr, lc, tr, tc = [], [], [0, 0, 0], [0, 0, 0]
             for i in range(lo, hi):
                 if i in kimg:
-                    K = tens(kimg[i])
+                    K = tens(kimg[i]); ci = to_img(C["lat"][i])
                     with torch.no_grad():
-                        lr.append(float(lp(tens(rimg[i]), K))); lc.append(float(lp(tens(to_img(C["lat"][i])), K)))
-            return (np.mean(lr) - np.mean(lc)) if lr else None
-        d["late_lpips_gap"] = win(150, 170); d["early_lpips_gap"] = win(5, 25)
+                        lr.append(float(lp(tens(rimg[i]), K))); lc.append(float(lp(tens(ci), K)))
+                    for acc_, cars in ((tr, rseg[i][0]), (tc, segment(ci)[0])):
+                        mm = hungarian(iou_mat(cars, kseg[i][0]), 0.3)
+                        acc_[0] += len(mm); acc_[1] += len(cars) - len(mm); acc_[2] += len(kseg[i][0]) - len(mm)
+            if not lr:
+                return None, None
+            f1 = lambda q: 2 * q[0] / max(1, 2 * q[0] + q[1] + q[2])
+            return float(np.mean(lr) - np.mean(lc)), float(f1(tr) - f1(tc))
+        d["late_lpips_gap"], d["late_f1_gap"] = win(150, 170); d["early_lpips_gap"], d["early_f1_gap"] = win(5, 25)
     if swap >= 0:
         if not a.lag_ref:
             raise SystemExit("lag test needs --lag_ref (plan: 80% of the donor drive's cold car F1)")

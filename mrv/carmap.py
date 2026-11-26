@@ -65,13 +65,39 @@ def box_corners_ego(box, l2e_r, l2e_t, conv="mmdet3d"):
     return P, math.atan2(head[1], head[0]), max(w, l)
 
 
+FACES = [(0, 1, 2, 3), (4, 5, 6, 7), (0, 1, 5, 4), (1, 2, 6, 5), (2, 3, 7, 6), (3, 0, 4, 7)]
+
+
+def _raster_tri(zbuf, idb, uv, d, tri, k):
+    """z-buffered fill of one projected triangle; depth interpolated linearly in screen space"""
+    (x0, y0), (x1, y1), (x2, y2) = uv[list(tri)]
+    xa, xb = max(0, int(np.floor(min(x0, x1, x2)))), min(511, int(np.ceil(max(x0, x1, x2))))
+    ya, yb = max(0, int(np.floor(min(y0, y1, y2)))), min(255, int(np.ceil(max(y0, y1, y2))))
+    if xa > xb or ya > yb:
+        return
+    den = (y1 - y2) * (x0 - x2) + (x2 - x1) * (y0 - y2)
+    if abs(den) < 1e-9:
+        return
+    X, Y = np.meshgrid(np.arange(xa, xb + 1) + 0.5, np.arange(ya, yb + 1) + 0.5)
+    w0 = ((y1 - y2) * (X - x2) + (x2 - x1) * (Y - y2)) / den
+    w1 = ((y2 - y0) * (X - x2) + (x0 - x2) * (Y - y2)) / den
+    w2 = 1 - w0 - w1
+    inside = (w0 >= -1e-6) & (w1 >= -1e-6) & (w2 >= -1e-6)
+    z = w0 * d[tri[0]] + w1 * d[tri[1]] + w2 * d[tri[2]]
+    zb = zbuf[ya:yb + 1, xa:xb + 1]; ib = idb[ya:yb + 1, xa:xb + 1]
+    win = inside & (z < zb)
+    zb[win] = z[win]; ib[win] = k
+
+
 def rasterize(frame, thr=0.3, drop=None):
-    """frame: {"boxes", "scores", "labels", "lidar2ego_r", "lidar2ego_t"} or None (unavailable) -> (C_MAP, 256, 512)"""
+    """frame: {"boxes", "scores", "labels", "lidar2ego_r", "lidar2ego_t"} or None (unavailable) -> (C_MAP, 256, 512).
+    Depth-tested faces (PLAN-carmap v3 "far-to-near, depth-tested faces"): every face of every box is rasterised as two
+    triangles into a per-pixel z-buffer, so the nearest surface owns each pixel; channels then come from that box."""
     out = np.zeros((C_MAP, 256, 512), np.float32)
     if frame is None:
         return out
     out[9] = 1.0
-    items = []
+    zbuf = np.full((256, 512), np.inf, np.float32); idb = np.full((256, 512), -1, np.int32); items = []
     for k, (b, s, lab) in enumerate(zip(frame["boxes"], frame["scores"], frame["labels"])):
         if s < thr or lab not in GROUPS or (drop is not None and drop(k)):
             continue
@@ -81,18 +107,20 @@ def rasterize(frame, thr=0.3, drop=None):
         uv, d = project(P)
         if (d <= 0.5).any():
             continue
-        try:
-            hull = uv[ConvexHull(uv).vertices]
-        except Exception:
-            continue
-        items.append((float(d.mean()), hull, GROUPS[lab], float(s), yaw, length))
-    items.sort(key=lambda t: -t[0])  # far first; nearer boxes overwrite
-    for dist, hull, g, s, yaw, length in items:
-        im = Image.new("L", (512, 256), 0); ImageDraw.Draw(im).polygon([tuple(q) for q in hull], fill=255, outline=128)
-        a = np.asarray(im); m = a > 0; edge = a == 128
-        out[0:4, m] = 0; out[g, m] = s; out[4, m] = 1.0 / max(dist, 1.0)
-        out[5, m] = 0; out[5, edge] = 1.0
-        out[6, m] = math.sin(yaw); out[7, m] = math.cos(yaw); out[8, m] = length / 10.0
+        n = len(items); items.append((GROUPS[lab], float(s), yaw, length))
+        for f in FACES:
+            _raster_tri(zbuf, idb, uv, d, (f[0], f[1], f[2]), n); _raster_tri(zbuf, idb, uv, d, (f[0], f[2], f[3]), n)
+    if items:
+        G = np.array([it[0] for it in items]); S = np.array([it[1] for it in items], np.float32)
+        Y = np.array([it[2] for it in items], np.float32); Ln = np.array([it[3] for it in items], np.float32)
+        m = idb >= 0; ii = idb[m]
+        for g in range(4):
+            out[g][m] = np.where(G[ii] == g, S[ii], 0)
+        out[4][m] = 1.0 / np.maximum(zbuf[m], 1.0)
+        pad = np.pad(idb, 1, constant_values=-1)
+        edge = m & ((pad[:-2, 1:-1] != idb) | (pad[2:, 1:-1] != idb) | (pad[1:-1, :-2] != idb) | (pad[1:-1, 2:] != idb))
+        out[5][edge] = 1.0
+        out[6][m] = np.sin(Y[ii]); out[7][m] = np.cos(Y[ii]); out[8][m] = Ln[ii] / 10.0
     out[:9, OWN] = 0
     return out
 

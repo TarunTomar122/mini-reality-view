@@ -36,6 +36,7 @@ p.add_argument("--drop_hi", type=float, default=0.5)
 p.add_argument("--drop_switch", type=int, default=1000)
 p.add_argument("--drop_lo", type=float, default=0.25)
 p.add_argument("--seed", type=int, default=0)
+p.add_argument("--resume", action="store_true", help="continue <out>/ckpt.pt (staged 1k / 2k gates)")
 p.add_argument("--out", required=True)
 a = p.parse_args()
 os.makedirs(a.out, exist_ok=True)
@@ -65,6 +66,15 @@ if __name__ == "__main__":
             if torch.isnan(w).any():
                 miss += 1; continue
             rows.append((sc, t, e["tokens"][pos[t]], k["lat"][j], w))
+    drives_ok = {r[0] for r in rows}
+    assert drives_ok == TRAIN, f"missing train drives: {sorted(TRAIN - drives_ok)[:5]} ({len(TRAIN - drives_ok)})"
+    assert miss == 0, f"{miss} keyframes without boxes or key masks (coverage must be complete)"
+    # maps are deterministic (fixed degradation, no box dropout): rasterise every training frame once (z-buffered faces
+    # cost ~0.13 s / frame), in parallel, and cache them
+    from concurrent.futures import ProcessPoolExecutor
+    with ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 1)) as ex:
+        MAPS = dict(zip([r[1] for r in rows], ex.map(map_planes, [BOX[r[1]] for r in rows], chunksize=16)))
+    print(f"rasterised {len(MAPS)} maps", flush=True)
     print(f"rows {len(rows)} from {len({r[0] for r in rows})} drives; skipped {miss} (no boxes / no key mask); "
           f"mean car-cell share {np.mean([float((r[4] > 0).float().mean()) for r in rows]):.3f}", flush=True)
 
@@ -79,6 +89,8 @@ if __name__ == "__main__":
     opt = torch.optim.AdamW(params, lr=1e-4, weight_decay=0.0)
     sched = DDPMScheduler.from_pretrained(SD, subfolder="scheduler"); acp = sched.alphas_cumprod.to(dev)
     start = 0; ck = f"{a.out}/ckpt.pt"
+    if os.path.exists(ck) and not a.resume:
+        raise SystemExit(f"{ck} exists: pass --resume to continue it, or use a fresh --out")
     if os.path.exists(ck):
         s_ = torch.load(ck, map_location="cpu"); unet.conv_in.map.load_state_dict(s_["mapconv"]); opt.load_state_dict(s_["opt"])
         start = s_["step"]; print("resumed at", start, flush=True)
@@ -100,7 +112,7 @@ if __name__ == "__main__":
         M, tok, lat, ray, W = [], [], [], [], []
         for i in idx.tolist():
             sc, tk, tk_tok, lt, w = rows[i]
-            M.append(map_planes(BOX[tk])); tok.append(tk_tok.float()); lat.append(lt.float()); ray.append(RAYS[sc]); W.append(w)
+            M.append(MAPS[tk]); tok.append(tk_tok.float()); lat.append(lt.float()); ray.append(RAYS[sc]); W.append(w)
         M = torch.stack(M).to(dev); tok = torch.stack(tok).to(dev); x0 = torch.stack(lat).to(dev); ray = torch.stack(ray).to(dev).float()
         W = torch.stack(W).to(dev)[:, None]
         t = t.to(dev); eps = eps.to(dev); ab = acp[t].view(-1, 1, 1, 1); xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps

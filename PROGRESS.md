@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 23:10 — drift check 3 (Astra in; Fable pending): face-level depth in the rasterizer
+- Astra (council/drift-20261126-2255-astra.md): keep temporal ranking paused; approve testing flow-warped Hungarian IoU linking at 0.5 (render-to-key matching stays 0.3); hand-label links on two traffic-bearing dev turns before opening decision scores; P3 val side = the 84; lag counts to the window END (and include the last full window); face-level depth is required by PLAN-carmap v3 ("far-to-near, depth-tested faces"); fixed-raw timing OK; R must start fresh, assert all 144 drives / tokens.
+- Applied now (plan text, both reviewers had the plan): mrv/carmap.rasterize rewritten with a per-pixel z-buffer over the 6 faces (12 triangles) of every box; nearest surface owns each pixel; inverse depth per pixel; instance boundary from the id map. vs the old mean-depth hulls on 30 decision frames: coverage IoU 0.927, per-pixel depth changed on 28% of covered pixels; 132 vs 45 ms / frame -> train_carmap2.py rasterises every training map once (parallel) and caches it (deterministic: fixed degradation, no box dropout); asserts all 144 drives and zero missing keyframes; refuses to resume an existing ckpt without --resume.
+- Waiting for Fable on: flow-warped linking, the 84 vs 12, lag window end.
+
 ## 2026-11-26 22:50 — temporal metric check: ordering passes (fresh noise worst); car map R timing
 - Fresh noise every tick vs independent (dev, fixed scorer): ID 0.157 vs 0.102 (+54% [+0.048, +0.063]); W 41.1 vs 30.1 (+37% [+6.5, +15.9]); flips 0.240 vs 0.191 (+0.049 [+0.038, +0.063]); car F1 0.470 vs 0.474; road 0.851 vs 0.852. With the key video (ID 0, W 11.4) and VAE round trip (ID -42%, W -54%) the ordering required by the stop rule holds: keys / VAE best, fresh noise worst. Open: track reliability (66% of edge cars linked at IoU >= 0.5) -> council next hour. Decision metrics still unread.
 - Fixed-calibration train + dev box caches done (bevF-train-0..3); other-val and final released. Arm R 100-update timing on fixed-calibration raw train boxes (cmR-timing 3753600, A6000).

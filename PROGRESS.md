@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 07:40
+- Third-person keys: camera now shows the whole own car (pulled/tpv_first.png). Shards 0/1/2/7 + both val shards done: 5,338 train + 2,524 val keys. Shards 3-6 landed on damnii08, which (like damnii07) hangs MetaDrive on every scene: cancelled and resubmitted excluding both nodes (3752033-36); latents 3751984 retargeted to them; E1-E3 still queued behind the latents.
+- README rewritten short with a "Where we are" table; the long write-up moved to docs/results.md.
+
 ## 2026-11-26 07:50 — Experiment T plan + arms queued
 - Fable round 1 (council/tpv-s1-fable.md) -> merged plan council/PLAN-tpv.md: E1 init sd_run1, E2 plain SD, E3 E1 on a quarter of the drives; 10k steps each; judge vs exact game keys (scripts/judge_pair.py: same segmenter on render and key, own car masked, car F1 / road IoU / L1 / LPIPS), VAE ceiling; decision rules as in the plan.
 - Code: train_sd.py --init expands style rows (2 -> 3) and --scene_list; sd_render.py --keys_like (val drives / frames that have game keys); judge_pair.py; slurm/tpv_judge.sh, slurm/tpv_experiments.sh.

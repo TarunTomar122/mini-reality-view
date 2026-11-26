@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 01:30
+- Arm A 7k: F1 0.123 (m2f) / 0.092 (SegFormer), kerb 1.48 / 1.43 m -> cars appear between 5k and 7k.
+- BEV prep failed: detectron2's editable install exposes its own `tools` package first on sys.path, so BEVFormer's tools.data_converter was not found. bev_prep.sh now runs create_data via runpy with BEVFormer's root first. Resubmitted 3751669; trial 3751639 retargeted.
+- B2 / C still training (~4k/5k).
+
 ## 2026-11-26 01:10
 - BEV env built (fix 2 worked): BEV_BUILD_OK torch 1.10.2+cu113, CUDA on 2080 Ti, mmdet3d 0.17.1, detectron2 v0.6.
 - BEV data prep 3751638 (create_data -> nuscenes_infos_temporal_{train,val}.pkl; symlinks bev/BEVFormer/data/{nuscenes,can_bus}). scripts/bev_extract.py: runs BEVFormer recurrently per scene in time order, takes the BEV embedding after each frame, resamples it onto our ego grid (x -8..41 m, y +-16.4 m, 96x64 bilinear -> 2x2 pool -> 48x32 x 256 fp16) via lidar2ego; --eval runs the official nuScenes detection metrics (= sanity gate). Trial on 2 val scenes queued (3751639).

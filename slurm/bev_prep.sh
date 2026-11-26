@@ -15,5 +15,7 @@ ln -sfn $HOME/mini-reality-view/data/nuscenes_full bev/BEVFormer/data/nuscenes
 ln -sfn $HOME/mini-reality-view/data/nuscenes_full/can_bus bev/BEVFormer/data/can_bus
 cd bev/BEVFormer
 export PYTHONPATH=$PWD:$PYTHONPATH
-python tools/create_data.py nuscenes --root-path ./data/nuscenes --out-dir ./data/nuscenes --extra-tag nuscenes --version v1.0 --canbus ./data || true
+# detectron2's editable install puts its own `tools` package first on sys.path -> force BEVFormer's root to the front
+python -c "import sys, runpy; sys.path.insert(0, '.'); sys.path.insert(0, 'tools'); sys.argv = ['tools/create_data.py'] + sys.argv[1:]; runpy.run_path('tools/create_data.py', run_name='__main__')" \
+    nuscenes --root-path ./data/nuscenes --out-dir ./data/nuscenes --extra-tag nuscenes --version v1.0 --canbus ./data || true
 ls -la data/nuscenes/nuscenes_infos_temporal_*.pkl && echo BEV_PREP_DONE

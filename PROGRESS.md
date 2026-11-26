@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 19:50 — car map: 2k stop rule fired (both arms)
+- X1 (boxes) 2k: car F1 0.325 vs E3 0.318 (d +0.008 [-0.005, +0.023]); map-only swap 0.321 (correct - swapped +0.004 [-0.003, +0.010]). Road IoU 0.848 = E3.
+- X2 (boxes + grid) 2k: 0.322 (d +0.004 [-0.007, +0.016]); map-only swap 0.319 (+0.002 [-0.012, +0.015]).
+- Plan stop rule: "At 2k, map-only swap moves car F1 by < 0.02: stop that arm, back to council" -> both arms stopped; 4k checkpoints exist (training had already finished) but are not scored under the plan.
+- Pictures (pulled/cm2k_sheet.jpg): detector boxes land on the right cars, but E3 / X1 right map / X1 wrong map renders are nearly identical. The branch is ignored. Training grad norms stayed tiny (0.003-0.01).
+- Diagnostic for the council: scripts/carmap_diag.py (3753126) - eps-MSE with right / swapped / no map, branch change RMS vs prediction RMS, residual RMS per scale, error on map-covered cells, at t = 100..900, for both arms at 2k and 4k.
+- Train-drive yardstick: E3 10k on the 30 fixed train drives (tmp/bev_leak_train30.txt, 29 keyed) scored (runs/judge/tpvE3_10000_train30_*.json).
+
 ## 2026-11-26 18:40
 - P5 timing (3752928): 100 X1 updates fine on an H200 1g.18gb slice, ~1.2 s/update after a 2.2 min first step (the job sat ~20 min in shared-disk reads first); host RSS 13 GB; branch is zero-initialised so "branch off = E3" holds by construction.
 - P3 detector leak (runs/judge/bev_leak.json, camera-only boxes, 30 train drives vs 150 unused val drives): car recall 0.848 vs 0.724, precision 0.786 vs 0.723, centre error 0.53 vs 0.62 m -> LEAK FLAG. By distance: recall 0.98/0.88/0.70 vs 0.95/0.79/0.51.

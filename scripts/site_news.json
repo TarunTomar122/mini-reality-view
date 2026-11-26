@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 19:50",
+  "text": "Car map halfway check: the model ignores the map. With the right map, a wrong map, or no map, the pictures come out almost the same (car score 0.325 vs 0.321 vs 0.318). The plan's early stop fired for both versions; the design goes back to the two AI reviewers with a diagnosis."
+ },
+ {
   "when": "26 Nov, 18:40",
   "text": "Car map check: the borrowed car detector is better on drives it was trained on (finds 85% of cars vs 72% on unseen drives). So the training car maps were roughened (drop some boxes, nudge some, add a few fake ones, by distance) until they match unseen drives: 94/79/51% found near/mid/far vs 95/79/51%. Car map runs X1 and X2 submitted; memory test rollouts started."
  },

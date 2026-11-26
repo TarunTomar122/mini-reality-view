@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 05:10 — sd_run1 finished (40k)
+- Final built-in eval, 8 val scenes vs trusted splat keys (style 1): masked L1 27.32 / LPIPS 0.307 (5k preview on 4 scenes: 33.5 / 0.390). Pictures (pulled/sd40k_final.jpg -> docs/figs): clearly better than the 45M DiT on the same scenes; near field behind the ego still smeared. README updated.
+- Queue is busy: judge-sd40k 3751798, sd45-copy 3751717, sim8k encoders 3751712-14, bev-try 3751843 all waiting for GPUs.
+
 ## 2026-11-26 04:40
 - BEV trial failed in detectron2 v0.6 import: Image.LINEAR (removed in Pillow 10) -> pillow 9.5.0 in envs/bev. Trial rerun 3751843 (A6000).
 - sd_run1 39.9k (final render next). Sim encoders waiting for GPUs.

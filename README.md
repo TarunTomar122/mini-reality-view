@@ -120,7 +120,15 @@ and taught it our task with a small camera adapter (the camera tokens and rays r
 layers. After only 5,000 of 40,000 training steps it draws photo-like streets with tree trunks, kerbs, lane lines,
 poles and trucks, roughly where the answer key has them (for example a truck ahead on a tree-lined road). On 4 unseen
 scenes: pixel error 33.5, LPIPS 0.390, already ahead of our from-scratch model on the same kind of key (34.1 / 0.405).
-Exact positions are not precise yet. Training continues.
+Exact positions are not precise yet.
+
+After the full 40,000 steps (about 9 hours on one slice of an H200), on 8 unseen scenes against the splat keys:
+pixel error 27.3 and LPIPS 0.31 (at 5,000 steps: 33.5 / 0.39). Next to our from-scratch renderer the difference is
+plain to see: the from-scratch model paints smeary blobs, while the Stable Diffusion renderer draws roads, kerbs,
+trees, poles, parked cars, vans and red barriers, mostly where the key has them. It still smears the ground right
+behind our car, where no camera ever looks, and small far-away things are often invented.
+
+![Splat key, from-scratch renderer, Stable Diffusion renderer after 40k steps (unseen scenes, middle frame of each)](docs/figs/sd40k_final.jpg)
 
 ![Splat key (left) and the Stable Diffusion renderer after 5k steps (right), unseen scenes](docs/figs/sd5k.jpg)
 

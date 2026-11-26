@@ -242,19 +242,30 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
         else:
             rseg[i] = segment(rimg[i])
     idx = sorted(kimg)
-    tp = fp = fn = 0; roads = []
+    tp = fp = fn = 0; roads = []; ptick = []
     for n_, i in enumerate(idx):
-        if n_ % 5:
+        if kt(i) % 5:  # placement on every fifth manifest tick (accepted ones only), not every fifth accepted entry
             continue
+        ptick.append(int(kt(i)))
         M = iou_mat(rseg[i][0], kseg[i][0]); m = hungarian(M, 0.3); tp += len(m); fp += len(rseg[i][0]) - len(m); fn += len(kseg[i][0]) - len(m)
         rk, rr = kseg[i][1], rseg[i][1]; roads.append((rk & rr).sum() / max(1, (rk | rr).sum()))
     # tracks on the keys + matches
     trans_ID, trans_W, rec, flips, ghosts = [], [], [], 0, []
     link_stats, new_links = [0, 0, 0], []  # edge cars with a previous tick: total, linked by raw IoU, linked by flow IoU
     tid, nxt_id = {}, 0
+    gh_masks, gh_life, gh_done = [], {}, []  # ghost tracks: unmatched render cars linked across adjacent ticks (IoU >= 0.5)
     for n_, i in enumerate(idx):
         G = kseg[i][0]; M = iou_mat(rseg[i][0], G); m = hungarian(M, 0.3)
         ghosts.append(len(rseg[i][0]) - len(m))
+        matched_r = set(m.values()); now_masks = [rseg[i][0][q] for q in range(len(rseg[i][0])) if q not in matched_r]
+        gl = hungarian(iou_mat(now_masks, gh_masks), 0.5) if (n_ and idx[n_ - 1] == i - 1 and gh_masks and now_masks) else {}  # {prev: now}
+        for pp, L_ in gh_life.items():
+            if pp not in gl:
+                gh_done.append(L_)  # track ended
+        nl = {nn: 1 for nn in range(len(now_masks))}
+        for pp, nn in gl.items():
+            nl[nn] = gh_life[pp] + 1
+        gh_life, gh_masks = nl, now_masks
         ids = {}
         if n_ and idx[n_ - 1] == i - 1:
             j = i - 1
@@ -319,6 +330,9 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
                                 bool(matched and cmv.any()), int(cmv.sum()), int(cm.sum())])
     d = {"car_f1": 2 * tp / max(1, 2 * tp + fp + fn), "road_iou": float(np.mean(roads)) if roads else None,
          "recall": float(np.mean(rec)) if rec else None, "flips": flips / max(1, len(trans_ID)), "ghosts": float(np.mean(ghosts)) if ghosts else None,
+         "placement_ticks": ptick,
+         "ghost_lifetimes": sorted(gh_done + list(gh_life.values()), reverse=True)[:50],
+         "ghost_ge5": int(sum(1 for L_ in gh_done + list(gh_life.values()) if L_ >= 5)),  # >= 0.5 s at 10 Hz
          "accepted": len(idx), "ticks": len(ticks), "trans_ID": trans_ID, "trans_W": trans_W, "link": a.link,
          "link_edge": {"total": link_stats[0], "iou": link_stats[1], "flow": link_stats[2]}, "new_links": new_links,
          "w_valid_px": int(sum(t[6] for t in trans_W)), "w_total_px": int(sum(t[7] for t in trans_W))}
@@ -364,6 +378,8 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
             w = [j for j in range(i, i + 5) if j in kseg]
             if len(w) < 5:
                 continue
+            if any(int(kt(w[q + 1])) != int(kt(w[q])) + 1 for q in range(4)) or any(rst[j] for j in w[1:]):
+                continue  # five consecutive distinct donor ticks, no history reset inside the window
             cc = [cold_cars(j) for j in w]
             if any(c is None for c in cc):
                 continue

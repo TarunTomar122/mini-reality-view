@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 16:30
+- Car map council round 1 (council/carmap-s1-astra.md, carmap-s1-fable.md): both: init E3 10k; BEVFormer detections drawn into the chase view through a zero-initialised pixel-aligned branch; bar car F1 >= ~0.38 (half the 0.763 ceiling) with a confirmed gain. Fable adds a box-length channel (MetaDrive picks car models from length), constant-velocity roll-forward of 2 Hz boxes to 10 Hz with a small tracker, a GT-box arm, and a preflight on BEVFormer's train-drive leak. Round 2 running.
+- Temporal: frozen methods on the 6 dev drives queued after the 8 encode shards: independent 3752735, warm 0.5 3752736, warm 0.7 3752737 (E3 10k, seeds 0/1) -> metrics 3752738-40 (cold = independent).
+
 ## 2026-11-26 16:10 — Owner: both tracks in parallel
 - Car map: council brief council/carmap-brief.md (updating PLAN-bev.md for the third-person target: input form, init E3 vs E1, BEVFormer at 2 Hz vs 10 Hz, interaction with memory, 3 experiments with rules vs the 0.763 ceiling). Astra + Fable round 1 running.
 - Temporal (role: pick the memory method; final model = car map + winning memory method with a short retrain): temporal_encode fixed per amendment 2 (offset-rejected ticks encoded from their nearest bundle; hard flag) and restarted on 8 shards (3752726-33; the 2-shard run did 6 drives in 30 min). Lit keyframe re-render (3752694-99) + latents (3752700) queued.

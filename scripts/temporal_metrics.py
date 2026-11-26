@@ -29,7 +29,7 @@ p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--out", default="")
 p.add_argument("--compare", nargs=2, default=None)
 p.add_argument("--shard", default="0/1", help="i/n: score every n-th rollout file (merge shards in --compare with a glob)")
-p.add_argument("--lag_ref", default="", help="lag test: metrics json (or glob) of the cold / independent rollouts of the same split; the donor drive's car F1 (same seed) is the reference")
+p.add_argument("--lag_ref", default="", help="lag test: folder of the cold (independent) rollouts of the same split; the donor's cold car F1 on the same ticks is the reference")
 p.add_argument("--link", default="iou", choices=["iou", "flow"],
                help="key-track linking: iou = signed (IoU >= 0.5 of raw masks); flow = amendment-3 candidate (t-1 key masks "
                     "warped to t with RAFT flow on the keys, then IoU >= 0.5). Both link rates are always reported.")
@@ -52,7 +52,7 @@ if a.compare:
     scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == SEEDS and seeds_of(B, s_) == SEEDS]
     unpaired = [s_ for s_ in all_sc if s_ not in scenes]
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
-    PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap", "lag_ticks")
+    PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap")
 
     def per_drive(s_):
         """one value per drive (seeds pooled inside the drive): ID / W on SHARED transitions, others averaged over seeds"""
@@ -86,13 +86,13 @@ if a.compare:
             res[name] = (np.mean([x[0] for x in xs]) if xs else np.nan, np.mean([x[1] for x in xs]) if xs else np.nan,
                          sum(x[2] for x in xs), len(xs))
         return res
-    def lag_median(D):
+    def lag_median(D, pos="lag_end"):
         v = []
         for s_ in scenes:
             for r_ in by_scene[s_]:
                 q = D["drives"][r_]
                 if "lag_recovered" in q:
-                    v.append(q["lag_ticks"] if q["lag_recovered"] else float("inf"))
+                    v.append(q[pos] if q["lag_recovered"] else float("inf"))
         return float(np.median(v)) if v else None
     full = stats(scenes)
     rng = np.random.default_rng(0); boots = {k: [] for k in full}
@@ -113,7 +113,9 @@ if a.compare:
         wv = [(D["drives"][r_].get("w_valid_px", 0), D["drives"][r_].get("w_total_px", 0)) for s_ in scenes for r_ in by_scene[s_]]
         if sum(q[1] for q in wv):
             out[f"w_valid_share_{nm}"] = round(sum(q[0] for q in wv) / sum(q[1] for q in wv), 3)
-    out["lag_median_ticks"] = {"A": lag_median(A), "B": lag_median(B), "gate": "<= 5 (inf = not recovered)"}
+    out["lag_median_ticks"] = {pos: {"A": lag_median(A, pos), "B": lag_median(B, pos)} for pos in ("lag_start", "lag_centre", "lag_end")}
+    out["lag_median_ticks"]["gate"] = "<= 5 (inf = not recovered); gating position (end vs centre) open"
+    out["lag_excluded_runs"] = {nm: sum(1 for s_ in scenes for r_ in by_scene[s_] if D["drives"][r_].get("lag_excluded")) for nm, D in (("A", A), ("B", B))}
     for k, (x, y, n, nd) in full.items():
         bb = np.array(boots[k]); bb = bb[np.isfinite(bb)]
         out[k] = {"A": round(float(x), 4), "B": round(float(y), 4), "diff": round(float(x - y), 4), "n": int(n), "drives": int(nd),
@@ -342,26 +344,44 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
             return float(np.mean(lr) - np.mean(lc)), float(f1(tr) - f1(tc))
         d["late_lpips_gap"], d["late_f1_gap"] = win(150, 170); d["early_lpips_gap"], d["early_f1_gap"] = win(5, 25)
     if swap >= 0:
+        # lag (drift check 3, both reviewers): per five-tick window, threshold = 0.8 x the DONOR's cold car F1 on the SAME
+        # donor ticks (same seed, same 0.3 matcher); windows with zero cold F1 are skipped; full windows only, incl. the
+        # last one; no eligible window -> drive excluded and counted; recovery reported at window start / centre / end
+        # (which one gates is still open between the reviewers).
         if not a.lag_ref:
-            raise SystemExit("lag test needs --lag_ref (plan: 80% of the donor drive's cold car F1)")
-        if "LAGREF" not in globals():
-            LAGREF = {}
-            for f_ in sorted(glob.glob(a.lag_ref)):
-                LAGREF.update(json.load(open(f_))["drives"])
-        ref_ = LAGREF.get(f"{other}_s{b.rsplit('_s', 1)[1]}", {}).get("car_f1")
-        d["cold_ref_f1"] = ref_
-        lag = None
-        if not ref_:  # plan: nonzero reference only
-            d["lag_ticks"] = None; result["drives"][b] = d; continue
-        for i in range(swap, len(ticks) - 5):
+            raise SystemExit("lag test needs --lag_ref <folder of the cold (independent) rollouts of the same split>")
+        seed_ = b.rsplit("_s", 1)[1]; Cd = torch.load(f"{a.lag_ref}/{other}_s{seed_}.pt")
+        cpos = {int(t): k for k, t in enumerate(Cd["ticks"].tolist())}; cseg = {}
+        def cold_cars(j):
+            k = cpos.get(int(kt(j)))
+            if k is None:
+                return None
+            if k not in cseg:
+                cseg[k] = segment(to_img(Cd["lat"][k]))[0]
+            return cseg[k]
+        lag, eligible = None, 0
+        for i in range(swap, len(ticks) - 4):
             w = [j for j in range(i, i + 5) if j in kseg]
-            if len(w) < 5:  # full five-tick windows only
+            if len(w) < 5:
                 continue
-            t_ = sum(len(hungarian(iou_mat(rseg[j][0], kseg[j][0]), 0.3)) for j in w)
-            n_ = sum(len(rseg[j][0]) + len(kseg[j][0]) for j in w)
-            if n_ and 2 * t_ / n_ >= 0.8 * ref_:
+            cc = [cold_cars(j) for j in w]
+            if any(c is None for c in cc):
+                continue
+            f1 = lambda R_: (lambda t_, n_: 2 * t_ / n_ if n_ else 0.0)(
+                sum(len(hungarian(iou_mat(R_[q], kseg[j][0]), 0.3)) for q, j in enumerate(w)), sum(len(R_[q]) + len(kseg[j][0]) for q, j in enumerate(w)))
+            ref_w = f1(cc)
+            if ref_w <= 0:
+                continue
+            eligible += 1
+            if f1([rseg[j][0] for j in w]) >= 0.8 * ref_w:
                 lag = i - swap; break
-        d["lag_ticks"] = lag; d["lag_recovered"] = lag is not None  # unrecovered switches stay in (as +inf in the median)
+        d["lag_eligible_windows"] = eligible
+        if not eligible:
+            d["lag_excluded"] = True
+        else:
+            d["lag_recovered"] = lag is not None
+            d["lag_start"], d["lag_centre"], d["lag_end"] = (lag, lag + 2, lag + 4) if lag is not None else (None, None, None)
+            d["lag_ticks"] = d["lag_end"]  # provisional; the gating position (end vs centre) is still open
     result["drives"][b] = d
     print(b, {k: (round(v, 3) if isinstance(v, float) else v) for k, v in d.items() if not k.startswith("trans")}, flush=True)
 json.dump(result, open(a.out, "w"))

@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 23:35 — drift check 3 swap results
+- Converged: lag threshold = 0.8 x the donor's cold car F1 on the SAME five donor ticks (same seed, 0.3 matcher), zero-reference windows skipped, full windows incl. the last, no eligible window -> run excluded and counted (both); gradient clip 1.0 kept in R (as E3 / X1), share of clipped updates reported (both). Implemented (temporal_metrics.py lag block; --lag_ref is now the cold rollout folder; train_carmap2.py logs clipped_share).
+- Not converged after one swap: lag gating position, Astra = window end (no future ticks), Fable = window centre (end makes a perfect render read 4). Scorer reports start / centre / end; gating position goes back to the next hourly check. No lag test has been run yet, so nothing waits on it.
+
 ## 2026-11-26 23:25 — drift check 3 outcome (both answers in); swap on 3 points
 - Agreed by both (applied / running): decision metric jobs 3753219-24 HELD (they would have run today's scorer); amendment-3 candidate = key tracks linked by flow-warped Hungarian IoU (t-1 key masks warped to t with RAFT key flow, >= 0.5; render-to-key stays 0.3), accepted only if on dev: linked edge share >= 80%, >= 18 / 20 hand-checked new links right on two traffic-bearing turns (entries / exits / dropouts), ordering check passes again; else keep the signed linking and state coverage. temporal_metrics.py --link flow added (both link rates, W valid-pixel share and new-link examples always reported). Dev re-scored with --link flow: tmet3-* 3753609-14.
 - P3 on the seeded 30 train vs the 84 (both; Fable withdrew the 12); the 12 only as a report-only check of degraded train vs raw unseen boxes.

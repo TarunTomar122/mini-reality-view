@@ -100,7 +100,7 @@ if __name__ == "__main__":
              "args": {**ck0["args"], "carmap2": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
         torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
-    style = torch.full((16,), 2, dtype=torch.long, device=dev)
+    style = torch.full((16,), 2, dtype=torch.long, device=dev); CLIP = [0, 0]
     log = open(f"{a.out}/log.jsonl", "a"); t0 = time.time(); SAVE = set(int(x) for x in a.save_at.split(","))
     for step in range(start, a.steps):
         g = torch.Generator().manual_seed(a.seed * 100003 + step)
@@ -129,9 +129,10 @@ if __name__ == "__main__":
         car = (err.mean(1, keepdim=True) * W).sum() / wsum if wsum > 0 else whole
         loss = 0.5 * whole + 0.5 * car
         opt.zero_grad(set_to_none=True); loss.backward(); gn = torch.nn.utils.clip_grad_norm_(params, 1.0); opt.step()
+        CLIP[0] += 1; CLIP[1] += int(gn.item() > 1.0)  # amendment 3: clip 1.0 kept (as E3 / X1), share of clipped updates reported
         if step % 100 == 0:
             rec = {"step": step, "loss": round(loss.item(), 4), "whole": round(whole.item(), 4), "car": round(car.item(), 4),
-                   "gn": round(gn.item(), 4), "wnorm": round(unet.conv_in.map.weight.norm().item(), 4), "cam_drop": pdrop,
+                   "gn": round(gn.item(), 4), "wnorm": round(unet.conv_in.map.weight.norm().item(), 4), "cam_drop": pdrop, "clipped_share": round(CLIP[1] / max(1, CLIP[0]), 4),
                    "min": round((time.time() - t0) / 60, 1)}
             print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
         if (step + 1) % 500 == 0 or step + 1 == a.steps:

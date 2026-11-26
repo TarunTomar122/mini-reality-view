@@ -15,7 +15,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--dataroot", default="data/nuscenes_full")
 p.add_argument("--out", default="data/temporal_manifest.json")
-p.add_argument("--max_ms", type=float, default=45.0)
+p.add_argument("--max_ms", type=float, default=50.0)
 a = p.parse_args()
 nusc = NuScenes("v1.0-trainval", a.dataroot, verbose=False)
 by = {s["name"]: s for s in nusc.scene}

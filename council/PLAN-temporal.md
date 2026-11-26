@@ -18,7 +18,7 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
 - Whole drives (~20 s) at every 10 Hz sim tick. Pilot 2 drives first: check tick 5k against existing keyframe keys and
   ScenarioNet's interpolation against the converter timestamps before using intermediate ticks.
 - Pairing: tick time interpolated linearly between the two real sample timestamps; per camera the nearest same-scene
-  sweep; reject offsets > 45 ms [Astra's tighter bound]; break sequences at rejects / repeated rig bundles; manifest
+  sweep; reject offsets > 50 ms [amendment 1, approved by Astra and Fable on measured data: 45 ms kept only 54.1% of ticks, 50 ms 94.5%; council/temporal-amend1*.md]; break sequences at rejects / repeated rig bundles; manifest
   (scene, tick, time, 6 files, offsets); report rejects and usable durations.
 - Cache scaled VAE latents of keys and the 6 calibrated DINO token grids per (scene, tick).
 

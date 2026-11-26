@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 15:20 — Temporal amendments 1-2 approved; data prep resumes
+- Pairing: at 45 ms only 54.1% of ticks were usable (max-over-cameras offset median 44.5 ms: half a camera period); 50 ms -> 94.5%. Amendment 1 (50 ms) approved by Astra and Fable. Even so no drive had an unbroken >= 19 s run (replays end ~18.4 s; ~5% rejects scattered). Amendment 2 approved: rollouts run through offset rejects (rejected ticks unscored), hard break at repeated bundle / render gap / > 100 ms, drift window ticks 150-169 on >= 170-tick rollouts, cold frames from the same bundles. Measured qualifying rollouts: decision 22/30, final 18/24, dev 5/6, train 85/144.
+- Owner agreed: no 40k long run now; temporal arms from E3 10k + BEVFormer placement diagnostic (bev-boxes 3752688 running on the 30 decision drives; seaborn added to envs/bev; scripts/bev_box_judge.py scores GT / BEVFormer / renderer cars vs the game keys).
+- I/O better (8 MB fsync 1.5-5.6 s on the slow OSTs at 15:15). Manifest at 50 ms -> temporal_encode (2 shards) queued.
+
 ## 2026-11-26 13:55
 - Dense 10 Hz render finished fast (~25 min): 204 drive folders in data/sim/keys_tpv10 (150 train/dev + 54 val). Baseline (no warm start) clips re-rendered: tmp/xwarm0_scene-0563/0915.
 - I/O degraded again at ~13:50 (8 MB fsync: OST4 289 s, others 12-29 s); VPN dropped ~13:50, reconnected via FortiTray. Pairing manifest submitted as a batch job (3752595). Held until writes recover: temporal_encode (~14 GB of token caches) and the --lit keyframe re-render (~12k PNGs).

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 20:50 — temporal: metric check part 2; warm 0.5 out; decision rollouts
+- Metric check (dev): VAE round trip vs independent: ID 0.058 vs 0.097 (-41%), W 14.6 vs 27.7, recall 0.72 vs 0.43, car F1 0.75 vs 0.47; flips 0.21 vs 0.19 [-0.07, +0.13] (small blurred cars toggle at IoU 0.3, not significant). Key video and VAE round trip both rank above the model on the co-primaries as required; fresh noise pending (3753158).
+- Warm 0.5 on dev: car F1 0.304 vs 0.474 (-0.170), road IoU 0.693 vs 0.852, late LPIPS gap +0.281, recall -0.10. Collapses (matches the striped frames seen by eye): dropped. Warm 0.7 is the dev-picked warm setting.
+- Decision set (30 drives x seeds 0/1) rollouts: independent 3753213/15/17 and warm 0.7 3753214/16/18 (3 shards each, 2080 Ti); metrics sharded (temporal_metrics.py --shard; --compare merges a glob): 3753219-24.
+- Car map diagnostic running on an A6000 (3753196); duplicates cancelled.
+
 ## 2026-11-26 20:40 — temporal dev numbers; lit singles; timing runs
 - Frozen methods on the 6 dev drives (12 rollouts, E3 10k), warm 0.7 vs independent (paired, 6 drives): edge-car ID 0.068 vs 0.085 (-20%, [-0.030, -0.007]); W 25.7 vs 25.7 (no change, [-2.4, +4.2]); recall 0.40 vs 0.43; car F1 0.429 vs 0.474 (-0.045 [-0.102, +0.006]); road IoU 0.795 vs 0.852 (-0.058 [-0.106, -0.012]); late LPIPS gap +0.086 [+0.038, +0.137]. Dev only (settings), not a decision; but warm 0.7 already misses the road and drift gates here.
 - Metric check, part 1: key video scored as the render: ID 0 vs 0.099, W 13.2 vs 28.2, recall 1.0, flips 0, car F1 1.0, road 1.0 -> ranks best as required. VAE round trip and fresh noise pending (3753157, 3753158).

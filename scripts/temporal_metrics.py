@@ -28,11 +28,17 @@ p.add_argument("--cold", default="")
 p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--out", default="")
 p.add_argument("--compare", nargs=2, default=None)
+p.add_argument("--shard", default="0/1", help="i/n: score every n-th rollout file (merge shards in --compare with a glob)")
 p.add_argument("--render_keys", action="store_true", help="metric check: score the key video itself as the render (must be best)")
 a = p.parse_args()
 
 if a.compare:
-    A, B = (json.load(open(f)) for f in a.compare)
+    def load_merged(pat):  # a json, or a glob of shard jsons
+        out = {"drives": {}}
+        for f in sorted(glob.glob(pat)):
+            out["drives"].update(json.load(open(f))["drives"])
+        return out
+    A, B = (load_merged(f) for f in a.compare)
     runs = sorted(set(A["drives"]) & set(B["drives"]))  # "<scene>_s<seed>"
     scenes = sorted({r.rsplit("_s", 1)[0] for r in runs})
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
@@ -159,7 +165,10 @@ def to_img(lat):
 
 tens = lambda im: torch.from_numpy(np.asarray(im)).permute(2, 0, 1)[None].float().to(dev) / 127.5 - 1
 result = {"roll": a.roll, "cold": a.cold, "drives": {}}
-for fr in sorted(glob.glob(f"{a.roll}/*_s*.pt")):
+_si, _sn = map(int, a.shard.split("/"))
+for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
+    if _k % _sn != _si:
+        continue
     b = os.path.basename(fr)[:-3]; sc = b.rsplit("_s", 1)[0]
     R = torch.load(fr); ticks = R["ticks"].tolist(); acc = (R["ok"] & ~R["hard"]).tolist()
     swap = R.get("swap_from", -1); other = R.get("other", "")

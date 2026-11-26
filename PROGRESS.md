@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 13:55
+- Dense 10 Hz render finished fast (~25 min): 204 drive folders in data/sim/keys_tpv10 (150 train/dev + 54 val). Baseline (no warm start) clips re-rendered: tmp/xwarm0_scene-0563/0915.
+- I/O degraded again at ~13:50 (8 MB fsync: OST4 289 s, others 12-29 s); VPN dropped ~13:50, reconnected via FortiTray. Pairing manifest submitted as a batch job (3752595). Held until writes recover: temporal_encode (~14 GB of token caches) and the --lit keyframe re-render (~12k PNGs).
+- Waiting for the owner: 40k long run (go rule not met: 42% of ceiling, plan silent on 25-50%) vs proposed temporal arms from E3 10k + BEVFormer box diagnostic.
+
 ## 2026-11-26 13:40 — Experiment T verdict at 10k
 - Judge vs exact game keys, 30 held-out drives (Mask2Former / SegFormer car F1; road IoU; LPIPS): E1 10k 0.288 / 0.279, 0.846, 0.312; E3 10k 0.318 / 0.302, 0.848, 0.316. E1 - E3 = -0.030 [-0.077, +0.013] / -0.024 [-0.060, +0.014]; road -0.002 [-0.014, +0.011]. (5k: E1 0.276, E3 0.294; E2 0.044.)
 - Decision rules (council/PLAN-tpv.md): init -> our trained renderer (E2 drew almost no cars: outright). Data -> E1 - E3 < 0.02: the ~2.4k-frame quarter is already enough at this budget; no more drives needed. Go rule -> best arm 0.318 = 42% of the VAE ceiling 0.763: below the 50% needed for the 40k long run, above the 25% "back to council" line; the plan has no rule for this band -> owner decision. Road IoU rising (E3 0.836 -> 0.848).

@@ -1,4 +1,4 @@
-# Temporal consistency and memory: merged plan (draft for sign-off)
+# Temporal consistency and memory: merged plan (v2, Astra's sign-off objections applied)
 
 Sources: council/temporal-brief.md; round 1 temporal-s1-astra.md, temporal-s1-fable.md; round 2 temporal-s2-astra.md,
 temporal-s2-fable.md. Where round 2 still differed, the choice below and the reason are given in [brackets].
@@ -35,13 +35,17 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
 - **C, own rollouts:** fork B at 1,000 (with optimiser state). At 1,000 / 2,500 / 4,000 freeze a snapshot and cache
   detached DDIM-25 / CFG-2 rollouts of 128 eight-tick train clips (s = 0.3); for half of the history rows use the
   cached own frame with its true next key, corrupted as in B. A and B see the same preselected targets.
-- Inference for B/C: feed back the last output; history noise fixed per drive; first tick without history; run-time s
-  swept over {0, 0.1, 0.3, 0.5} on development drives, then locked.
+- Inference for B/C: feed back the last output; first tick without history; run-time s swept over {0, 0.1, 0.3, 0.5}
+  on development drives, then locked.
+- **Noise control (all methods):** one sampling-noise tensor per (drive, seed), reused across ticks, methods and cold
+  re-renders; history corruption drawn from a separate seeded stream. Fresh noise every frame only in the metric check.
 
 ## Metrics (own car excluded; drives weighted equally; cold = same model, same frames, no history)
 - **ID, edge-car appearance change (co-primary):** link key car masks across adjacent ticks (Hungarian IoU >= 0.5);
-  for tracks centred in the outer thirds, crop both frames to the key box + 10%, 96x96, DINOv2-small CLS; cosine
-  distance between the two ticks in the render minus the same in the keys; misses count (Astra's definition).
+  for tracks centred in the outer thirds, crop both frames to the key box + 10%, 96x96, DINOv2-small CLS. Per track
+  transition: |cosine distance between the two ticks in the render - the same in the keys| (absolute, so a frozen
+  car is penalised as much as a flickering one), then averaged. Every eligible key track is scored with its key-defined
+  crop even when the render misses the car. Percentage reductions only where the reference score is positive.
 - **W, car warp residual (co-primary):** pixel residual on car pixels after warping with the keys' motion (round-1
   definition), outer 20% each side, with the valid car-pixel share reported. Only used if the flow check passes.
   [Fable: pixel-only scores reward erased or blurred cars; Astra: identity alone misses jitter. Both kept.]
@@ -49,7 +53,9 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
   and their lifetime.
 - **Placement:** judge_pair.py (car F1, road IoU) on every fifth tick, in rollout and cold.
 - **Drift:** late gap = LPIPS of the last 2 s minus the same frames cold, and the same for car F1; early gap (2 s from
-  tick 5) alongside; L1 reported to compare with the old DiT (+1.8). Clips >= 19 s only.
+  tick 5) alongside. Clips >= 19 s only. No numerical comparison with the old DiT's +1.8 (a different quantity:
+  last-five minus first-five keyframe rollout L1 at 2 Hz) unless that cadence, window and scale are reproduced and the
+  dataset difference is labelled.
 - **Lag:** at 5 s swap to another drive's cameras; ticks until car F1 vs the new keys reaches 80% of its cold value
   (five-tick window, nonzero reference).
 - **Memory:** pre-marked events (car visible in a rig photo, hidden in all six >= 0.5 s, still identifiable in the
@@ -57,7 +63,9 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
   events over >= 5 drives and a positive lower bound; otherwise descriptive.
 
 ## Decision rules (paired bootstrap over drives, 2,000 draws, seeds 0/1 kept together)
-- **Gates for every method:** car F1 lower bound >= -0.02 and road IoU >= -0.01 vs frozen independent; late LPIPS gap
+- **Gates for every method:** car F1 and road IoU point differences >= 0 AND lower bounds >= -0.02 (car F1) and
+  >= -0.01 (road IoU) vs frozen independent; for B/C the same checks also against arm A and against the frozen
+  comparator used for adoption; late LPIPS gap
   upper bound <= +0.02 and late car F1 gap lower bound >= -0.03; median lag <= 5 ticks; ghosts not growing.
 - **Warm start adopted** if ID and W both fall >= 15% vs frozen independent (intervals excluding zero) and gates pass.
 - **B or C adopted** if the same holds against both arm A and the best qualifying frozen method.

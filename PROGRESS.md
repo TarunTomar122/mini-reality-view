@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 18:40
+- P5 timing (3752928): 100 X1 updates fine on an H200 1g.18gb slice, ~1.2 s/update after a 2.2 min first step (the job sat ~20 min in shared-disk reads first); host RSS 13 GB; branch is zero-initialised so "branch off = E3" holds by construction.
+- P3 detector leak (runs/judge/bev_leak.json, camera-only boxes, 30 train drives vs 150 unused val drives): car recall 0.848 vs 0.724, precision 0.786 vs 0.723, centre error 0.53 vs 0.62 m -> LEAK FLAG. By distance: recall 0.98/0.88/0.70 vs 0.95/0.79/0.51.
+- Per the plan, training maps degraded to val error rates (scripts/bev_degrade.py -> tmp/bev_boxes_trainD.json): drop 3.5/10.2/28.1%, centre jitter sigma 0.16/0.28/0.44 m, phantoms 0/0.05/0.24 per kept box (shifted vehicle copies). Re-check (runs/judge/bev_leak_degraded.json): recall 0.94/0.79/0.51 vs 0.95/0.79/0.51, precision 0.94/0.81/0.49 vs 0.96/0.81/0.48, centre error 0.62 vs 0.62 m, flag off. Note: X2's BEV grid features cannot be degraded the same way; the train-vs-held-out gap gate (<= 0.05) covers it.
+- Submitted X1 3752959 (boxes) and X2 3752960 (boxes + grid), both on the degraded boxes, 4k updates.
+- Temporal: encode 203/204 done; lit re-render 600/600 -> lit-lat 3752700 released; dev rollouts (troll indep / w05 / w07) running, metrics queued.
+
 ## 2026-11-26 17:45
 - Progress: temporal encode 165/204 drives; lit keyframe re-render 551/600 scene folders (lit-5 running); camera-only BEVFormer caches: train+dev boxes done (tmp/bev_boxes_train_*.json), 195 grid files; other-val and decision running.
 - Car map code: mrv/carmap.py (rasterizer, 4-scale zero-init branch, shared grid sampling, GT oracle frames), scripts/train_carmap.py (X1/X2 on frozen E3), scripts/sd_render.py --carmap_boxes / --carmap_oracle / --map_swap / --carmap_grid.

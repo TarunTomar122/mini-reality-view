@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 21:45",
+  "text": "Car map re-tested with the bug fixed: the map now changes the picture, but the right map and a wrong map change it the same way (car score 0.315 vs 0.323; base model 0.318). So the add-on still does not use where the cars are. Early stop, valid this time; the two AI reviewers are redesigning it."
+ },
+ {
   "when": "26 Nov, 21:40",
   "text": "Correction: the 'car map is ignored' result was our bug, caught by the hourly AI review. The drawing script gave the car map to only the first of 25 drawing steps. Fixed; the halfway car-map test is being re-run. The steady-video scorer was also fixed to weight every drive equally before anything is ranked."
  },

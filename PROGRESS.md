@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 21:45 — car map 2k (fixed renders): stop rule fires validly; round 2 council
+- 2k, fixed renders (30 decision drives x 4 keyframes x seeds 0/1, Mask2Former, paired drive bootstrap):
+  X1 car F1 0.315 vs E3 0.318 (-0.002 [-0.030, +0.025]); map-only swap 0.323 (correct - swapped -0.007 [-0.024, +0.009]); road IoU 0.856 vs 0.848 (+0.008 [+0.003, +0.013]).
+  X2 0.322 (+0.004 [-0.024, +0.035]); map-only swap 0.334 (correct - swapped -0.013 [-0.034, +0.009]); road 0.855 (+0.007 [+0.002, +0.013]).
+  SegFormer: X1 0.307 vs 0.302, X2 0.302 vs 0.302.
+- Map-only swap moves car F1 < 0.02 -> both arms stopped (valid now). Picture pulled/cm2k_sheet_fixed.jpg: the branch now changes road edges and car shapes, but the right and wrong maps give near-identical changes.
+- Back to council: council/carmap-r2-brief.md sent to Astra and Fable (round 1, independent answers -> carmap-r2-astra.md / -fable.md), incl. the open camera-only point.
+- Temporal timing: arm A 100 updates on an A6000 in ~0.9 min (~0.54 s/update, 6k ~ 55 min); B timing running; C cache shard timing (3753245) next.
+
 ## 2026-11-26 21:25 (cluster clock; earlier headings tonight ran ~25 min ahead) — fixes verified
 - Car map render fix verified (P5-style, X1 2k, scene-0003 frames, same noise as E3): mean |render - E3| 3.9-32.3 /255 with the fix vs 0.3-2.7 with the bug. 2k dec + mapswap re-renders running (3753241-44).
 - Dev re-scored with the fixed scorer (equal drive weights, shared transitions, valid backward warp, contiguous drift; 6 drives, 5 with >= 170 contiguous ticks):

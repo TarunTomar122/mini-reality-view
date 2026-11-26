@@ -1,4 +1,4 @@
-# Car map: merged plan (draft for sign-off)
+# Car map: merged plan (v2: Astra's sign-off objections applied)
 
 Sources: council/carmap-brief.md; rounds 1-2 carmap-s1/s2-astra.md, carmap-s1/s2-fable.md. Coordinator's choices on
 points still open after round 2 are marked [choice: ...]. Supersedes council/PLAN-bev.md for the third-person target.
@@ -15,12 +15,15 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
 ## Preflights (2080 Ti / A6000, no training; any reject -> no training)
 - P1 cache: bev_extract.py boxes (all classes, score >= 0.2) + grids for the 144 train + 6 dev drives, the 30 decision
   drives, other official-val drives for calibration, and the final 24 (stored, unviewed). Verify token coverage
-  (grid-file skip can omit boxes); record checkpoint, motion source, calibration, timestamps, sweep IDs.
+  (grid-file skip can omit boxes); record checkpoint, motion source, calibration, timestamps, sweep IDs. Before X3,
+  verify map coverage for every X3 singles draw from all training drives excluding dev, plus every eligible dense tick
+  for the selected box/grid feed [Astra s3].
 - P2 telemetry: BEVFormer aligns its previous grid with can_bus ego motion (from the ego pose). Rerun the decision-drive
   hull test with can_bus zeroed (with and without the previous grid). If hull F1 >= 0.397 (0.417 - 0.02) that mode is
-  used for every cache. Otherwise the standard mode is used, results are labelled "cameras + ego motion", and the car
-  map may enter the final model only after a camera-only motion source (causal six-camera visual odometry, Astra)
-  passes the same 0.397 test [choice: owner's camera-only rule for the final model; both members' ideas kept].
+  used for every cache. Otherwise the standard mode is used and results are labelled "cameras + ego motion". For the
+  final model [Astra s3]: audit detector alignment, per-camera transforms and 10 Hz box/grid propagation end to end;
+  use fixed calibration and causal camera-derived motion throughout; after any motion-source change, rebuild affected
+  caches, pass the 0.397 hull gate and repeat the renderer adoption gates with the deployed feed.
 - P3 detector train leak (before training, Fable; metrics from Astra): predicted vs true boxes on 30 seeded train drives
   vs 30+ unused official-val drives (not decision / final): hull F1, recall, precision, centre error by distance.
   If recall or precision differs by > 0.05 or centre error by > 25% (or predicted train-val hull F1 gap exceeds the GT
@@ -41,8 +44,9 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
   (0.848 vs ceiling 0.94); Astra's oracle-trained arm replaced by an oracle TEST (below) that answers the same
   "branch vs detector" question without a training run].
 - **X3, map + memory:** the X1/X2 winner's branch moved onto the locked temporal winner; 3,000 updates on lit dense keys
-  + lit singles (temporal batch mix), 10 Hz maps from P4. Base frozen, unless X1 lowered precision vs E3 (upper bound
-  < 0): then LoRA + adapter also train at 5e-5 and arm A's 4k -> 6k change is quoted as the extra-training effect.
+  + lit singles (temporal batch mix), 10 Hz maps from P4. Freeze the entire temporal winner, retaining its locked
+  inference settings, and train only the map branch; compare against that same winner with the branch disabled and
+  identical noise [Astra s3].
   B/C keep their history conv and corruption; C's own rollouts regenerated with the map. If a training-free method won
   the temporal round, X3 tests the map at 10 Hz on E3.
 
@@ -53,17 +57,20 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
 - Controls: full swap (cameras, rays and map together) <= 0.05 vs the original key, correct - swapped lower bound > 0;
   map-only swap: correct - map-only-swapped lower bound > 0 [Astra; the cameras alone already place cars, so a fixed
   "half the gain" is not required]; the fraction of the gain removed is reported (Fable).
-- Oracle test (true boxes at test time, no training on them): reported; < 0.45 means the branch, not the detector, is
-  the limit.
+- Oracle test (no training on true boxes): report paired rendered F1 with predicted versus annotated boxes, holding
+  cameras, noise and any grid fixed. A low oracle-input score alone cannot distinguish branch capacity from sensitivity
+  to the change in inputs [Astra s3].
 - Train vs held-out: same judge on 30 fixed train drives (with precision and recall); train gain exceeding held-out
   gain by > 0.05 -> adoption withheld.
-- Grid kept only for >= +0.02 car F1 or >= +0.01 road IoU over X1 (lower bound > 0), the other metric not down.
-  Otherwise X1 is the winner; within 0.02 car F1 prefer X1.
+- Winner: select the sole passing arm if only one passes. If both pass, select X2 when either incremental threshold
+  over X1 (>= +0.02 car F1 or >= +0.01 road IoU) passes with positive lower bound and the other point difference is
+  non-negative; otherwise select X1 [Astra s3].
 - X3: lit VAE ceiling re-measured; car F1 >= max(0.382, half the lit ceiling); positive paired gain over memory alone;
   every signed temporal gate (PLAN-temporal.md) incl. flicker gains kept; median street-switch lag <= 5 ticks against
   the donor's cold F1; map checks: boxes shifted 2 m mid-rollout followed within 2 ticks, a deleted box gone within 5;
-  an exited car persisting >= 0.5 s in two or more drives vetoes. Confirmed once on the final 24 (inconclusive ->
-  unconfirmed).
+  an exited car persisting >= 0.5 s in two or more drives vetoes. Lock the temporal winner, map, comparators and gates
+  before either round opens the final 24, then confirm jointly; if temporal confirmation already influenced selection,
+  reserve 24 fresh drives excluded from calibration and both rounds' decisions [Astra s3]. Inconclusive -> unconfirmed.
 
 ## Stop rules
 - Any preflight reject: no training. Map switched off does not reproduce E3: fix before training.

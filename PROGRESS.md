@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 00:35
+- BEV build (fix 2 of 3): mmdet3d 0.17.1 now compiles and imports (sysroot pin worked); detectron2 master failed (needs ATen/cuda/Atomic.cuh, torch >= 1.11). Pinned detectron2 v0.6 (torch 1.10 era); bev_build.sh skips mmdet3d when importable. Rebuild 3751589.
+- Sim pilot scoring queued (slurm/sim_judge.sh: render judge set + Mask2Former + SegFormer per snapshot): A 3k/5k (now) 3751590/91, A 7k 3751592 (after A), B 3k/5k 3751593/94 (after B2), C 3k/5k 3751595/96 (after C). Comparisons: B5k and C5k vs A5k (primary), B5k vs A7k (equal updates), 3k as a trend check.
+- Arms: A 6.3k/7k, B2 1.6k/5k, C 1.6k/5k (~37 steps/min, ends ~02:00). sd_run1 25.7k.
+
 ## 2026-11-25 23:55
 - BEV build 3751357 failed (fix 1 of 3 for this stage): mmdet3d spconv CUDA files do not compile: nvcc 11.3 cannot parse `__s128` in the conda sysroot's Linux 6.12 kernel headers (sysroot_linux-64 2.39 came with gcc 10). Fix: pin sysroot_linux-64=2.17 in envs/bev (login node, logs/bev_sysroot.log), then rebuild with a clean build dir on a 2080 Ti.
 - Arms: A 3.9k/7k, B1 done -> B2 1.9k/5k, C running. sd_run1 23.4k.

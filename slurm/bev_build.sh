@@ -15,7 +15,9 @@ ENV=$HOME/mini-reality-view/envs/bev
 conda activate $ENV
 export CUDA_HOME=$ENV PATH=$ENV/bin:$PATH CC=$ENV/bin/gcc CXX=$ENV/bin/g++ TORCH_CUDA_ARCH_LIST="7.5;8.6" MAX_JOBS=4 FORCE_CUDA=1
 nvcc --version | tail -1
-cd bev/mmdetection3d && rm -rf build && pip install -q --no-build-isolation -e . && cd ..
-cd detectron2 && pip install -q --no-build-isolation -e . && cd ..
+python -c 'import mmdet3d' 2>/dev/null || (cd bev/mmdetection3d && rm -rf build && pip install -q --no-build-isolation -e .)
+cd bev
+# detectron2 master needs torch >= 1.11 (ATen/cuda/Atomic.cuh); v0.6 supports torch 1.10
+cd detectron2 && git checkout -q v0.6 && rm -rf build && pip install -q --no-build-isolation -e . && cd ..
 cd $HOME/mini-reality-view
 python -c "import torch, mmcv, mmdet, mmdet3d, detectron2; from mmcv.ops import MultiScaleDeformableAttention; print('BEV_BUILD_OK', torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0), mmdet3d.__version__)"

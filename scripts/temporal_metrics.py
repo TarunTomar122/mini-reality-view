@@ -118,10 +118,15 @@ def segment(img):
 def key_masks(sc, tick, img):
     c = f"{CACHE}/{sc}_t{tick:04d}.npz"
     if os.path.exists(c):
-        z = np.load(c)
-        return (list(np.unpackbits(z["cars"], axis=-1)[..., :512].astype(bool)) if len(z["cars"]) else []), np.unpackbits(z["road"], axis=-1)[..., :512].astype(bool)
+        try:
+            z = np.load(c)
+            return (list(np.unpackbits(z["cars"], axis=-1)[..., :512].astype(bool)) if len(z["cars"]) else []), np.unpackbits(z["road"], axis=-1)[..., :512].astype(bool)
+        except Exception:  # partial / corrupt cache entry (e.g. written concurrently): recompute
+            pass
     cars, road = segment(img)
-    np.savez_compressed(c, cars=np.packbits(np.stack(cars), axis=-1) if cars else np.zeros((0, 256, 64), np.uint8), road=np.packbits(road, axis=-1))
+    tmp = f"{c[:-4]}.{os.getpid()}.tmp.npz"  # atomic write: several metric jobs share this cache
+    np.savez_compressed(tmp, cars=np.packbits(np.stack(cars), axis=-1) if cars else np.zeros((0, 256, 64), np.uint8), road=np.packbits(road, axis=-1))
+    os.replace(tmp, c)
     return cars, road
 
 

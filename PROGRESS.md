@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 20:40 — temporal dev numbers; lit singles; timing runs
+- Frozen methods on the 6 dev drives (12 rollouts, E3 10k), warm 0.7 vs independent (paired, 6 drives): edge-car ID 0.068 vs 0.085 (-20%, [-0.030, -0.007]); W 25.7 vs 25.7 (no change, [-2.4, +4.2]); recall 0.40 vs 0.43; car F1 0.429 vs 0.474 (-0.045 [-0.102, +0.006]); road IoU 0.795 vs 0.852 (-0.058 [-0.106, -0.012]); late LPIPS gap +0.086 [+0.038, +0.137]. Dev only (settings), not a decision; but warm 0.7 already misses the road and drift gates here.
+- Metric check, part 1: key video scored as the render: ID 0 vs 0.099, W 13.2 vs 28.2, recall 1.0, flips 0, car F1 1.0, road 1.0 -> ranks best as required. VAE round trip and fresh noise pending (3753157, 3753158).
+- tmet-warm05_dev failed: a key-mask cache .npz read while another metric job was writing it (BadZipFile). Fixed: atomic cache writes (tmp + os.replace) and corrupt entries recomputed; rerun 3753192.
+- Lit keyframe keys verified against dense 10 Hz frames: old keys differ by 29-31/255 on scene-0005 / 0007, lit keys by 1.7-2.1 (scene-0026 already matched). train_temporal.py --singles now defaults to data/lat512_tpv_lit (600 train drives incl. all 144 + 6 dev; dev excluded in code).
+- Plan's timing step for the trained arms: 101-update runs for A and B (tmpT-A 3753202, tmpT-B 3753203) on A6000 (H200 slices: node damnii10 draining).
+- Car map diagnostic resubmitted on three GPU types (3753195-97); first to start wins.
+
 ## 2026-11-26 20:15 — temporal: metric check added (plan stop rule, had not been run)
 - PLAN-temporal stop rule: before ranking, the key video and the VAE round trip must score best and new-noise-every-frame worst, plus a hand check of ~20 key masks and two turning clips. Added: temporal_rollout.py --method keyvae (the keys' own VAE latents) and --method fresh (new seeded noise every tick); temporal_metrics.py --render_keys (key video scored as the render).
 - Submitted (dev drives): troll-keyvae-dev 3753154, troll-fresh-dev 3753155 -> tmet-keys_dev 3753156, tmet-keyvae_dev 3753157, tmet-fresh_dev 3753158. Frozen-method metrics (tmet indep / warm05 / warm07 on dev) running.

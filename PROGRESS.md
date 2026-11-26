@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 06:00 — SD 40k placement
+- Judge, SD 40k vs 20k (240 renders): Mask2Former F1 0.286 vs 0.284 (+0.002 [-0.044, +0.043]); SegFormer 0.162 vs 0.153 (+0.009 [-0.038, +0.060]); kerb error 1.46 vs 1.40 m (+0.058 [+0.019, +0.098]) / 1.42 vs 1.39 (+0.030 [+0.004, +0.057]). Placement plateaued after 20k (kerb slightly worse); 10k -> 20k -> 40k car F1: 0.260 -> 0.284 -> 0.286.
+- Queue: our account is at its job limit (AssocMaxJobsLimit; 20 running jobs on the account incl. other projects): phone-test, sdB-sim, sd-run1-45k waiting. sim8k encoders done (508 scenes); sim8k-lat finished?
+
 ## 2026-11-26 05:20
 - scripts/phone_test.py: the 120 judge frames (seed 0) through the phone path: real camera pictures -> mrv/aug.augment (crop/zoom, colour, gamma, hue, blur, JPEG) -> try_my_photos' 16:9 crop -> DINOv2 -> DEFAULT rig rays -> SD 40k (style 1, DDIM 25, CFG 2, same noise as sd_render seed 0). Queued after judge-sd40k: 3751879 -> m2f 3751880 / SegFormer 3751881; compare with the calibrated clean renders (paired on seed 0).
 

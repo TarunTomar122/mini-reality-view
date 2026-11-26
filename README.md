@@ -142,11 +142,14 @@ real cars were, using the nuScenes labels projected into the drone view. On 30 u
 | Cameras pointed the wrong way | 0.03 / 0.02 |
 | Cameras from another street | 0.03 / 0.01 |
 | Right cameras, step 20k | 0.28 / 0.15 |
+| Right cameras, step 40k | 0.29 / 0.16 |
 
 So the cars it draws really come from the cameras, not from guessing where cars usually are. Between 10k and 20k
 steps we also stopped grading the model on the empty parts of the answer keys, which had taught it to scatter dark
 speckles on the road. The road is cleaner and the car score went up a little, but the gain is within the noise
 (95% interval -0.03 to +0.07). The judge is coarse: moving the true cars by 1 m only lowers the score by 0.04.
+After 40k steps the car score is 0.29 / 0.16: placement stopped improving after about 20k steps, while the pictures
+kept getting cleaner.
 
 ![Step 10k and step 20k on unseen scenes; yellow outlines are the real cars](docs/figs/sd10k_vs_20k.jpg)
 

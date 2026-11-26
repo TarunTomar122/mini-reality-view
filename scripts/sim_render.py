@@ -151,6 +151,8 @@ for idx, sc_name in chosen:
         for ch in hid:
             ch.hide()
         im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
+        if os.environ.get("MRV_DOUBLE_RENDER"):  # diagnostic: render twice, keep the second (lighting / shadow warm-up)
+            im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
         for ch in hid:
             ch.show()
         rgba = np.concatenate([im[..., ::-1], np.full(im.shape[:2] + (1,), 255, np.uint8)], -1)

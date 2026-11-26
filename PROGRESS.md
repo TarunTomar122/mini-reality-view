@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 12:55 — E1/E3 finished 10k; ceiling and controls; warm start first look; lighting mismatch
+- E1, E3 finished 10k (12:34 / 12:38); 10k judges running (3751991 / 3751995).
+- VAE ceiling (true game keys through the SD VAE, same judge): car F1 0.763 (Mask2Former) / 0.624 (SegFormer), road IoU 0.94, LPIPS 0.040. E1 5k = 0.276 = 36% of ceiling (go rule needs >= 50% at 10k).
+- Wrong-street control on the TPV target (E1 5k, swap_scene): car F1 0.019 vs 0.276 -> the judge validates for the new target.
+- Per-OST write probe (8 MB fsync) at 12:25: OST1 2 s, OST3 1 s, OST2 22 s, OST0/4/5 timeouts (71-353 s). Big dense render stays held.
+- Dense pilot (scene-0005/0007, 162/182 ticks rendered, both ended before the last keyframe): object positions match the keyframe keys, but the LIGHTING differs (dense frames have car shadows and brighter grass; keyframe keys rendered every 5 ticks have none; mean abs diff ~30/255). Likely the shadow pass needs consecutive frames. Diagnostic: keyframe render with a double perceive (MRV_DOUBLE_RENDER, 3752466). Mixing two looks under one style would be invalid; must be resolved before the temporal arms.
+- Warm start first look (E1 2.5k, scene-0563, crude mean consecutive-frame change: none 5.95, warm 0.5 3.24, warm 0.7 2.25): warm 0.5 COLLAPSES into a stripy black-and-white feedback artifact (its low change = a frozen broken picture); warm 0.7 looks as clean as independent frames and steadier (pulled/warm_strip.jpg). Baseline clips re-rendered (3752480/81; the side chat's xvid runs were cut short).
+- scripts/train_temporal.py written (arms A/B/C per the signed plan).
+
 ## 2026-11-26 12:00 — E1 vs E3 at 5k: tie
 - E1 5k (all drives) car F1 0.276 (Mask2Former) vs E3 5k (quarter) 0.294: E1 - E3 = -0.018 [-0.066, +0.021]; road IoU 0.845 vs 0.836 (+0.009 [-0.001, +0.020]); LPIPS 0.335 vs 0.326. Within the data rule's "< 0.02 -> enough" band so far; decision at 10k. E1 swap control and VAE ceiling still running (I/O).
 - I/O still patchy: 50 MB fsync timed out (217 s) at ~11:45 after 1.8 s at 11:38 (slow OSTs, as the walking-RL session reported). Big dense render stays held.

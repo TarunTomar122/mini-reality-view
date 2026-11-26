@@ -24,3 +24,11 @@ Proposed change (training unchanged):
 2. Drift: "late gap" = last 2 s vs the same frames cold, on rollouts >= 17 s (170 ticks) instead of >= 19 s; early gap
    from tick 5 as before. Report the per-drive rollout length and the share of rejected ticks inside each rollout.
 3. The final-set confirmation needs >= 12 qualifying drives as before (expected: ~all 24 at 17 s).
+
+## Measured after Fable's conditions (rollout breaks only at a repeated bundle, a render gap, or any camera > 100 ms)
+| group | drives | >= 170-tick rollout | median longest rollout | mean rejected (> 50 ms) ticks inside qualifying rollouts |
+|---|---|---|---|---|
+| train | 144 | 85 | 181 | 8.5 |
+| dev | 6 | 5 | 185 | 12.8 |
+| decision | 30 | 22 | 181 | 12.0 |
+| final | 24 | 18 (>= 12 needed) | 185 | 10.2 |

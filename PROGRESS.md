@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 17:10 — Car map plan signed
+- council/PLAN-carmap.md FINAL (v3) signed by Astra and Fable after 3 rounds + sign-off (s3 objections: camera-only motion audit with renderer gates repeated after any motion-source change, X3 = frozen temporal winner + map branch vs the same winner with the branch off, paired predicted-vs-annotated oracle, winner-selection rule, joint final-24 confirmation, cache coverage, X3 placement on non-refresh ticks).
+- Plan: preflights P1 cache, P2 can_bus-zeroed hull test (>= 0.397), P3 detector train-leak check, P4 10 Hz feed, P5 timing; X1 boxes (E3 frozen, branch at 4 encoder scales, 4k), X2 boxes + grid, X3 map + memory winner; adopt at car F1 >= 0.382 and >= +0.05 over E3 (lower bound > 0), road not down, swap controls, train-vs-held-out gap <= 0.05.
+
 ## 2026-11-26 16:30
 - Car map council round 1 (council/carmap-s1-astra.md, carmap-s1-fable.md): both: init E3 10k; BEVFormer detections drawn into the chase view through a zero-initialised pixel-aligned branch; bar car F1 >= ~0.38 (half the 0.763 ceiling) with a confirmed gain. Fable adds a box-length channel (MetaDrive picks car models from length), constant-velocity roll-forward of 2 Hz boxes to 10 Hz with a small tracker, a GT-box arm, and a preflight on BEVFormer's train-drive leak. Round 2 running.
 - Temporal: frozen methods on the 6 dev drives queued after the 8 encode shards: independent 3752735, warm 0.5 3752736, warm 0.7 3752737 (E3 10k, seeds 0/1) -> metrics 3752738-40 (cold = independent).

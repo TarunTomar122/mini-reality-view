@@ -1,4 +1,4 @@
-# Car map: merged plan (v3: Astra's and Fable's sign-off objections applied)
+# Car map: FINAL plan (v3, signed by Astra and Fable, 26 Nov)
 
 Sources: council/carmap-brief.md; rounds 1-2 carmap-s1/s2-astra.md, carmap-s1/s2-fable.md. Coordinator's choices on
 points still open after round 2 are marked [choice: ...]. Supersedes council/PLAN-bev.md for the third-person target.
@@ -66,7 +66,7 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
   over X1 (>= +0.02 car F1 or >= +0.01 road IoU) passes with positive lower bound and the other point difference is
   non-negative; otherwise select X1 [Astra s3].
 - X3: lit VAE ceiling re-measured; car F1 >= max(0.382, half the lit ceiling); positive paired gain over memory alone; placement for X3 is scored on all accepted ticks
-  (already segmented, no extra cost) and reported by ticks since the last detector refresh (0-4); the car F1 bar and the
+  (already segmented, no extra cost) and reported by ticks since the last detector refresh (0-4) = manifest tick % 5 (ticks since the last keyframe), whichever P4 feed wins [Fable s4]; the car F1 bar and the
   paired gain over memory alone must both hold on the non-refresh ticks (phases 1-4 pooled), with the refresh-tick
   figures reported beside them; the lit ceiling is re-measured on the same ticks [Fable s3];
   every signed temporal gate (PLAN-temporal.md) incl. flicker gains kept; median street-switch lag <= 5 ticks against

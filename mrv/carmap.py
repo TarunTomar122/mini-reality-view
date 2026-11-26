@@ -48,9 +48,14 @@ def _own_mask():
 OWN = _own_mask()
 
 
-def box_corners_ego(box, l2e_r, l2e_t):
-    """BEVFormer box (lidar frame: x, y, z_bottom, w, l, h, yaw, ...) -> 8 corners in the ego frame, yaw in ego"""
+def box_corners_ego(box, l2e_r, l2e_t, conv="mmdet3d"):
+    """box (lidar frame: x, y, z_bottom, w, l, h, yaw, ...) -> 8 corners in the ego frame, heading in ego.
+    conv "mmdet3d" = BEVFormer / mmdet3d 0.17 output: its yaw is mirrored and reversed relative to the rotation below,
+    so yaw -> -yaw - pi (measured on 1,272 detector-GT car pairs: footprint IoU 0.620 -> 0.667, heading within 15 deg of
+    GT 19% -> 96%; Fable's finding, drift check 26 Nov). conv "carmap" = already in this function's convention (gt_frame)."""
     x, y, zb, w, l, h, yaw = box[:7]
+    if conv == "mmdet3d":
+        yaw = -yaw - math.pi
     xs = np.array([1, 1, -1, -1, 1, 1, -1, -1]) * w / 2; ys = np.array([1, -1, -1, 1, 1, -1, -1, 1]) * l / 2
     zs = np.array([0, 0, 0, 0, 1, 1, 1, 1]) * h
     c, s = math.cos(yaw), math.sin(yaw)
@@ -70,7 +75,7 @@ def rasterize(frame, thr=0.3, drop=None):
     for k, (b, s, lab) in enumerate(zip(frame["boxes"], frame["scores"], frame["labels"])):
         if s < thr or lab not in GROUPS or (drop is not None and drop(k)):
             continue
-        P, yaw, length = box_corners_ego(b, frame["lidar2ego_r"], frame["lidar2ego_t"])
+        P, yaw, length = box_corners_ego(b, frame["lidar2ego_r"], frame["lidar2ego_t"], frame.get("yaw_conv", "mmdet3d"))
         if np.linalg.norm(P[:, :2].mean(0)) > 60:
             continue
         uv, d = project(P)
@@ -133,7 +138,8 @@ def gt_frame(nusc, token, classes=None):
         th = (Rw.inverse * Quaternion(an["rotation"])).yaw_pitch_roll[0]
         w, l, h = an["size"]
         boxes.append([c[0], c[1], c[2] - h / 2, w, l, h, th - math.pi / 2]); scores.append(1.0); labels.append(lab)
-    return {"boxes": boxes, "scores": scores, "labels": labels, "lidar2ego_r": [1, 0, 0, 0], "lidar2ego_t": [0, 0, 0]}
+    return {"boxes": boxes, "scores": scores, "labels": labels, "lidar2ego_r": [1, 0, 0, 0], "lidar2ego_t": [0, 0, 0],
+            "yaw_conv": "carmap"}
 
 
 _GRID = None

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 22:10 — car map round 2: answers in, swap sent; yaw bug confirmed + fixed; camera-only fix started
+- Round 2 answers: council/carmap-r2-astra.md, council/carmap-r2-fable.md; swap brief council/carmap-r2-swap.md (both agree: loss gives little signal where the map matters, cameras make it redundant -> heavy early camera dropout; early checks on dev; decision drives only for one locked scoring; camera-only fix + repeat hull gate / P3 before adoptable training. Differ on injection point, loss weighting, timestep sampling, arms; swap round running).
+- Fable's yaw finding CONFIRMED (tmp/yawcheck.py, 1,272 detector-GT car pairs on 250 decision frames): as coded, footprint IoU 0.620 and heading within 15 deg of GT (full circle) for 19%; with yaw -> -yaw - pi: IoU 0.667, 96% within 15 deg (median 2.3 deg). mmdet3d 0.17 boxes were mirrored and reversed in mrv/carmap.box_corners_ego and scripts/bev_box_judge.py. Fixed (frames carry yaw_conv; gt_frame = "carmap"). X1/X2 were trained on mirrored hulls / reversed heading channels; the 0.417 / 0.444 / 0.441 hull numbers and P3 were computed with mirrored hulls.
+- Camera-only (Astra): BEVFormer's camera->lidar transforms came from the converter, which chains per-camera timestamped ego poses (lidar-based localisation). bev_extract.py --fixed_calib builds them from the rig calibration only (the same formula with the two ego poses equal) and zeroes can_bus (also still zeroed at run time).
+- Submitted: P2 again with fixed calibration + zeroed can_bus, with (bevP2-fixed 3753521) and without previous BEV (bevP2-fixednoprev 3753522); hull judge with the yaw fix on the old camera-only boxes (bevbox-yawfix 3753523). Gate 0.397.
+
 ## 2026-11-26 21:45 — car map 2k (fixed renders): stop rule fires validly; round 2 council
 - 2k, fixed renders (30 decision drives x 4 keyframes x seeds 0/1, Mask2Former, paired drive bootstrap):
   X1 car F1 0.315 vs E3 0.318 (-0.002 [-0.030, +0.025]); map-only swap 0.323 (correct - swapped -0.007 [-0.024, +0.009]); road IoU 0.856 vs 0.848 (+0.008 [+0.003, +0.013]).

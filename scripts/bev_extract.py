@@ -29,6 +29,8 @@ p.add_argument("--boxes_out", default="", help="also save detected 3D boxes per 
 p.add_argument("--no_feats", action="store_true", help="do not save BEV feature caches (boxes only)")
 p.add_argument("--zero_canbus", action="store_true", help="P2 (PLAN-carmap): zero the can_bus ego-motion input (no non-camera motion)")
 p.add_argument("--no_prev", action="store_true", help="P2: no previous BEV grid (video_test_mode off)")
+p.add_argument("--fixed_calib", action="store_true", help="camera-only (drift check 26 Nov): camera -> lidar from the fixed rig calibration only; "
+               "the converter's version also uses the per-camera timestamped ego poses (lidar-based localisation)")
 a = p.parse_args()
 
 sys.path.insert(0, os.getcwd())
@@ -63,6 +65,20 @@ os.makedirs(a.out, exist_ok=True)
 done = {n for n in keep if os.path.exists(f"{a.out}/{n}.pt")} if not a.eval else set()
 ds.data_infos = [i for i in ds.data_infos if scene_name[i["scene_token"]] in keep - done]
 ds.flag = np.zeros(len(ds.data_infos), dtype=np.uint8)
+if a.fixed_calib:
+    # BEVFormer's converter: sensor -> ego(t_cam) -> global -> ego(t_lidar) -> lidar, i.e. it uses recorded ego poses.
+    # Fixed rig: the same formula with the two ego poses taken equal, so only sensor2ego and lidar2ego remain.
+    dmax = 0.0
+    for info in ds.data_infos:
+        l2e_r = Quaternion(info["lidar2ego_rotation"]).rotation_matrix; l2e_t = np.asarray(info["lidar2ego_translation"])
+        for cam in info["cams"].values():
+            s2e_r = Quaternion(cam["sensor2ego_rotation"]).rotation_matrix; s2e_t = np.asarray(cam["sensor2ego_translation"])
+            R = s2e_r.T @ np.linalg.inv(l2e_r).T
+            T = (s2e_t - l2e_t) @ np.linalg.inv(l2e_r).T
+            dmax = max(dmax, float(np.abs(T - np.asarray(cam["sensor2lidar_translation"])).max()))
+            cam["sensor2lidar_rotation"] = R.T; cam["sensor2lidar_translation"] = T
+        info["can_bus"] = np.zeros_like(np.asarray(info["can_bus"]))  # no ego motion / pose from the dataset
+    print(f"fixed calibration: camera->lidar from the rig only (max change vs converter {dmax:.3f} m)", flush=True)
 print("split", a.split, "scenes", len(keep - done), "frames", len(ds.data_infos), flush=True)
 loader = build_dataloader(ds, samples_per_gpu=1, workers_per_gpu=4, dist=False, shuffle=False,
                           nonshuffler_sampler=cfg.data.nonshuffler_sampler)

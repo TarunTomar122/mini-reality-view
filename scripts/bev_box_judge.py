@@ -109,6 +109,7 @@ for it in idx:
         if lab != "car" or s < a.thr:
             continue
         x, y, zb, w_, l_, h_, yaw = bb[:7]
+        yaw = -yaw - math.pi  # mmdet3d 0.17 yaw is mirrored + reversed vs corners() (see mrv/carmap.box_corners_ego)
         C = corners(np.array([x, y, zb]), (w_, l_, h_), yaw)  # lidar frame
         C = np.array([Rl.rotate(q) for q in C]) + tl
         bevs.append(C)

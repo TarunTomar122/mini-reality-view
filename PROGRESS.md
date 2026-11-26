@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 11:25 — First 5k scores (E1 still scoring); temporal plan signed
+- Judge vs exact game keys, 30 held-out drives x 4 frames x 2 seeds (Mask2Former / SegFormer car F1, road IoU, LPIPS):
+  E2 5k 0.044 / 0.041, road 0.74, LPIPS 0.525 (confirms stopping E2); E3 5k 0.294 / 0.253, road 0.84, LPIPS 0.326;
+  E3 5k on its own training drives 0.359 / 0.380, road 0.87, LPIPS 0.247 (train-val gap ~0.07 F1). E1 5k, swap control, VAE ceiling still running (slow I/O).
+- Cluster writes still stalled (50 MB fsync timed out after 355 s at 11:17); holds kept.
+- PLAN-temporal.md FINAL (v5) signed by Astra and Fable after 5 rounds (s3-s5 objections: abs per-transition ID, non-negative placement, shared noise tensors, no DiT drift comparison, shared-transition ID/W, paired recall lower bound, A+warm-start comparator, confirm rule on 24 untouched drives).
+- Built: sim_render.py --dense (every 10 Hz tick, t<tick>.jpg + ticks.json), temporal_lists.py (frozen train 144 / dev 6 / decision 30 / final 24), temporal_manifest.py (sweep pairing <= 45 ms, sequence breaks).
+
 ## 2026-11-26 11:05 — Cluster I/O stall (Lustre home writes) — load shed
 - Since ~10:23 writes to /home stall (another project's 50 MB fsync > 10 s; reads fine). On request: cancelled tpvE2 3751988 (plan already leaned to stopping E2; its 5k checkpoint and 5k scoring 3752151 are kept) and its 10k judge 3751993; held pending xwarm 3752205-08 and tj-E1/E3-10000 3751991/95 (release with scontrol release when writes recover). E1/E3 keep training (one 515 MB ckpt each ~15 min). f28-p3g is not ours.
 

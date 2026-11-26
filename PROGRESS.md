@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 22:20 — car map: camera-only P2 passes with fixed calibration
+- Fixed calibration (camera->lidar from the rig only; max change vs the pose-using converter 0.560 m) + can_bus zeroed, yaw fixed, decision drives, hull F1 vs game-key cars (score >= 0.3, 120 frames): with previous BEV 0.437, without 0.437; GT boxes 0.459; gate 0.397 -> PASS (above Fable's 0.431 council band). Mode kept: previous BEV on.
+- Released the fixed-calibration train / dev box caches (bevF-train-0..3); other-val (P3 re-fit) and final follow as slots free.
+
 ## 2026-11-26 22:30 — temporal metric check: turning clips + track reliability
 - Turning clips (pulled/turncheck.jpg; strongest 2 s of ego yaw per dev drive: scene-0393 51 deg from tick 40 - no cars in view, uninformative; scene-0234 31 deg from tick 105): key masks mostly right, but on scene-0234 whole ticks lose nearly all masks (t106, t112) and small far cars get a new track id at almost every tick.
 - Measured over all 6 dev drives (969 ticks, tmp/trackstats.py): mask-count dropout ticks (<= half the neighbours' median, >= 2 cars) 19 = 2.0%; edge-car masks linked to the previous tick at IoU >= 0.5: 1,676 / 2,556 = 66% (per drive 0.50-0.90); best IoU to the previous tick median 0.64, >= 0.3 for 78%. So about a third of edge-car transitions never enter ID / W, mostly fast-moving near cars at the edges. Same keys for every method (coverage loss, not a method bias), but the stop rule names "unreliable masks / tracks". Ranking stays paused; question goes to the council next hour (e.g. flow-warped IoU linking).

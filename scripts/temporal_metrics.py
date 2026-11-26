@@ -29,6 +29,7 @@ p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--out", default="")
 p.add_argument("--compare", nargs=2, default=None)
 p.add_argument("--shard", default="0/1", help="i/n: score every n-th rollout file (merge shards in --compare with a glob)")
+p.add_argument("--lag_ref", default="", help="lag test: metrics json (or glob) of the cold / independent rollouts of the same split; the donor drive's car F1 (same seed) is the reference")
 p.add_argument("--render_keys", action="store_true", help="metric check: score the key video itself as the render (must be best)")
 a = p.parse_args()
 
@@ -252,12 +253,22 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
             return (np.mean(lr) - np.mean(lc)) if lr else None
         d["late_lpips_gap"] = win(150, 170); d["early_lpips_gap"] = win(5, 25)
     if swap >= 0:
+        if not a.lag_ref:
+            raise SystemExit("lag test needs --lag_ref (plan: 80% of the donor drive's cold car F1)")
+        if "LAGREF" not in globals():
+            LAGREF = {}
+            for f_ in sorted(glob.glob(a.lag_ref)):
+                LAGREF.update(json.load(open(f_))["drives"])
+        ref_ = LAGREF.get(f"{other}_s{b.rsplit('_s', 1)[1]}", {}).get("car_f1")
+        d["cold_ref_f1"] = ref_
         lag = None
+        if not ref_:  # plan: nonzero reference only
+            d["lag_ticks"] = None; result["drives"][b] = d; continue
         for i in range(swap, len(ticks) - 5):
             w = [j for j in range(i, i + 5) if j in kseg]
             t_ = sum(len(hungarian(iou_mat(rseg[j][0], kseg[j][0]), 0.3)) for j in w)
             n_ = sum(len(rseg[j][0]) + len(kseg[j][0]) for j in w)
-            if n_ and 2 * t_ / n_ >= 0.8 * d.get("cold_ref_f1", 0.3):
+            if n_ and 2 * t_ / n_ >= 0.8 * ref_:
                 lag = i - swap; break
         d["lag_ticks"] = lag
     result["drives"][b] = d

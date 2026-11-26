@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 21:05 — temporal metric check: hand mask check; lag reference fixed
+- Hand check of 20 random cached key masks (dev drives; pulled/maskcheck.jpg): no false car masks seen; the red/blue/purple/yellow sports-car models and parked rows are masked well; MISSED consistently: the white/silver sports car (3), boxy SUVs / jeeps (~5, likely read as truck by the Cityscapes model), one white car beside a masked car. Rough key-mask recall ~80-85% of visible cars, precision ~100%. Same segmenter on render and key, so missed models simply do not enter ID / W / recall (coverage loss, not bias toward a method). Noted for the council.
+- W coverage: transitions with a valid W (car pixels in the outer 20% columns) are ~80% of the ID transitions (e.g. 867 vs 1031 shared, 1149 vs 1396).
+- temporal_metrics.py lag now uses the plan's reference: 80% of the DONOR drive's cold car F1 (same seed) from --lag_ref (independent rollouts' metrics); refuses to run without it; zero reference -> no lag value. (Was a fixed 0.3.)
+- Hourly drift check 1 sent to Astra and Fable (council/drift-20261126-2055.md).
+
 ## 2026-11-26 20:50 — temporal: metric check part 2; warm 0.5 out; decision rollouts
 - Metric check (dev): VAE round trip vs independent: ID 0.058 vs 0.097 (-41%), W 14.6 vs 27.7, recall 0.72 vs 0.43, car F1 0.75 vs 0.47; flips 0.21 vs 0.19 [-0.07, +0.13] (small blurred cars toggle at IoU 0.3, not significant). Key video and VAE round trip both rank above the model on the co-primaries as required; fresh noise pending (3753158).
 - Warm 0.5 on dev: car F1 0.304 vs 0.474 (-0.170), road IoU 0.693 vs 0.852, late LPIPS gap +0.281, recall -0.10. Collapses (matches the striped frames seen by eye): dropped. Warm 0.7 is the dev-picked warm setting.

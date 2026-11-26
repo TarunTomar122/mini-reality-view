@@ -1,4 +1,4 @@
-# Temporal consistency and memory: merged plan (v3: Astra's and Fable's sign-off objections applied)
+# Temporal consistency and memory: merged plan (v4: all sign-off objections applied)
 
 Sources: council/temporal-brief.md; round 1 temporal-s1-astra.md, temporal-s1-fable.md; round 2 temporal-s2-astra.md,
 temporal-s2-fable.md. Where round 2 still differed, the choice below and the reason are given in [brackets].
@@ -45,8 +45,11 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
 - **ID, edge-car appearance change (co-primary):** link key car masks across adjacent ticks (Hungarian IoU >= 0.5);
   for tracks centred in the outer thirds, crop both frames to the key box + 10%, 96x96, DINOv2-small CLS. Per track
   transition: |cosine distance between the two ticks in the render - the same in the keys| (absolute, so a frozen
-  car is penalised as much as a flickering one), then averaged, over transitions where the render matches the car
-  (IoU >= 0.3) at both ticks [Fable: a crop of a missed car compares road with road and looks steady]. Misses are
+  car is penalised as much as a flickering one). For each candidate-comparator comparison, average each method's
+  per-transition absolute errors on the same key transitions, requiring both methods to match the car at both ticks
+  (IoU >= 0.3) [Fable: a crop of a missed car compares road with road; Astra: method-specific denominators can fake a
+  win by dropping hard cars]. Shared-transition counts are reported per drive; a comparison with no shared transitions
+  on an eligible drive cannot pass. Misses are
   not ignored: they enter through edge-car recall (gate below) and flips [Astra's concern]. Percentage reductions
   only where the reference score is positive.
 - **Edge-car recall:** share of eligible key edge-car track ticks matched by the render (IoU >= 0.3).
@@ -69,7 +72,8 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
 ## Decision rules (paired bootstrap over drives, 2,000 draws, seeds 0/1 kept together)
 - **Gates for every method:** car F1 and road IoU point differences >= 0 AND lower bounds >= -0.02 (car F1) and
   >= -0.01 (road IoU) vs frozen independent; for B/C the same checks also against arm A and against the frozen
-  comparator used for adoption; edge-car recall drop <= 0.02 (point difference) vs the same comparators; late LPIPS gap
+  comparator used for adoption; edge-car recall: paired 95% lower bound of candidate minus comparator >= -0.02 against frozen independent and every
+  comparator required for adoption (incl. A + warm start for B/C); late LPIPS gap
   upper bound <= +0.02 and late car F1 gap lower bound >= -0.03; median lag <= 5 ticks; ghosts not growing.
 - **Warm start adopted** if ID and W both fall >= 15% vs frozen independent (intervals excluding zero) and gates pass.
 - **B or C adopted** if the same holds against arm A, arm A + warm start (evaluation only, same locked strength), and

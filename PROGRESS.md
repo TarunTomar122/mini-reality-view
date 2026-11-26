@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 23:55 — flow-warped linking fails its bar; signed linking kept (precise, 66% coverage)
+- Dev re-scored with --link flow (tmet3, 6 methods): edge-car link share 0.759 with flow-warped IoU vs 0.656 signed (5,112 edge cars); W valid-pixel share 0.912. Ordering still holds (key video ID 0 / W 11.6; VAE ID -41% / W -53%; fresh noise ID +54% / W +37%; warm 0.7 ID -17% [-0.025, -0.009], W +0.04 [-1.2, +3.6], road -0.058; warm 0.5 collapses). 0.759 < the agreed 0.80 bar -> amendment 3 NOT adopted; keep the signed linking and state its coverage (both reviewers' rule).
+- Hand check of the SIGNED links on the two traffic-bearing dev turns (pulled/linkcheck.jpg; 24 random of 68 edge-car links on scene-0234 t95-140 and scene-0285 t90-135): 24 / 24 link the same car, no identity switches; some masks bleed onto an occluding car (#7, #16). So signed links are precise; the limit is coverage (66% of edge cars).
+- Arm C cache from B@1k (data/rollcache_1000, tmpC-cache1000 3753630, A6000) submitted; tmpB at 3,300; tmpA done (4k).
+- bevF-otherval and bevF-final done (fixed calibration); P3 re-fit next.
+- Next: ask both reviewers (hourly check) to sign the frozen scorer (signed linking + fixes) so the held decision metric jobs can run.
+
 ## 2026-11-26 23:35 — drift check 3 swap results
 - Converged: lag threshold = 0.8 x the donor's cold car F1 on the SAME five donor ticks (same seed, 0.3 matcher), zero-reference windows skipped, full windows incl. the last, no eligible window -> run excluded and counted (both); gradient clip 1.0 kept in R (as E3 / X1), share of clipped updates reported (both). Implemented (temporal_metrics.py lag block; --lag_ref is now the cold rollout folder; train_carmap2.py logs clipped_share).
 - Not converged after one swap: lag gating position, Astra = window end (no future ticks), Fable = window centre (end makes a perfect render read 4). Scorer reports start / centre / end; gating position goes back to the next hourly check. No lag test has been run yet, so nothing waits on it.

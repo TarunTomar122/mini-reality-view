@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 08:55 — Experiment T arms training
+- Keys done: 12,111 third-person frames (9,587 train / 2,524 val) in data/lat512_tpv. E1 (init sd_run1, style rows 2->3), E2 (plain SD), E3 (init sd_run1, quarter: 2,363 train frames) all running since ~08:42; judges queued at 5k / 10k.
+
 ## 2026-11-26 07:40
 - Third-person keys: camera now shows the whole own car (pulled/tpv_first.png). Shards 0/1/2/7 + both val shards done: 5,338 train + 2,524 val keys. Shards 3-6 landed on damnii08, which (like damnii07) hangs MetaDrive on every scene: cancelled and resubmitted excluding both nodes (3752033-36); latents 3751984 retargeted to them; E1-E3 still queued behind the latents.
 - README rewritten short with a "Where we are" table; the long write-up moved to docs/results.md.

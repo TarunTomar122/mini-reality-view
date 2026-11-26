@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 07:30 — Experiment T (third-person game keys) started
+- Owner: research first, then 3 experiments, start now. Council brief council/tpv-brief.md (init A/B/C, data size, eval, 3 experiments); Fable running (Astra unavailable in this session).
+- Camera moved back so the whole own car is in frame: tpv = 7.5 m behind the car centre, 2.4 m up, pitch -8 deg (old preview keys deleted).
+- Data jobs: 8 train shards over data/scn_8k (keys only, 2080 Ti, damnii07 excluded) 3751973-80; val: scn_convert_subset (150 val scenes -> data/scn_val) 3751981 -> 2 shards 3751982/83; latents data/lat512_tpv 3751984 (afterany). Keys -> data/sim/keys_tpv (train + val in one folder; train_sd splits by the official val list). Inputs = real tokens data/enc_full (+ phone copies data/enc_aug_0 for train).
+
 ## 2026-11-26 07:00 — Owner's new direction: real photos in, game-style third-person view out
 - Owner: outputs still messy because the model copies messy keys -> idea: keep real camera photos as input but use the perfect game render as the answer key; and a third-person chase view (own car visible) instead of the drone.
 - sim_render.py: --view tpv (6 m behind the car centre, 2 m up, pitch -6 deg, own car shown), --keys_name, --keys_only, --only. Preview on 4 train scenes (tpv-preview 3751968, 2080 Ti, excluding damnii07): 51 keys in data/sim/keys_tpv. Sheets pulled/tpv_scene-*.jpg (6 real photos | third-person game key | old drone game key).

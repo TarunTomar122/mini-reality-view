@@ -12,7 +12,7 @@ import numpy as np
 from PIL import Image
 from pyquaternion import Quaternion
 from nuscenes.nuscenes import NuScenes
-from nuscenes.utils.splits import train as TRAIN
+from nuscenes.utils.splits import train as TRAIN, val as VALS
 from metadrive.envs.scenario_env import ScenarioEnv
 from metadrive.policy.replay_policy import ReplayEgoCarPolicy
 from metadrive.component.sensors.rgb_camera import RGBCamera
@@ -25,13 +25,14 @@ p.add_argument("--every", type=int, default=2, help="use every n-th keyframe")
 p.add_argument("--shard", default="0/1")
 p.add_argument("--skip", default="", help="comma list of scenes to skip (e.g. ones where MetaDrive hangs)")
 p.add_argument("--view", default="drone", choices=["drone", "tpv"],
-               help="drone: 9 m back, 4.5 m up, own car hidden; tpv: third-person chase camera 6 m back, 2 m up, own car shown")
+               help="drone: 9 m back, 4.5 m up, own car hidden; tpv: third-person chase camera 7.5 m behind the car centre, 2.4 m up, pitched 8 deg down, own car shown")
+p.add_argument("--split", default="train", choices=["train", "val"])
 p.add_argument("--keys_name", default="keys", help="sub-folder for the answer keys (e.g. keys_tpv)")
 p.add_argument("--keys_only", action="store_true", help="do not render the 6 rig cameras (already rendered)")
 p.add_argument("--only", default="", help="comma list of scenes: render just these (any train scene in sdir)")
 a = p.parse_args()
 VIEW = {"drone": dict(pos=[0, -9.0, 4.5], pitch=-math.degrees(math.atan2(4.0, 24.0)), hide_ego=True),
-        "tpv": dict(pos=[0, -6.0, 2.0], pitch=-6.0, hide_ego=False)}[a.view]
+        "tpv": dict(pos=[0, -7.5, 2.4], pitch=-8.0, hide_ego=False)}[a.view]
 CAMS = ["CAM_FRONT_LEFT", "CAM_FRONT", "CAM_FRONT_RIGHT", "CAM_BACK_LEFT", "CAM_BACK", "CAM_BACK_RIGHT"]
 W, H, DW, DH = 448, 252, 512, 288
 nusc = NuScenes(a.ver, a.nroot, verbose=False)
@@ -69,7 +70,7 @@ env = ScenarioEnv(dict(data_directory=a.sdir, num_scenarios=len(names), agent_po
 cands = []
 for i, fn in enumerate(names):
     sc_name = next((n for n in by_name if n in fn), None)
-    if sc_name and sc_name in set(TRAIN):
+    if sc_name and sc_name in set(TRAIN if a.split == "train" else VALS):
         cands.append((i, sc_name))
 step = max(1, len(cands) // a.scenes)
 chosen = cands[::step][: a.scenes]

@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 22:30 — temporal metric check: turning clips + track reliability
+- Turning clips (pulled/turncheck.jpg; strongest 2 s of ego yaw per dev drive: scene-0393 51 deg from tick 40 - no cars in view, uninformative; scene-0234 31 deg from tick 105): key masks mostly right, but on scene-0234 whole ticks lose nearly all masks (t106, t112) and small far cars get a new track id at almost every tick.
+- Measured over all 6 dev drives (969 ticks, tmp/trackstats.py): mask-count dropout ticks (<= half the neighbours' median, >= 2 cars) 19 = 2.0%; edge-car masks linked to the previous tick at IoU >= 0.5: 1,676 / 2,556 = 66% (per drive 0.50-0.90); best IoU to the previous tick median 0.64, >= 0.3 for 78%. So about a third of edge-car transitions never enter ID / W, mostly fast-moving near cars at the edges. Same keys for every method (coverage loss, not a method bias), but the stop rule names "unreliable masks / tracks". Ranking stays paused; question goes to the council next hour (e.g. flow-warped IoU linking).
+
 ## 2026-11-26 22:15 (real clock) — drift check 2 outcome (council/drift-20261126-2156-*.md)
 - NOTE: PROGRESS headings "21:05" ... "22:45" above ran ahead of the real clock (estimates); order and content are right.
 - JOB CAP BREACH found by Astra: 16-17 project jobs running at ~21:03 (I submitted the dev re-score, P5 check and 2k re-renders without re-counting; the name filter also missed some job names). Fixed: slurm/release_upto.sh counts project jobs by working directory (~/mini-reality-view), active = running + pending-not-held; tmpB held so at most 12 can run (11 now).

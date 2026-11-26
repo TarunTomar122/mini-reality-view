@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 17:15",
+  "text": "Added the plan from here: one base model (E3), two add-ons (memory for steady video, a car map for car placement), each with a pass test and rough times. Aim: a final model checked on 24 untouched drives by about 28 Nov."
+ },
+ {
   "when": "26 Nov, 17:10",
   "text": "Two research plans signed off by both AI reviewers: steadier video (feed the model its previous frame, judged on edge-car flicker) and a car map (draw a camera-only 3D detector's boxes into the chase view so cars land in the right place). Both start from E3 and run in parallel."
  },

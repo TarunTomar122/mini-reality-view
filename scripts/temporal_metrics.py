@@ -35,9 +35,9 @@ a = p.parse_args()
 
 if a.compare:
     def load_merged(pat):  # a json, or a glob of shard jsons
-        out = {"drives": {}}
+        out = {"drives": {}, "roll": None, "cold": None}
         for f in sorted(glob.glob(pat)):
-            out["drives"].update(json.load(open(f))["drives"])
+            j_ = json.load(open(f)); out["drives"].update(j_["drives"]); out["roll"] = j_.get("roll"); out["cold"] = j_.get("cold")
         return out
     A, B = (load_merged(f) for f in a.compare)
     runs = sorted(set(A["drives"]) & set(B["drives"]))  # "<scene>_s<seed>"
@@ -62,8 +62,13 @@ if a.compare:
                     ea.append(ta[k]); eb.append(tb[k])
             v[name] = (np.mean(ea), np.mean(eb), len(ea), elig) if ea else (np.nan, np.nan, 0, elig)
         for name in PER:
-            va = [A["drives"][d][name] for d in rs if A["drives"][d].get(name) is not None]
-            vb = [B["drives"][d][name] for d in rs if B["drives"][d].get(name) is not None]
+            # a method compared with its own cold reference: the reference's gap is 0 by definition
+            gap = name.endswith("_gap")
+            ga = lambda D, O, d: D["drives"][d].get(name) if D["drives"][d].get(name) is not None else (
+                0.0 if gap and O.get("cold") and D.get("roll") and os.path.normpath(O["cold"]) == os.path.normpath(D["roll"])
+                and O["drives"][d].get(name) is not None else None)
+            va = [ga(A, B, d) for d in rs if ga(A, B, d) is not None]
+            vb = [ga(B, A, d) for d in rs if ga(B, A, d) is not None]
             v[name] = (np.mean(va), np.mean(vb), len(va), 0) if va and vb and len(va) == len(vb) else (np.nan, np.nan, 0, 0)
         return v
     PD = {s_: per_drive(s_) for s_ in scenes}

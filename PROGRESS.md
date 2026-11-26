@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 21:25 (cluster clock; earlier headings tonight ran ~25 min ahead) — fixes verified
+- Car map render fix verified (P5-style, X1 2k, scene-0003 frames, same noise as E3): mean |render - E3| 3.9-32.3 /255 with the fix vs 0.3-2.7 with the bug. 2k dec + mapswap re-renders running (3753241-44).
+- Dev re-scored with the fixed scorer (equal drive weights, shared transitions, valid backward warp, contiguous drift; 6 drives, 5 with >= 170 contiguous ticks):
+  - warm 0.7 vs independent: ID 0.083 vs 0.101 (-18%, [-0.027, -0.010]); W 30.8 vs 29.8 (+0.99 [-1.24, +3.31]); recall -0.032 [-0.085, +0.017]; car F1 -0.045 [-0.102, +0.006]; road IoU -0.058 [-0.106, -0.012]; late LPIPS gap +0.086 [+0.038, +0.137]; late car-F1 gap -0.064 [-0.134, +0.004].
+  - VAE round trip vs independent: ID -42%, W 13.7 vs 29.4 (-54%), late LPIPS gap -0.147, late F1 gap +0.188. Key video: ID 0, W 11.4 vs 30.0. Ordering as required; fresh noise still pending (3753158, behind the decision rollouts for the cap).
+- --compare: a method's gap vs its own cold reference counts the reference as 0 (independent rollouts are the cold reference).
+
 ## 2026-11-26 21:50 — car map diagnostic (partial, before it was cancelled)
 - scripts/carmap_diag.py ran on the 120 decision keyframes (reviewers: should have been dev; cancelled after X1 2k/4k and X2 2k; numbers kept for information only, not used for any decision). Single-step noise prediction is NOT affected by the render bug, so this speaks to training: at every t (100-900) eps-MSE with the right map equals the swapped map to within 1e-4 (e.g. X1 4k t=300: right 0.10658, swapped 0.10669, off 0.10627; X2 2k t=700: 0.01880 / 0.01882 / 0.01891); on map-covered cells right vs off differs by < 1% (X1 4k t=300: 0.21911 vs 0.22037). The branch's change to the prediction is 1-4% RMS and almost the same for right and swapped maps. Expectation: the fixed renders will still show a small map effect; the 2k rule decides.
 

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 06:15 — PAUSED by the owner
+- Owner: "we stop here, pause all the jobs and let's chat". Cancelled all of this project's jobs (bev-try 3751843 running; sdB-sim 3751715, sdB-real 3751716, sd-run1-45k 3751718, phone-test 3751879 + judges 3751880/81 pending). Other projects' jobs untouched.
+- State kept on the cluster: runs/sd_run1/ckpt.pt (final 40k), runs/sd_run1_45k (copy, untrained), sim pilot arms (runs/simA|simB|simC), judge renders/scores (runs/judge), sim data (data/sim, 7,891 pairs; enc_sim / lat512_sim), BEV env (envs/bev, built) + infos pkl; phone_test.py ready, not run.
+- To resume: phone test (scripts/phone_test.py + judges), BEV trial (slurm/bev_extract.sh --split val --limit_scenes 2), the scaled sim run only if still wanted (slurm/sim8k_chain.sh steps sdB-sim / sdB-real / sd-run1-45k).
+
 ## 2026-11-26 06:00 — SD 40k placement
 - Judge, SD 40k vs 20k (240 renders): Mask2Former F1 0.286 vs 0.284 (+0.002 [-0.044, +0.043]); SegFormer 0.162 vs 0.153 (+0.009 [-0.038, +0.060]); kerb error 1.46 vs 1.40 m (+0.058 [+0.019, +0.098]) / 1.42 vs 1.39 (+0.030 [+0.004, +0.057]). Placement plateaued after 20k (kerb slightly worse); 10k -> 20k -> 40k car F1: 0.260 -> 0.284 -> 0.286.
 - Queue: our account is at its job limit (AssocMaxJobsLimit; 20 running jobs on the account incl. other projects): phone-test, sdB-sim, sd-run1-45k waiting. sim8k encoders done (508 scenes); sim8k-lat finished?

@@ -26,6 +26,7 @@ p.add_argument("--cache", default="runs/judge/keycache_m2f")
 p.add_argument("--ours", default="", help="judge_pair JSON of the same renders (default: <like>_m2f.json)")
 p.add_argument("--thr", type=float, default=0.3)
 p.add_argument("--out", required=True)
+p.add_argument("--overlays", type=int, default=0, help="save this many overlay pictures (key + GT hulls yellow + BEVFormer hulls cyan)")
 a = p.parse_args()
 from nuscenes.nuscenes import NuScenes
 nusc = NuScenes("v1.0-trainval", "data/nuscenes_full", verbose=False)
@@ -112,6 +113,14 @@ for it in idx:
         C = np.array([Rl.rotate(q) for q in C]) + tl
         bevs.append(C)
     rec = {"scene": it["scene"], "k": it["k"], "key_cars": len(keycars)}
+    if a.overlays and len(frames) % 7 == 0 and len(glob.glob(f"{os.path.dirname(a.out)}/bevbox_ov_*.jpg")) < a.overlays:
+        kp = f"data/sim/keys_tpv/{it['scene']}/{it['k']:03d}_{it['token']}.png"
+        im = np.asarray(Image.open(kp).convert("RGB").resize((512, 288)))[32:].copy()
+        for sets, col in ((gts, (255, 230, 0)), (bevs, (0, 220, 255))):
+            for m in paint(sets):
+                e = m & ~np.pad(m, 1)[2:, 1:-1] | m & ~np.pad(m, 1)[:-2, 1:-1] | m & ~np.pad(m, 1)[1:-1, 2:] | m & ~np.pad(m, 1)[1:-1, :-2]
+                im[e] = col
+        Image.fromarray(im).save(f"{os.path.dirname(a.out)}/bevbox_ov_{it['scene']}_{it['k']:03d}.jpg", quality=90)
     for name, sets in (("gt", gts), ("bev", bevs)):
         m = paint(sets); tp = match(m, keycars)
         tot[name][0] += tp; tot[name][1] += len(m) - tp; tot[name][2] += len(keycars) - tp

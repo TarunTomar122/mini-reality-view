@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 15:35 — Placement diagnostic (owner review item 4)
+- BEVFormer-base (camera-only, train-only checkpoint) run on the 30 decision drives (1,191 frames, boxes only; tmp/bev_boxes_decision.json). scripts/bev_box_judge.py: car boxes projected as hulls into the third-person view, matched to the cached game-key car masks (Mask2Former, IoU >= 0.3), 120 judge frames (seed 0):
+  GT nuScenes car boxes 0.459 | BEVFormer boxes (score >= 0.3) 0.417 | our renderer E3 10k 0.318 (its own ceiling, true keys through the VAE: 0.763).
+- Overlays (pulled/bevov_sheet.jpg -> docs/figs/bevbox_diag.jpg): GT (yellow) and BEVFormer (cyan) hulls sit on the game cars; the hull method's ceiling is low (0.46) because box hulls are fatter than car silhouettes, so compare BEVFormer with GT boxes: 91% of GT, vs our renderer at 42% of its ceiling.
+- Reading: the cameras do contain where the cars are (a camera-only detector recovers it almost fully); our renderer loses much of it. Spatial conditioning from BEVFormer (council/PLAN-bev.md, written for the old drone keys) is motivated; it needs a council update for the third-person target before any build.
+
 ## 2026-11-26 15:20 — Temporal amendments 1-2 approved; data prep resumes
 - Pairing: at 45 ms only 54.1% of ticks were usable (max-over-cameras offset median 44.5 ms: half a camera period); 50 ms -> 94.5%. Amendment 1 (50 ms) approved by Astra and Fable. Even so no drive had an unbroken >= 19 s run (replays end ~18.4 s; ~5% rejects scattered). Amendment 2 approved: rollouts run through offset rejects (rejected ticks unscored), hard break at repeated bundle / render gap / > 100 ms, drift window ticks 150-169 on >= 170-tick rollouts, cold frames from the same bundles. Measured qualifying rollouts: decision 22/30, final 18/24, dev 5/6, train 85/144.
 - Owner agreed: no 40k long run now; temporal arms from E3 10k + BEVFormer placement diagnostic (bev-boxes 3752688 running on the 30 decision drives; seaborn added to envs/bev; scripts/bev_box_judge.py scores GT / BEVFormer / renderer cars vs the game keys).

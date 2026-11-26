@@ -110,6 +110,8 @@ for si, sc in enumerate(judge):
                     if (a.control == "swap_scene" or a.map_swap) else (sc, k)
                 mtok = (eo if msc != sc else e)["sample_tokens"][mk]
                 fr = gt_frame(NUSC, mtok) if a.carmap_oracle else BOXES.get(mtok)
+                if fr is None:
+                    raise SystemExit(f"no car map boxes for {msc} token {mtok}: refusing to render it as 'map unavailable'")
                 M = pool(rasterize(fr))[None].to(dev)
                 if RED is not None:
                     gg = torch.load(f"{a.carmap_grid}/{msc}.pt"); gi = gg["sample_tokens"].index(mtok)
@@ -123,7 +125,8 @@ for si, sc in enumerate(judge):
                 for t in ddim.timesteps:
                     with torch.autocast("cuda", dtype=AMP):
                         ep = unet(torch.cat([x, x]), t, encoder_hidden_states=torch.cat([c, u]),
-                                  down_intrablock_additional_residuals=RES).sample.float()
+                                  down_intrablock_additional_residuals=None if RES is None else list(RES)).sample.float()
+                        # diffusers pops residuals off the list it is given: hand it a fresh list every step
                     ec, eu = ep.chunk(2)
                     x = ddim.step(eu + a.cfg * (ec - eu), t, x).prev_sample
                 img = vae.decode(x / 0.18215).sample[0].clamp(-1, 1)

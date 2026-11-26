@@ -30,6 +30,9 @@ p.add_argument("--out", default="")
 p.add_argument("--compare", nargs=2, default=None)
 p.add_argument("--shard", default="0/1", help="i/n: score every n-th rollout file (merge shards in --compare with a glob)")
 p.add_argument("--lag_ref", default="", help="lag test: metrics json (or glob) of the cold / independent rollouts of the same split; the donor drive's car F1 (same seed) is the reference")
+p.add_argument("--link", default="iou", choices=["iou", "flow"],
+               help="key-track linking: iou = signed (IoU >= 0.5 of raw masks); flow = amendment-3 candidate (t-1 key masks "
+                    "warped to t with RAFT flow on the keys, then IoU >= 0.5). Both link rates are always reported.")
 p.add_argument("--render_keys", action="store_true", help="metric check: score the key video itself as the render (must be best)")
 a = p.parse_args()
 
@@ -101,6 +104,15 @@ if a.compare:
            "unpaired_drives": unpaired, "weighting": "equal per drive; seeds pooled within drive",
            "no_shared_transition_drives": no_shared,
            "shared_per_drive": {name: {s_: PD[s_][name][2] for s_ in scenes} for name in ("ID", "W")}}
+    for nm, D in (("A", A), ("B", B)):
+        le = [D["drives"][r_].get("link_edge") for s_ in scenes for r_ in by_scene[s_]]
+        le = [q for q in le if q]
+        if le:
+            tt_ = sum(q["total"] for q in le)
+            out[f"link_share_{nm}"] = {"iou": round(sum(q["iou"] for q in le) / max(1, tt_), 3), "flow": round(sum(q["flow"] for q in le) / max(1, tt_), 3), "edge_cars": tt_}
+        wv = [(D["drives"][r_].get("w_valid_px", 0), D["drives"][r_].get("w_total_px", 0)) for s_ in scenes for r_ in by_scene[s_]]
+        if sum(q[1] for q in wv):
+            out[f"w_valid_share_{nm}"] = round(sum(q[0] for q in wv) / sum(q[1] for q in wv), 3)
     out["lag_median_ticks"] = {"A": lag_median(A), "B": lag_median(B), "gate": "<= 5 (inf = not recovered)"}
     for k, (x, y, n, nd) in full.items():
         bb = np.array(boots[k]); bb = bb[np.isfinite(bb)]
@@ -236,13 +248,34 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
         rk, rr = kseg[i][1], rseg[i][1]; roads.append((rk & rr).sum() / max(1, (rk | rr).sum()))
     # tracks on the keys + matches
     trans_ID, trans_W, rec, flips, ghosts = [], [], [], 0, []
+    link_stats, new_links = [0, 0, 0], []  # edge cars with a previous tick: total, linked by raw IoU, linked by flow IoU
     tid, nxt_id = {}, 0
     for n_, i in enumerate(idx):
         G = kseg[i][0]; M = iou_mat(rseg[i][0], G); m = hungarian(M, 0.3)
         ghosts.append(len(rseg[i][0]) - len(m))
         ids = {}
         if n_ and idx[n_ - 1] == i - 1:
-            j = i - 1; link = hungarian(iou_mat(G, kseg[j][0]), 0.5)  # key t-1 index -> key t index
+            j = i - 1
+            link_iou = hungarian(iou_mat(G, kseg[j][0]), 0.5)  # {t-1 index: t index}
+            Pw = []
+            if kseg[j][0]:
+                with torch.no_grad():  # warp t-1 key masks into t: mask_{t-1}(x + flow_{t -> t-1}(x))
+                    fb_ = raft(tens(kimg[i]), tens(kimg[j]))[-1]
+                    gy_, gx_ = torch.meshgrid(torch.arange(256, device=dev, dtype=torch.float32), torch.arange(512, device=dev, dtype=torch.float32), indexing="ij")
+                    grid_ = torch.stack([(gx_ + fb_[0, 0]) / 255.5 - 1, (gy_ + fb_[0, 1]) / 127.5 - 1], -1)[None]
+                    mk = torch.from_numpy(np.stack(kseg[j][0])).float().to(dev)[:, None]
+                    Pw = list((F.grid_sample(mk, grid_.expand(len(mk), -1, -1, -1), mode="nearest", align_corners=True)[:, 0] > 0.5).cpu().numpy())
+            link_flow = hungarian(iou_mat(G, Pw), 0.5) if Pw else {}
+            for g in range(len(G)):
+                xs_ = np.nonzero(G[g].any(0))[0]
+                if len(xs_) and not (171 <= xs_.mean() <= 341):
+                    li = g in link_iou.values(); lf = g in link_flow.values()
+                    link_stats[0] += 1; link_stats[1] += li; link_stats[2] += lf
+                    if lf and not li and len(new_links) < 40:
+                        pj = [k for k, v in link_flow.items() if v == g][0]
+                        bb_ = lambda mk_: [int(v) for v in (np.nonzero(mk_.any(0))[0].min(), np.nonzero(mk_.any(1))[0].min(), np.nonzero(mk_.any(0))[0].max() + 1, np.nonzero(mk_.any(1))[0].max() + 1)]
+                        new_links.append([sc, int(kt(j)), int(kt(i)), bb_(kseg[j][0][pj]), bb_(G[g])])
+            link = link_flow if a.link == "flow" else link_iou
             prev = {v: k for k, v in link.items()}
             for g in range(len(G)):
                 ids[g] = tid.get((j, prev[g])) if g in prev else None
@@ -284,7 +317,9 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
                                 bool(matched and cmv.any()), int(cmv.sum()), int(cm.sum())])
     d = {"car_f1": 2 * tp / max(1, 2 * tp + fp + fn), "road_iou": float(np.mean(roads)) if roads else None,
          "recall": float(np.mean(rec)) if rec else None, "flips": flips / max(1, len(trans_ID)), "ghosts": float(np.mean(ghosts)) if ghosts else None,
-         "accepted": len(idx), "ticks": len(ticks), "trans_ID": trans_ID, "trans_W": trans_W}
+         "accepted": len(idx), "ticks": len(ticks), "trans_ID": trans_ID, "trans_W": trans_W, "link": a.link,
+         "link_edge": {"total": link_stats[0], "iou": link_stats[1], "flow": link_stats[2]}, "new_links": new_links,
+         "w_valid_px": int(sum(t[6] for t in trans_W)), "w_total_px": int(sum(t[7] for t in trans_W))}
     # drift vs cold rollout of the same drive / seed: only rollouts whose history chain runs unbroken through tick 169
     rst = R["restart"].tolist() if "restart" in R else [False] * len(ticks)
     contiguous = len(ticks) >= 170 and not any(rst[1:170])

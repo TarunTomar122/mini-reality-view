@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 17:30 — Car map preflights started
+- bev_extract.py: --zero_canbus, --no_prev (P2), shard split over --scenes_file lists (fixed: the list used to override the shard). P2: decision drives with can_bus zeroed 3752749, zeroed + no previous grid 3752750 (gate 0.397). P1 caches (boxes + grids -> data/bev_tpv): train+dev 4 shards 3752758-61, other val (96 drives, for P3) 3752755, final 24 3752756 (stored, unviewed), decision 3752757.
+- scripts/bev_leak.py (P3): predicted vs GT car boxes within 50 m, centre match <= 2 m: recall / precision / centre error by distance, 30 seeded train drives vs 96 unused val drives; flag rule as in the plan.
+
 ## 2026-11-26 17:10 — Car map plan signed
 - council/PLAN-carmap.md FINAL (v3) signed by Astra and Fable after 3 rounds + sign-off (s3 objections: camera-only motion audit with renderer gates repeated after any motion-source change, X3 = frozen temporal winner + map branch vs the same winner with the branch off, paired predicted-vs-annotated oracle, winner-selection rule, joint final-24 confirmation, cache coverage, X3 placement on non-refresh ticks).
 - Plan: preflights P1 cache, P2 can_bus-zeroed hull test (>= 0.397), P3 detector train-leak check, P4 10 Hz feed, P5 timing; X1 boxes (E3 frozen, branch at 4 encoder scales, 4k), X2 boxes + grid, X3 map + memory winner; adopt at car F1 >= 0.382 and >= +0.05 over E3 (lower bound > 0), road not down, swap controls, train-vs-held-out gap <= 0.05.

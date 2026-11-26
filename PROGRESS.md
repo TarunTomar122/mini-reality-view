@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 02:10 — Sim pilot: arm B scored
+- VPN dropped ~01:50, reconnected with FortiTray (no job lost).
+- BEV prep failed again: Python prefers a regular package over a namespace one anywhere on sys.path, and detectron2/tools has __init__.py while BEVFormer/tools has none. Added empty BEVFormer/tools/__init__.py (projects/ already had one); import check OK. Prep resubmitted 3751693 (trial 3751639 after it).
+- Arm B (2k sim-only, then real) vs A, paired scene bootstrap (240 renders, 30 val scenes), Mask2Former / SegFormer:
+  - B5k vs A5k (equal real steps): F1 0.096 vs 0.033, +0.063 [+0.021, +0.098] / 0.076 vs 0.033, +0.043 [+0.004, +0.084]; kerb -0.003 [-0.048, +0.040] / -0.084 [-0.112, -0.054].
+  - B3k vs A3k: F1 +0.027 [+0.006, +0.052] / +0.020 [-0.001, +0.042]; kerb -0.040 [-0.082, +0.002] / -0.037 [-0.061, -0.010].
+  - B5k vs A7k (equal total updates): F1 -0.026 [-0.067, +0.013] / -0.015 [-0.051, +0.018]; kerb +0.068 [+0.006, +0.129] / -0.036 [-0.073, -0.001].
+  - Reading: at equal real steps B passes the go rule as written (Mask2Former +0.063 >= 0.05, CI excludes 0, SegFormer agrees on sign, no kerb regression). At equal total updates B is no better than 2k more real steps: the sim phase gives a head start, not better placement. C scoring running.
+
 ## 2026-11-26 01:30
 - Arm A 7k: F1 0.123 (m2f) / 0.092 (SegFormer), kerb 1.48 / 1.43 m -> cars appear between 5k and 7k.
 - BEV prep failed: detectron2's editable install exposes its own `tools` package first on sys.path, so BEVFormer's tools.data_converter was not found. bev_prep.sh now runs create_data via runpy with BEVFormer's root first. Resubmitted 3751669; trial 3751639 retargeted.

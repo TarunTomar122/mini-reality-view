@@ -27,6 +27,8 @@ p.add_argument("--limit_scenes", type=int, default=0)
 p.add_argument("--scenes_file", default="", help="only these scenes (one name per line)")
 p.add_argument("--boxes_out", default="", help="also save detected 3D boxes per sample token to this JSON (lidar frame)")
 p.add_argument("--no_feats", action="store_true", help="do not save BEV feature caches (boxes only)")
+p.add_argument("--zero_canbus", action="store_true", help="P2 (PLAN-carmap): zero the can_bus ego-motion input (no non-camera motion)")
+p.add_argument("--no_prev", action="store_true", help="P2: no previous BEV grid (video_test_mode off)")
 a = p.parse_args()
 
 sys.path.insert(0, os.getcwd())
@@ -54,8 +56,8 @@ scene_name = {s["token"]: s["name"] for s in scenes}
 names = sorted({scene_name[i["scene_token"]] for i in ds.data_infos})
 si, sn = map(int, a.shard.split("/"))
 keep = set(names[si::sn][: a.limit_scenes or None]) if not a.eval else set(names[: a.limit_scenes or None])
-if a.scenes_file:
-    keep = set(open(a.scenes_file).read().split()) & set(names)
+if a.scenes_file:  # the shard split applies to the listed scenes
+    keep = set(sorted(set(open(a.scenes_file).read().split()) & set(names))[si::sn])
 # keep BEVFormer's own (time-sorted) order; drop scenes of other shards and scenes already done
 os.makedirs(a.out, exist_ok=True)
 done = {n for n in keep if os.path.exists(f"{a.out}/{n}.pt")} if not a.eval else set()
@@ -94,6 +96,11 @@ results, buf, boxes = [], {}, {}
 with torch.no_grad():
     for i, data in enumerate(loader):
         info = ds.data_infos[i]
+        if a.zero_canbus:
+            for m_ in data["img_metas"][0].data[0]:
+                m_["can_bus"][:] = 0
+        if a.no_prev:
+            model.module.video_test_mode = False
         res = model(return_loss=False, rescale=True, **data)
         results.extend(res)
         if a.boxes_out:  # detected boxes in the LIDAR_TOP frame: x, y, z(bottom), w, l, h, yaw, vx, vy; score; class

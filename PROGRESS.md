@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 03:45
+- BEV infos written (nuscenes_infos_temporal_train.pkl 506 MB, val 105 MB, 03:34); create_data then started the 2D-annotation export (not needed, ~8.5 h) -> prep cancelled, trial 3751639 released.
+- Sim 8k renders: 6/8 shards done; shards 6/7 keep hitting MetaDrive hangs (attempt 8 each, watchdog working).
+- sd_run1 36.9k -> judge at 40k queued (3751798, sim_judge.sh sd40k).
+
 ## 2026-11-26 02:45 — SIM VERDICT
 - Arm C (real + 2 sim + 2 twin rows) vs A: C5k F1 0.000 vs 0.033, -0.033 [-0.052, -0.015] (m2f) / -0.029 [-0.057, -0.004] (SegFormer); C3k = A3k. Pictures (pulled/sim_arms.jpg): C draws realistic streets with almost no cars. C FAILS.
 - B passes the go rule at equal real steps (see 02:10) but not at equal updates (B5k vs A7k -0.026 / -0.015, CI incl. 0; m2f kerb +0.068 worse).

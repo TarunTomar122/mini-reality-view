@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 09:20 — Owner review folded in (phone work deferred)
+- Owner: phone demo is low priority; focus on how accurately six real cameras place traffic in the game-style chase view. scripts/try_my_photos.py and phone_test.py still hardcode style 1 (TPV is style 2) and a single rotating phone has different camera origins than the car rig: fix and test both paths on one matched val example when phone work resumes.
+- Earlier visual feedback: the queued 5k judges waited for the whole 10k job -> cancelled (3751990/92/94); they are submitted by hand once ckpt_5000 is written. Preview job (slurm/tpv_preview.sh <step>): fixed held-out drives scene-0915 (busy junction, rain, 26 vehicles), scene-0563 (moving traffic at a light, 10/20 moving), scene-0632 (quiet industrial street) x 3 keyed frames x seed 0 (same noise for every checkpoint), E1/E2/E3 + E1 with another drive's cameras (wrong street). Real camera frames and keys copied to tmp/prev_cams.
+- judge_pair.py: key file must match frame index AND sample token (missing count reported); key masks cached per judge in runs/judge/keycache_<judge> (240 renders use only 120 distinct key frames).
+- sd_render.py: --scenes, --split train|val, --scene_list (for the train-frame vs held-out check).
+- Still to do: judge validation on game keys (hand-count ~20 varied keys with detections overlaid; swap_scene control with matched noise + paired CIs on the TPV target); fixed train-frame vs held-out comparison (E3's quarter is in both E1's and E3's training data); BEVFormer box diagnostic only if appearance is good but moving cars are misplaced.
+- Note: E3 at 10k x 16 sees ~68 passes over 2,363 frames vs ~17 for E1 over 9,587: it tests how many NEW game-view examples the warm start needs at a fixed update budget. A near tie with a wide CI leaves data sufficiency open.
+
 ## 2026-11-26 08:55 — Experiment T arms training
 - Keys done: 12,111 third-person frames (9,587 train / 2,524 val) in data/lat512_tpv. E1 (init sd_run1, style rows 2->3), E2 (plain SD), E3 (init sd_run1, quarter: 2,363 train frames) all running since ~08:42; judges queued at 5k / 10k.
 

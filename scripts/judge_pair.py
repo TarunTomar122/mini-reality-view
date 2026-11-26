@@ -128,13 +128,31 @@ vae = None
 if a.vae:
     from diffusers import AutoencoderKL
     vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
+CACHE = f"runs/judge/keycache_{a.judge}"
+os.makedirs(CACHE, exist_ok=True)
+
+
+def key_masks(path, key):
+    """segment a game key once per judge; cached (the same reference frame appears in many score files)"""
+    c = f"{CACHE}/{os.path.basename(os.path.dirname(path))}_{os.path.basename(path)[:-4]}.npz"
+    if os.path.exists(c):
+        z = np.load(c)
+        cars = list(np.unpackbits(z["cars"], axis=-1)[..., :512].astype(bool)) if len(z["cars"]) else []
+        return cars, np.unpackbits(z["road"], axis=-1)[..., :512].astype(bool)
+    cars, road = segment(key)
+    np.savez_compressed(c, cars=np.packbits(np.stack(cars), axis=-1) if cars else np.zeros((0, 256, 64), np.uint8),
+                        road=np.packbits(road, axis=-1))
+    return cars, road
+
+
 idx = json.load(open(f"{a.renders}/index.json"))["items"]
-frames = []
+frames, missing = [], 0
 for it in idx:
-    kf = glob.glob(f"{a.keys}/{it['scene']}/{it['k']:03d}_*.png")
-    if not kf:
+    kp = f"{a.keys}/{it['scene']}/{it['k']:03d}_{it['token']}.png"  # frame index AND sample token must match the key file
+    if not os.path.exists(kp):
+        missing += 1
         continue
-    key = Image.open(kf[0]).convert("RGB").resize((512, 288), Image.BILINEAR).crop((0, CROP, 512, 288))
+    key = Image.open(kp).convert("RGB").resize((512, 288), Image.BILINEAR).crop((0, CROP, 512, 288))
     if a.vae:
         with torch.no_grad():
             z = vae.encode(to_t(key)).latent_dist.mean
@@ -142,7 +160,7 @@ for it in idx:
         ren = Image.fromarray(((r + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy())
     else:
         ren = Image.open(f"{a.renders}/{it['file']}").convert("RGB")
-    ck, rk = segment(key)
+    ck, rk = key_masks(kp, key)
     cr, rr = segment(ren)
     tp = 0
     if ck and cr:
@@ -156,6 +174,6 @@ for it in idx:
     frames.append({"scene": it["scene"], "k": it["k"], "seed": it["seed"], "tp": tp, "fp": len(cr) - tp, "fn": len(ck) - tp,
                    "key_cars": len(ck), "road_iou": ri, "l1": l1, "lpips": lpv})
 s = summarise(frames)
-s.update({"renders": a.renders, "judge": a.judge, "vae_ceiling": a.vae})
+s.update({"renders": a.renders, "judge": a.judge, "vae_ceiling": a.vae, "missing_keys": missing})
 json.dump({"summary": s, "frames": frames}, open(a.out, "w"), indent=1)
 print("JUDGE", json.dumps(s))

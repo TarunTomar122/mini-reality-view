@@ -12,7 +12,7 @@ from PIL import Image
 from diffusers import UNet2DConditionModel, DDIMScheduler, AutoencoderKL
 from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
-from nuscenes.utils.splits import val as VAL
+from nuscenes.utils.splits import val as VAL, train as TRAIN
 
 SD = "sd-legacy/stable-diffusion-v1-5"
 p = argparse.ArgumentParser()
@@ -27,6 +27,9 @@ p.add_argument("--seeds", default="0,1")
 p.add_argument("--style", type=int, default=1)
 p.add_argument("--steps", type=int, default=25)
 p.add_argument("--cfg", type=float, default=2.0)
+p.add_argument("--split", default="val", choices=["val", "train"], help="scenes to draw from (train = train-frame check)")
+p.add_argument("--scenes", default="", help="comma list of scenes (overrides --first/--n_scenes)")
+p.add_argument("--scene_list", default="", help="file of scene names to choose from (e.g. E3's quarter)")
 p.add_argument("--keys_like", default="", help="game key folder (e.g. data/sim/keys_tpv): use val scenes that have keys there and pick frames among the keyed ones")
 p.add_argument("--shuffle_cams", action="store_true", help="roll tokens AND rays by 3 (not a real control: geometry stays consistent)")
 p.add_argument("--control", default="", choices=["", "roll_tokens", "swap_scene"],
@@ -46,10 +49,15 @@ adapter.load_state_dict(ck["adapter"])
 vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
 ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler")
 RAYS = torch.load(a.rays)
-names = sorted(os.path.basename(f)[:-3] for f in glob.glob(f"{a.tokens}/*.pt") if os.path.basename(f)[:-3] in set(VAL))
+SPLIT = set(VAL if a.split == "val" else TRAIN)
+if a.scene_list:
+    SPLIT &= set(open(a.scene_list).read().split())
+names = sorted(os.path.basename(f)[:-3] for f in glob.glob(f"{a.tokens}/*.pt") if os.path.basename(f)[:-3] in SPLIT)
 if a.keys_like:
     names = [n for n in names if len(glob.glob(f"{a.keys_like}/{n}/*.png")) >= a.frames]
 judge = names[a.first:a.first + a.n_scenes]
+if a.scenes:
+    judge = a.scenes.split(",")
 index = []
 for si, sc in enumerate(judge):
     e = torch.load(f"{a.tokens}/{sc}.pt")

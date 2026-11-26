@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 04:10
+- Sim 8k: shards 6/7 both ran on damnii07 and finished zero scenes in 1.5 h (MetaDrive hangs on every scene there; the pilot's hanging shard was also on damnii07). Cancelled; 7,891 drone pairs in data/sim/keys (pilot + 6 shards), close to the ~8,000 target. Encoders (afterany) start now.
+- BEV trial 3751639 moved to an A6000 (2080 Tis busy). sd_run1 38.5k.
+
 ## 2026-11-26 03:45
 - BEV infos written (nuscenes_infos_temporal_train.pkl 506 MB, val 105 MB, 03:34); create_data then started the 2D-annotation export (not needed, ~8.5 h) -> prep cancelled, trial 3751639 released.
 - Sim 8k renders: 6/8 shards done; shards 6/7 keep hitting MetaDrive hangs (attempt 8 each, watchdog working).

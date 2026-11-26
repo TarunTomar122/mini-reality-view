@@ -1,0 +1,7 @@
+[
+  {"when": "26 Nov, 09:55", "text": "First pictures at 2,500 steps. Starting from our trained model (E1), the drawings already match the game view closely: road shape, crossings, rows of parked cars, trucks ahead. Plain Stable Diffusion (E2) invents cones and misplaces cars. Fed another street's cameras, E1 draws a different street, so it reads the cameras."},
+  {"when": "26 Nov, 08:42", "text": "Three experiments started: our trained model vs plain Stable Diffusion as the starting point, and all drives vs a quarter of them."},
+  {"when": "26 Nov, 08:30", "text": "12,111 game pictures rendered from the chase camera (9,587 for training, 2,524 from drives the model never sees). Two cluster machines froze the simulator on every drive; we stopped using them."},
+  {"when": "26 Nov, 07:00", "text": "New direction. Our answer keys were always messy, and the model copied the mess. Now the answer is a game render of the exact same moment, seen from behind our car."},
+  {"when": "26 Nov, 04:15", "text": "The Stable Diffusion renderer finished 40,000 steps on the old, messy keys: photo-like streets, but car placement stopped improving after 20,000 steps."}
+]

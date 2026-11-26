@@ -2,21 +2,27 @@
 columns = 6 real photos | game key | E1 | E2 | E3 | E1 with another drive's cameras.
 usage: python scripts/preview_sheet.py <step> <pulled preview dir> <cams dir> <out prefix>"""
 import glob, os, sys
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
+F = ImageFont.truetype('/System/Library/Fonts/HelveticaNeue.ttc', 22)
 step, P, C, out = sys.argv[1:5]
 CAMS = ["CAM_FRONT_LEFT", "CAM_FRONT", "CAM_FRONT_RIGHT", "CAM_BACK_LEFT", "CAM_BACK", "CAM_BACK_RIGHT"]
 names = {"scene-0915": "busy junction", "scene-0563": "moving traffic", "scene-0632": "quiet street"}
-cols = [("key", "game picture (answer)"), (f"tpvE1_{step}", "E1: our model as start"), (f"tpvE2_{step}", "E2: plain SD start"),
-        (f"tpvE3_{step}", "E3: quarter of data"), (f"tpvE1_{step}_swap", "E1, wrong street's cameras")]
+cols = [("key", "answer"), (f"tpvE1_{step}", "E1"), (f"tpvE2_{step}", "E2"),
+        (f"tpvE3_{step}", "E3"), (f"tpvE1_{step}_swap", "E1, wrong street")]
+CHIP = {"answer": (60, 60, 55), "E1": (42, 120, 214), "E2": (235, 104, 52), "E3": (27, 175, 122), "E1, wrong street": (138, 137, 128)}
 W, H = 384, 192; cw, ch = 128, 72
 for sc, nm in names.items():
     keys = sorted(glob.glob(f"{C}/{sc}_*_key.png"))
-    S = Image.new("RGB", (3 * cw + 8 + len(cols) * W, 24 + len(keys) * H), "white"); d = ImageDraw.Draw(S)
-    d.text((4, 6), f"{sc} ({nm}), step {step}", fill="black")
+    T = 44
+    S = Image.new("RGB", (3 * cw + 8 + len(cols) * W, T + len(keys) * H), "white"); d = ImageDraw.Draw(S)
+    def chip(x, t, c):
+        w = d.textlength(t, font=F) + 24
+        d.rounded_rectangle((x, 8, x + w, 38), radius=15, fill=c); d.text((x + 12, 11), t, font=F, fill="white")
+    chip(4, "6 real cameras", (60, 60, 55))
     for j, (_, t) in enumerate(cols):
-        d.text((3 * cw + 8 + j * W + 4, 6), t, fill="black")
+        chip(3 * cw + 8 + j * W + 6, t, CHIP[t])
     for i, kp in enumerate(keys):
-        b = os.path.basename(kp)[len(sc) + 1:-8]; k = b[:3]; y = 24 + i * H
+        b = os.path.basename(kp)[len(sc) + 1:-8]; k = b[:3]; y = T + i * H
         for c_, cam in enumerate(CAMS):
             im = Image.open(f"{C}/{sc}_{b}_{cam}.jpg").convert("RGB").resize((cw, ch))
             S.paste(im, ((c_ % 3) * cw, y + 20 + (c_ // 3) * ch))

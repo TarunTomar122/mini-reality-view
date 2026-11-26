@@ -5,7 +5,10 @@
 A home-made, open version of Tesla's FSD v15 "Reality View": six ordinary car cameras go in, and a picture of the car
 and its surroundings, seen from a camera floating behind it, comes out. Drawn by a diffusion model, not a game engine.
 
-![Six real camera photos in (left); the third-person game view of the same moment we are now teaching the model to draw (right, first preview)](docs/figs/tpv_preview.jpg)
+![Top: three of the six real car cameras at a rainy Boston junction. Bottom: the game-style chase view our model draws from all six, frame by frame, on a street it never saw in training](docs/figs/busy_junction.gif)
+
+*Real cameras in (top), our model's chase view out (bottom), on a street it never saw in training. Early checkpoint
+(2,500 of 10,000 steps); every frame is drawn on its own, with no memory yet. [MP4](docs/media/busy_junction.mp4)*
 
 ## Where we are
 

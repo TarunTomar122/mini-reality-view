@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 21:40",
+  "text": "Correction: the 'car map is ignored' result was our bug, caught by the hourly AI review. The drawing script gave the car map to only the first of 25 drawing steps. Fixed; the halfway car-map test is being re-run. The steady-video scorer was also fixed to weight every drive equally before anything is ranked."
+ },
+ {
   "when": "26 Nov, 19:50",
   "text": "Car map halfway check: the model ignores the map. With the right map, a wrong map, or no map, the pictures come out almost the same (car score 0.325 vs 0.321 vs 0.318). The plan's early stop fired for both versions; the design goes back to the two AI reviewers with a diagnosis."
  },

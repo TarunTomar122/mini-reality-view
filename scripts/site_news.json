@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 18:40",
+  "text": "Car map check: the borrowed car detector is better on drives it was trained on (finds 85% of cars vs 72% on unseen drives). So the training car maps were roughened (drop some boxes, nudge some, add a few fake ones, by distance) until they match unseen drives: 94/79/51% found near/mid/far vs 95/79/51%. Car map runs X1 and X2 submitted; memory test rollouts started."
+ },
+ {
   "when": "26 Nov, 17:15",
   "text": "Added the plan from here: one base model (E3), two add-ons (memory for steady video, a car map for car placement), each with a pass test and rough times. Aim: a final model checked on 24 untouched drives by about 28 Nov."
  },

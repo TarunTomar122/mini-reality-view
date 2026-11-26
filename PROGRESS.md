@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 05:20
+- scripts/phone_test.py: the 120 judge frames (seed 0) through the phone path: real camera pictures -> mrv/aug.augment (crop/zoom, colour, gamma, hue, blur, JPEG) -> try_my_photos' 16:9 crop -> DINOv2 -> DEFAULT rig rays -> SD 40k (style 1, DDIM 25, CFG 2, same noise as sd_render seed 0). Queued after judge-sd40k: 3751879 -> m2f 3751880 / SegFormer 3751881; compare with the calibrated clean renders (paired on seed 0).
+
 ## 2026-11-26 05:10 — sd_run1 finished (40k)
 - Final built-in eval, 8 val scenes vs trusted splat keys (style 1): masked L1 27.32 / LPIPS 0.307 (5k preview on 4 scenes: 33.5 / 0.390). Pictures (pulled/sd40k_final.jpg -> docs/figs): clearly better than the 45M DiT on the same scenes; near field behind the ego still smeared. README updated.
 - Queue is busy: judge-sd40k 3751798, sd45-copy 3751717, sim8k encoders 3751712-14, bev-try 3751843 all waiting for GPUs.

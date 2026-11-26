@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 13:40 — Experiment T verdict at 10k
+- Judge vs exact game keys, 30 held-out drives (Mask2Former / SegFormer car F1; road IoU; LPIPS): E1 10k 0.288 / 0.279, 0.846, 0.312; E3 10k 0.318 / 0.302, 0.848, 0.316. E1 - E3 = -0.030 [-0.077, +0.013] / -0.024 [-0.060, +0.014]; road -0.002 [-0.014, +0.011]. (5k: E1 0.276, E3 0.294; E2 0.044.)
+- Decision rules (council/PLAN-tpv.md): init -> our trained renderer (E2 drew almost no cars: outright). Data -> E1 - E3 < 0.02: the ~2.4k-frame quarter is already enough at this budget; no more drives needed. Go rule -> best arm 0.318 = 42% of the VAE ceiling 0.763: below the 50% needed for the 40k long run, above the 25% "back to council" line; the plan has no rule for this band -> owner decision. Road IoU rising (E3 0.836 -> 0.848).
+- Placement climbs slowly (E3 +0.024 from 5k to 10k). Starting point for the temporal arms: E3 10k (best car score; its training drives are the temporal train list).
+- E1 5k train-frame judge (3752154) produced no score file (likely lost in the I/O stall); E3 5k train 0.359 vs val 0.294.
+
 ## 2026-11-26 13:25 — Dense 10 Hz render started (reduced width)
 - Walking-RL session reports storage recovered at 13:11; my per-OST probe (8 MB fsync) at ~13:20: OST3 0.5 s, OST2 3.5 s, OST0/1/4/5 11-22 s (better, not normal). Started the dense render with 6 jobs: train+dev 150 drives (tmp/t10_train.txt, scn_8k) 3752564-67, decision+final 54 val drives (tmp/t10_val.txt, scn_val) 3752568-69 -> data/sim/keys_tpv10. Lit re-render of keyframe keys after this.
 

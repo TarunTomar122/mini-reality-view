@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 09:55 — Experiment T preview at 2.5k (pictures only)
+- pulled/prev2500_scene-{0915,0563,0632}.jpg (6 real photos | game key | E1 | E2 | E3 | E1 wrong street), same noise per column.
+- E1 and E3 already match the game keys closely after 2.5k steps: road shape, crossings, rows of parked cars, trucks ahead (moving-traffic drive: both trucks and the near white car in place), the red barrier on the quiet street. E3 (quarter data) looks about as good as E1.
+- E2 (plain SD start) has the game look but invents cones / barriers and puts cars in the wrong places.
+- Wrong-street control (E1 with another drive's cameras): clearly different layouts and traffic, so the cars come from the cameras.
+- Small glitch: own car slightly mangled in one E1 frame (quiet street, last row).
+
 ## 2026-11-26 09:20 — Owner review folded in (phone work deferred)
 - Owner: phone demo is low priority; focus on how accurately six real cameras place traffic in the game-style chase view. scripts/try_my_photos.py and phone_test.py still hardcode style 1 (TPV is style 2) and a single rotating phone has different camera origins than the car rig: fix and test both paths on one matched val example when phone work resumes.
 - Earlier visual feedback: the queued 5k judges waited for the whole 10k job -> cancelled (3751990/92/94); they are submitted by hand once ckpt_5000 is written. Preview job (slurm/tpv_preview.sh <step>): fixed held-out drives scene-0915 (busy junction, rain, 26 vehicles), scene-0563 (moving traffic at a light, 10/20 moving), scene-0632 (quiet industrial street) x 3 keyed frames x seed 0 (same noise for every checkpoint), E1/E2/E3 + E1 with another drive's cameras (wrong street). Real camera frames and keys copied to tmp/prev_cams.

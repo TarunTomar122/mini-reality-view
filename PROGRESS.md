@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 07:50 — Experiment T plan + arms queued
+- Fable round 1 (council/tpv-s1-fable.md) -> merged plan council/PLAN-tpv.md: E1 init sd_run1, E2 plain SD, E3 E1 on a quarter of the drives; 10k steps each; judge vs exact game keys (scripts/judge_pair.py: same segmenter on render and key, own car masked, car F1 / road IoU / L1 / LPIPS), VAE ceiling; decision rules as in the plan.
+- Code: train_sd.py --init expands style rows (2 -> 3) and --scene_list; sd_render.py --keys_like (val drives / frames that have game keys); judge_pair.py; slurm/tpv_judge.sh, slurm/tpv_experiments.sh.
+- Queued after the latents (3751984): E1 3751987, E2 3751988, E3 3751989; judges at 5k/10k 3751990-95 (E1 10k also runs the VAE ceiling).
+
 ## 2026-11-26 07:30 — Experiment T (third-person game keys) started
 - Owner: research first, then 3 experiments, start now. Council brief council/tpv-brief.md (init A/B/C, data size, eval, 3 experiments); Fable running (Astra unavailable in this session).
 - Camera moved back so the whole own car is in frame: tpv = 7.5 m behind the car centre, 2.4 m up, pitch -8 deg (old preview keys deleted).

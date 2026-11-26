@@ -45,6 +45,7 @@ p.add_argument("--set", action="append", default=[],
                help="keydir:tokdir:style:rows[:augdir+augdir]; repeatable. Fixed rows per batch per set, paired random draws.")
 p.add_argument("--n_styles", type=int, default=2)
 p.add_argument("--seed", type=int, default=0)
+p.add_argument("--scene_list", default="", help="file with scene names: keep only these TRAIN scenes (val scenes always kept)")
 p.add_argument("--save_at", default="", help="comma list of steps to keep a copy of the checkpoint (ckpt_<step>.pt)")
 a = p.parse_args()
 os.makedirs(a.out, exist_ok=True)
@@ -57,6 +58,7 @@ RAYS = torch.load(a.rays)
 
 
 # ---------------- data ----------------
+KEEP = set(open(a.scene_list).read().split()) if a.scene_list else None
 def stack(chunks):
     """Concatenate a list of tensors into one preallocated tensor, freeing each chunk after copying, so the peak is
     one copy plus one chunk (torch.cat would hold the whole list and the result at once)."""
@@ -76,7 +78,7 @@ def load_set(keydir, style, tokdir=None, augdirs=None):
     parts = {p: dict(T=[], L=[], C=[], R=[], S=[], names=[]) for p in ("train", "val")}
     for f in sorted(glob.glob(f"{keydir}/*.pt")):
         sc = os.path.basename(f)[:-3]
-        if not os.path.exists(f"{tokdir}/{sc}.pt"):
+        if not os.path.exists(f"{tokdir}/{sc}.pt") or (KEEP is not None and sc not in VAL and sc not in KEEP):
             continue
         k = torch.load(f)
         P = parts["val" if sc in VAL else "train"]
@@ -155,7 +157,13 @@ ck = f"{a.out}/ckpt.pt"
 start = 0
 if a.init and not os.path.exists(ck):
     s_ = torch.load(a.init, map_location=dev)
-    adapter.load_state_dict(s_["adapter"]); print("init from", a.init, unet.load_state_dict(s_["lora"], strict=False).unexpected_keys[:3], flush=True)
+    ad = s_["adapter"]
+    want = adapter.style.weight.shape[0]
+    if ad["style.weight"].shape[0] < want:  # e.g. a 2-style renderer reused for a new style: new rows start as a copy of row 1
+        w = ad["style.weight"]
+        ad["style.weight"] = torch.cat([w, w[-1:].expand(want - w.shape[0], -1)], 0)
+        print("style rows", w.shape[0], "->", want, flush=True)
+    adapter.load_state_dict(ad); print("init from", a.init, unet.load_state_dict(s_["lora"], strict=False).unexpected_keys[:3], flush=True)
 if os.path.exists(ck):
     s_ = torch.load(ck, map_location=dev)
     adapter.load_state_dict(s_["adapter"])

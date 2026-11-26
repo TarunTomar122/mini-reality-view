@@ -27,6 +27,7 @@ p.add_argument("--seeds", default="0,1")
 p.add_argument("--style", type=int, default=1)
 p.add_argument("--steps", type=int, default=25)
 p.add_argument("--cfg", type=float, default=2.0)
+p.add_argument("--keys_like", default="", help="game key folder (e.g. data/sim/keys_tpv): use val scenes that have keys there and pick frames among the keyed ones")
 p.add_argument("--shuffle_cams", action="store_true", help="roll tokens AND rays by 3 (not a real control: geometry stays consistent)")
 p.add_argument("--control", default="", choices=["", "roll_tokens", "swap_scene"],
                help="validation controls: roll_tokens = tokens rolled by 3 cameras, rays kept (front content placed behind); "
@@ -46,6 +47,8 @@ vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
 ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler")
 RAYS = torch.load(a.rays)
 names = sorted(os.path.basename(f)[:-3] for f in glob.glob(f"{a.tokens}/*.pt") if os.path.basename(f)[:-3] in set(VAL))
+if a.keys_like:
+    names = [n for n in names if len(glob.glob(f"{a.keys_like}/{n}/*.png")) >= a.frames]
 judge = names[a.first:a.first + a.n_scenes]
 index = []
 for si, sc in enumerate(judge):
@@ -54,6 +57,9 @@ for si, sc in enumerate(judge):
         osc = judge[(si + len(judge) // 2) % len(judge)]; eo = torch.load(f"{a.tokens}/{osc}.pt")
     n = len(e["sample_tokens"])
     ks = np.linspace(2, n - 3, a.frames).round().astype(int).tolist()
+    if a.keys_like:  # frames that have a game key
+        kk = sorted(int(os.path.basename(f)[:3]) for f in glob.glob(f"{a.keys_like}/{sc}/*.png"))
+        ks = [kk[i] for i in np.linspace(0, len(kk) - 1, a.frames).round().astype(int)]
     os.makedirs(f"{a.out}/{sc}", exist_ok=True)
     for k in ks:
         tok = e["tokens"][k:k + 1].to(dev).float()

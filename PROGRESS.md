@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 11:45
+- Cluster writes partly recovered (our 10 MB fsync <1 s, 50 MB 1.8 s at 11:38); the walking-RL session still sees slow OSTs (OST1/2/4/5) and slow reads, and asked to hold the big dense render ~1 h. Released small held jobs (xwarm 3752205-08 running; tj-E1/E3-10000 waiting for training). Before the big render: per-OST write probe (lfs setstripe -i).
+- Temporal lists frozen: data/temporal_lists.json (train 144, dev 6 = scene-0468/0393/0396/0234/0285/0043 over density x turning, decision 30, final 24). Dense render pilot on scene-0005/0007: 3752363 (keys_tpv10).
+
 ## 2026-11-26 11:25 — First 5k scores (E1 still scoring); temporal plan signed
 - Judge vs exact game keys, 30 held-out drives x 4 frames x 2 seeds (Mask2Former / SegFormer car F1, road IoU, LPIPS):
   E2 5k 0.044 / 0.041, road 0.74, LPIPS 0.525 (confirms stopping E2); E3 5k 0.294 / 0.253, road 0.84, LPIPS 0.326;

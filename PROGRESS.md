@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 17:50 — Job cap: 12 running
+- Owner: at most 12 running jobs from this project (other slots for other projects). Cancelled + re-queued on hold t10-enc-6/7 (now 3752770/71) and lit-2..5 (now 3752772-75; they first remove half-done STARTED-without-DONE folders, so they must be released only after lit-0/1 end); held all other pending jobs (bevP1-train x4, bevP1-decision, troll x3, tmet x3, lit-lat). Dependencies retargeted (troll -> new encoders, lit-lat -> new lit jobs). Running now: 6 encoders, 2 lit, 2 P2, P1 other-val, P1 final.
+
 ## 2026-11-26 17:30 — Car map preflights started
 - bev_extract.py: --zero_canbus, --no_prev (P2), shard split over --scenes_file lists (fixed: the list used to override the shard). P2: decision drives with can_bus zeroed 3752749, zeroed + no previous grid 3752750 (gate 0.397). P1 caches (boxes + grids -> data/bev_tpv): train+dev 4 shards 3752758-61, other val (96 drives, for P3) 3752755, final 24 3752756 (stored, unviewed), decision 3752757.
 - scripts/bev_leak.py (P3): predicted vs GT car boxes within 50 m, centre match <= 2 m: recall / precision / centre error by distance, 30 seeded train drives vs 96 unused val drives; flag rule as in the plan.

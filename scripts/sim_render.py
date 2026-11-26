@@ -27,6 +27,10 @@ p.add_argument("--skip", default="", help="comma list of scenes to skip (e.g. on
 p.add_argument("--view", default="drone", choices=["drone", "tpv"],
                help="drone: 9 m back, 4.5 m up, own car hidden; tpv: third-person chase camera 7.5 m behind the car centre, 2.4 m up, pitched 8 deg down, own car shown")
 p.add_argument("--split", default="train", choices=["train", "val"])
+p.add_argument("--dense", action="store_true",
+               help="temporal data (council/PLAN-temporal.md): a key at EVERY 10 Hz sim tick of the whole drive, keys only, "
+                    "saved as t<tick>.jpg plus ticks.json (keyframe k = tick 5k, with its sample token)")
+p.add_argument("--only_file", default="", help="file with scene names (one per line): render just these")
 p.add_argument("--keys_name", default="keys", help="sub-folder for the answer keys (e.g. keys_tpv)")
 p.add_argument("--keys_only", action="store_true", help="do not render the 6 rig cameras (already rendered)")
 p.add_argument("--only", default="", help="comma list of scenes: render just these (any train scene in sdir)")
@@ -74,8 +78,9 @@ for i, fn in enumerate(names):
         cands.append((i, sc_name))
 step = max(1, len(cands) // a.scenes)
 chosen = cands[::step][: a.scenes]
-if a.only:
-    chosen = [c for c in cands if c[1] in set(a.only.split(","))]
+if a.only or a.only_file:
+    want = set(a.only.split(",")) if a.only else set(open(a.only_file).read().split())
+    chosen = [c for c in cands if c[1] in want]
 si, sn = map(int, a.shard.split("/"))
 chosen = chosen[si::sn]
 print("scenarios", len(names), "train candidates", len(cands), "this shard", len(chosen), flush=True)
@@ -100,12 +105,33 @@ for idx, sc_name in chosen:
     os.makedirs(kd, exist_ok=True); open(f"{kd}/STARTED", "w").close()
     # per-scene watchdog in C (works even if MetaDrive hangs inside native code holding the GIL): dump the stack and
     # exit after 5 min; the wrapper restarts and this scene is skipped (STARTED without DONE)
-    faulthandler.dump_traceback_later(300, exit=True)  # after reset: a crash at start-up is not a bad scene
+    faulthandler.dump_traceback_later(1200 if a.dense else 300, exit=True)  # after reset: a crash at start-up is not a bad scene
     cam, drone = env.engine.get_sensor("rgb"), env.engine.get_sensor("drone")
     drone.lens.setFov(60, 2 * math.degrees(math.atan(math.tan(math.radians(30)) * DH / DW)))
     od_c, od_k = f"{a.out}/cams/{sc_name}", f"{a.out}/{a.keys_name}/{sc_name}"
     os.makedirs(od_c, exist_ok=True); os.makedirs(od_k, exist_ok=True)
     cur = 0
+    if a.dense:  # every sim tick from the first to the last keyframe
+        hid = [ch for ch in env.agent.origin.getChildren() if "camera" not in ch.getName().lower()] if VIEW["hide_ego"] else []
+        last, done, ticks = (len(toks) - 1) * 5, False, {}
+        while cur <= last and not done:
+            for ch in hid:
+                ch.hide()
+            im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
+            for ch in hid:
+                ch.show()
+            Image.fromarray(np.ascontiguousarray(im[..., ::-1])).save(f"{od_k}/t{cur:04d}.jpg", quality=95)
+            ticks[cur] = toks[cur // 5] if cur % 5 == 0 else None
+            n_pairs += 1
+            if cur == last:
+                break
+            *_, term, trunc, _ = env.step([0, 0]); cur += 1; done = term or trunc
+        import json as _json
+        _json.dump({"ticks": ticks, "last_tick": cur, "complete": not done}, open(f"{od_k}/ticks.json", "w"))
+        faulthandler.cancel_dump_traceback_later()
+        open(f"{od_k}/DONE", "w").close()
+        print(sc_name, "dense ticks", cur + 1, "frames so far", n_pairs, flush=True)
+        continue
     for k, tok in enumerate(toks):
         if k % a.every:
             continue

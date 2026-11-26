@@ -44,7 +44,9 @@ if a.compare:
     seeds_of = lambda D, s_: {r.rsplit("_s", 1)[1] for r in D["drives"] if r.rsplit("_s", 1)[0] == s_}
     all_sc = sorted({r.rsplit("_s", 1)[0] for r in runs})
     # paired seeds: a drive enters only if both methods have the same full seed set for it
-    scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == seeds_of(B, s_)]
+    SEEDS = {"0", "1"}  # plan: seeds 0 / 1 on every drive
+    all_sc = sorted({r.rsplit("_s", 1)[0] for r in set(A["drives"]) | set(B["drives"])})
+    scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == SEEDS and seeds_of(B, s_) == SEEDS]
     unpaired = [s_ for s_ in all_sc if s_ not in scenes]
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
     PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap", "lag_ticks")
@@ -81,6 +83,14 @@ if a.compare:
             res[name] = (np.mean([x[0] for x in xs]) if xs else np.nan, np.mean([x[1] for x in xs]) if xs else np.nan,
                          sum(x[2] for x in xs), len(xs))
         return res
+    def lag_median(D):
+        v = []
+        for s_ in scenes:
+            for r_ in by_scene[s_]:
+                q = D["drives"][r_]
+                if "lag_recovered" in q:
+                    v.append(q["lag_ticks"] if q["lag_recovered"] else float("inf"))
+        return float(np.median(v)) if v else None
     full = stats(scenes)
     rng = np.random.default_rng(0); boots = {k: [] for k in full}
     for _ in range(2000):
@@ -91,6 +101,7 @@ if a.compare:
            "unpaired_drives": unpaired, "weighting": "equal per drive; seeds pooled within drive",
            "no_shared_transition_drives": no_shared,
            "shared_per_drive": {name: {s_: PD[s_][name][2] for s_ in scenes} for name in ("ID", "W")}}
+    out["lag_median_ticks"] = {"A": lag_median(A), "B": lag_median(B), "gate": "<= 5 (inf = not recovered)"}
     for k, (x, y, n, nd) in full.items():
         bb = np.array(boots[k]); bb = bb[np.isfinite(bb)]
         out[k] = {"A": round(float(x), 4), "B": round(float(y), 4), "diff": round(float(x - y), 4), "n": int(n), "drives": int(nd),
@@ -309,11 +320,13 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
             d["lag_ticks"] = None; result["drives"][b] = d; continue
         for i in range(swap, len(ticks) - 5):
             w = [j for j in range(i, i + 5) if j in kseg]
+            if len(w) < 5:  # full five-tick windows only
+                continue
             t_ = sum(len(hungarian(iou_mat(rseg[j][0], kseg[j][0]), 0.3)) for j in w)
             n_ = sum(len(rseg[j][0]) + len(kseg[j][0]) for j in w)
             if n_ and 2 * t_ / n_ >= 0.8 * ref_:
                 lag = i - swap; break
-        d["lag_ticks"] = lag
+        d["lag_ticks"] = lag; d["lag_recovered"] = lag is not None  # unrecovered switches stay in (as +inf in the median)
     result["drives"][b] = d
     print(b, {k: (round(v, 3) if isinstance(v, float) else v) for k, v in d.items() if not k.startswith("trans")}, flush=True)
 json.dump(result, open(a.out, "w"))

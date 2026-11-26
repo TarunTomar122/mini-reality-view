@@ -53,8 +53,10 @@ class HistConvIn(nn.Module):
         return y if s.h is None else y + s.hist(s.h.to(y.dtype))
 
 
+HAS_HIST = "hist" in ck
 if a.method == "hist":
-    assert "hist" in ck, "history method needs a checkpoint with a history conv (arm B / C)"
+    assert HAS_HIST, "history method needs a checkpoint with a history conv (arm B / C)"
+if HAS_HIST:  # B / C: every method (incl. cold / independent) runs through the trained history conv; no history = zeros + plane 1
     unet.conv_in = HistConvIn(unet.conv_in); unet.conv_in.hist.load_state_dict(ck["hist"])
 unet.to(dev, AMP).eval()
 adapter = CameraAdapter(n_styles=ck["args"].get("n_styles", 3)).to(dev).eval(); adapter.load_state_dict(ck["adapter"])
@@ -68,7 +70,7 @@ NOHIST = torch.cat([torch.zeros(1, 4, 32, 64), torch.ones(1, 1, 32, 64)], 1).to(
 
 def denoise(z, ts, c, u, h=None):
     for t in ts:
-        if a.method == "hist":
+        if HAS_HIST:
             unet.conv_in.h = torch.cat([h, h]) if h is not None else torch.cat([NOHIST, NOHIST])
         with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
             e = unet(torch.cat([z, z]), t, encoder_hidden_states=torch.cat([c, u])).sample.float()

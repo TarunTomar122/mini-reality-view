@@ -132,10 +132,9 @@ if hist is not None:
 opt = torch.optim.AdamW(groups, weight_decay=0.0)
 start = 0
 if a.arm == "C" and "opt" in ck0 and "hist" in ck0:  # fork: keep B's optimiser state and step count
-    try:
-        opt.load_state_dict(ck0["opt"]); start = ck0["step"]; print("forked from B at", start, flush=True)
-    except Exception as ex:
-        print("optimizer state not loaded:", ex, flush=True)
+    opt.load_state_dict(ck0["opt"]); start = ck0["step"]; print("forked from B at", start, flush=True)  # must succeed (no silent restart at 0)
+if a.arm == "C" and start == 0 and not os.path.exists(f"{a.out}/ckpt.pt"):
+    raise SystemExit("arm C must fork from B's checkpoint with optimiser state (--init runs/tmpB/ckpt_1000.pt)")
 ck = f"{a.out}/ckpt.pt"
 if os.path.exists(ck):
     s_ = torch.load(ck, map_location="cpu")

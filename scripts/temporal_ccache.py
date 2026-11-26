@@ -56,11 +56,12 @@ for n_, sc in enumerate(sorted(by_sc)):
     for i0 in by_sc[sc]:
         g = torch.Generator().manual_seed(zlib.crc32(f"ccache|{sc}|{i0}".encode()))
         z0 = torch.randn(1, 4, 32, 64, generator=g).to(dev); prev = None
+        gh = torch.Generator().manual_seed(zlib.crc32(f"ccache-hist|{sc}|{i0}".encode()))  # separate history-noise stream
         for i in range(i0, i0 + 8):
             tok = E["tokens"][i:i + 1].to(dev).float(); ry = RAYS[sc][None].to(dev).float()
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
-            h = NOHIST if prev is None else torch.cat([(1 - a.s ** 2) ** 0.5 * prev + a.s * torch.randn(1, 4, 32, 64, generator=g).to(dev),
+            h = NOHIST if prev is None else torch.cat([(1 - a.s ** 2) ** 0.5 * prev + a.s * torch.randn(1, 4, 32, 64, generator=gh).to(dev),
                                                        torch.full((1, 1, 32, 64), a.s, device=dev)], 1)
             z = z0.clone()
             for t in TS:

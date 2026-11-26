@@ -35,7 +35,9 @@ rows = {}
 for sc in drives:
     k = torch.load(f"data/lat512_tpv/{sc}.pt"); e = torch.load(f"data/enc_full/{sc}.pt"); kc = torch.load(f"{a.keycar}/{sc}.pt")
     pos = {t: i for i, t in enumerate(e["sample_tokens"])}; kpos = {t: i for i, t in enumerate(kc["sample_tokens"])}
-    rows[sc] = [(t, e["tokens"][pos[t]], k["lat"][j], kc["mask"][kpos[t]].float()) for j, t in enumerate(k["sample_tokens"]) if t in BOX]
+    missing = [t for t in k["sample_tokens"] if t not in BOX]
+    assert not missing, f"{sc}: {len(missing)} keyframes without boxes (coverage must be complete)"
+    rows[sc] = [(t, e["tokens"][pos[t]], k["lat"][j], kc["mask"][kpos[t]].float()) for j, t in enumerate(k["sample_tokens"])]
 ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck["lora"], strict=False)

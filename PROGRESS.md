@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 12:00 — E1 vs E3 at 5k: tie
+- E1 5k (all drives) car F1 0.276 (Mask2Former) vs E3 5k (quarter) 0.294: E1 - E3 = -0.018 [-0.066, +0.021]; road IoU 0.845 vs 0.836 (+0.009 [-0.001, +0.020]); LPIPS 0.335 vs 0.326. Within the data rule's "< 0.02 -> enough" band so far; decision at 10k. E1 swap control and VAE ceiling still running (I/O).
+- I/O still patchy: 50 MB fsync timed out (217 s) at ~11:45 after 1.8 s at 11:38 (slow OSTs, as the walking-RL session reported). Big dense render stays held.
+- scripts/temporal_encode.py written (tokens + key latents per dense tick).
+
 ## 2026-11-26 11:45
 - Cluster writes partly recovered (our 10 MB fsync <1 s, 50 MB 1.8 s at 11:38); the walking-RL session still sees slow OSTs (OST1/2/4/5) and slow reads, and asked to hold the big dense render ~1 h. Released small held jobs (xwarm 3752205-08 running; tj-E1/E3-10000 waiting for training). Before the big render: per-OST write probe (lfs setstripe -i).
 - Temporal lists frozen: data/temporal_lists.json (train 144, dev 6 = scene-0468/0393/0396/0234/0285/0043 over density x turning, decision 30, final 24). Dense render pilot on scene-0005/0007: 3752363 (keys_tpv10).

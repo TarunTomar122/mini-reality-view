@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 20:15 — temporal: metric check added (plan stop rule, had not been run)
+- PLAN-temporal stop rule: before ranking, the key video and the VAE round trip must score best and new-noise-every-frame worst, plus a hand check of ~20 key masks and two turning clips. Added: temporal_rollout.py --method keyvae (the keys' own VAE latents) and --method fresh (new seeded noise every tick); temporal_metrics.py --render_keys (key video scored as the render).
+- Submitted (dev drives): troll-keyvae-dev 3753154, troll-fresh-dev 3753155 -> tmet-keys_dev 3753156, tmet-keyvae_dev 3753157, tmet-fresh_dev 3753158. Frozen-method metrics (tmet indep / warm05 / warm07 on dev) running.
+- Car map diagnostic 3753126 still queued for an H200 slice.
+- Owner asleep until ~06:00; hourly Astra + Fable drift check scheduled (council/drift-*.md).
+
 ## 2026-11-26 19:50 — car map: 2k stop rule fired (both arms)
 - X1 (boxes) 2k: car F1 0.325 vs E3 0.318 (d +0.008 [-0.005, +0.023]); map-only swap 0.321 (correct - swapped +0.004 [-0.003, +0.010]). Road IoU 0.848 = E3.
 - X2 (boxes + grid) 2k: 0.322 (d +0.004 [-0.007, +0.016]); map-only swap 0.319 (+0.002 [-0.012, +0.015]).

@@ -21,7 +21,8 @@ from mrv.sd import CameraAdapter, LORA_TARGETS
 
 p = argparse.ArgumentParser()
 p.add_argument("--ckpt", required=True)
-p.add_argument("--method", required=True, choices=["independent", "warm", "hist"])
+p.add_argument("--method", required=True, choices=["independent", "warm", "hist", "fresh", "keyvae"],
+               help="fresh = new noise every tick (metric check, worst case); keyvae = the keys' own VAE latents (metric check, best case)")
 p.add_argument("--s", type=float, default=0.7)
 p.add_argument("--split", default="dev", choices=["dev", "decision", "final", "train"])
 p.add_argument("--enc", default="data/enc_tpv10")
@@ -104,7 +105,12 @@ for di, sc in enumerate(drives):
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
             restart.append(prev is None)
-            if a.method == "warm" and prev is not None:
+            if a.method == "keyvae":  # VAE round trip of the key itself (no model)
+                z = src["lat"][j:j + 1].to(dev).float()
+            elif a.method == "fresh":  # new sampling noise at every tick (seeded per drive / seed / tick)
+                gf = torch.Generator().manual_seed(zlib.crc32(f"fresh|{sc}|{seed}|{i}".encode()))
+                z = denoise(torch.randn(1, 4, 32, 64, generator=gf).to(dev), TS, c, u)
+            elif a.method == "warm" and prev is not None:
                 k0 = int(round(len(TS) * (1 - a.s))); ab = acp[TS[k0]]
                 z = denoise(ab.sqrt() * prev + (1 - ab).sqrt() * z0, TS[k0:], c, u)
             elif a.method == "hist" and prev is not None:

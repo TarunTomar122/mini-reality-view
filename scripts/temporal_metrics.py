@@ -28,6 +28,7 @@ p.add_argument("--cold", default="")
 p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--out", default="")
 p.add_argument("--compare", nargs=2, default=None)
+p.add_argument("--render_keys", action="store_true", help="metric check: score the key video itself as the render (must be best)")
 a = p.parse_args()
 
 if a.compare:
@@ -168,7 +169,11 @@ for fr in sorted(glob.glob(f"{a.roll}/*_s*.pt")):
         if not os.path.exists(kp):
             continue
         kimg[i] = Image.open(kp).convert("RGB").resize((512, 288), Image.BILINEAR).crop((0, 32, 512, 288))
-        kseg[i] = key_masks(ks, kt(i), kimg[i]); rseg[i] = segment(rimg[i])
+        kseg[i] = key_masks(ks, kt(i), kimg[i])
+        if a.render_keys:
+            rimg[i] = kimg[i]; rseg[i] = kseg[i]
+        else:
+            rseg[i] = segment(rimg[i])
     idx = sorted(kimg)
     tp = fp = fn = 0; roads = []
     for n_, i in enumerate(idx):

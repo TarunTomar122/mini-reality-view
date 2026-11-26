@@ -11,7 +11,7 @@ cells zero, with a valid plane), 2 x 256 -> 32 channels by a 1x1 conv. Branch re
 at inference. AdamW 1e-4 (500 warm-up), batch 16, epsilon loss, 10% camera dropout, 15% box dropout (own stream),
 style 2, 4,000 updates, checkpoints at 2k and 4k. Draws seeded, so X1 and X2 see identical rows / noise / dropout.
 """
-import argparse, glob, json, math, os, time, zlib
+import argparse, glob, json, os, time, zlib
 import numpy as np
 import torch
 import torch.nn as nn
@@ -19,7 +19,7 @@ import torch.nn.functional as F
 from diffusers import UNet2DConditionModel, DDPMScheduler
 from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
-from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP
+from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, grid_channels
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -42,24 +42,6 @@ RAYS = torch.load(a.rays)
 BOX = {}
 for f in glob.glob(a.boxes):
     BOX.update(json.load(open(f)))
-
-# grid sampling geometry (X2): ray of each 32x64 latent cell -> ego ground points at z = 0 and z = 1 m -> BEV crop coords
-if a.grid:
-    W, H, CROP = 512, 288, 32
-    fpx = W / 2 / math.tan(math.radians(30)); cp, sp = math.cos(math.radians(8)), math.sin(math.radians(8))
-    vv, uu = np.meshgrid((np.arange(32) + 0.5) * 8 + CROP, (np.arange(64) + 0.5) * 8, indexing="ij")
-    x_r = (uu - W / 2) / fpx; y_u = -(vv - H / 2) / fpx  # camera right, up per unit depth
-    fwd = np.stack([cp + 0 * x_r, -x_r, -sp + 0 * x_r], -1) + y_u[..., None] * np.array([sp, 0, cp])  # ego dirs (x fwd, y left, z up)
-    origin = np.array([-7.5, 0, 2.4])
-    GRIDS, VALID = [], []
-    for zh in (0.0, 1.0):
-        t = (zh - origin[2]) / np.where(fwd[..., 2] < -1e-6, fwd[..., 2], np.nan)
-        P = origin + fwd * t[..., None]
-        gx = (P[..., 0] - (-8.0)) / 49.0 * 2 - 1  # columns: x -8..41 m
-        gy = (16.4 - P[..., 1]) / 32.8 * 2 - 1    # rows: +16.4 (left) .. -16.4 m
-        ok = np.isfinite(t) & (t > 0) & (np.abs(gx) <= 1) & (np.abs(gy) <= 1)
-        GRIDS.append(torch.tensor(np.stack([np.nan_to_num(gx, nan=2.0), np.nan_to_num(gy, nan=2.0)], -1), dtype=torch.float32))
-        VALID.append(torch.tensor(ok, dtype=torch.float32))
 
 # ---------- data: keyframe rows of the train drives ----------
 rows = []
@@ -84,9 +66,7 @@ print(f"rows {len(rows)} from {len({r[0] for r in rows})} drives; boxes for {len
 def map_for(tok, dropper):
     m = pool(rasterize(BOX[tok], drop=dropper))
     if a.grid:
-        bev = GRIDCACHE[tok].float()[None]  # (1, 256, 32, 48)
-        samp = [F.grid_sample(bev, gr[None], align_corners=False)[0] * v for gr, v in zip(GRIDS, VALID)]
-        m = torch.cat([m, *samp, VALID[0][None], VALID[1][None]])
+        m = torch.cat([m, grid_channels(GRIDCACHE[tok])])
     return m
 
 

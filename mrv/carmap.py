@@ -113,3 +113,50 @@ class CarMapBranch(nn.Module):
         for d, p_ in zip(s.down, s.proj):
             h = d(h); outs.append(p_(h))
         return outs
+
+
+def gt_frame(nusc, token, classes=None):
+    """nuScenes annotations of a sample as a rasterize()-ready frame (oracle input; ego frame, identity lidar2ego)"""
+    smp = nusc.get("sample", token)
+    ep = nusc.get("ego_pose", nusc.get("sample_data", smp["data"]["LIDAR_TOP"])["ego_pose_token"])
+    Rw, tw = Quaternion(ep["rotation"]), np.array(ep["translation"])
+    names = {"vehicle.car": "car", "vehicle.truck": "truck", "vehicle.bus": "bus", "vehicle.trailer": "trailer",
+             "vehicle.construction": "construction_vehicle", "human.pedestrian": "pedestrian", "vehicle.bicycle": "bicycle",
+             "vehicle.motorcycle": "motorcycle", "movable_object.barrier": "barrier", "movable_object.trafficcone": "traffic_cone"}
+    boxes, scores, labels = [], [], []
+    for at in smp["anns"]:
+        an = nusc.get("sample_annotation", at)
+        lab = next((v for k, v in names.items() if an["category_name"].startswith(k)), None)
+        if lab is None or an["num_lidar_pts"] < 1:
+            continue
+        c = Rw.inverse.rotate(np.array(an["translation"]) - tw)
+        th = (Rw.inverse * Quaternion(an["rotation"])).yaw_pitch_roll[0]
+        w, l, h = an["size"]
+        boxes.append([c[0], c[1], c[2] - h / 2, w, l, h, th - math.pi / 2]); scores.append(1.0); labels.append(lab)
+    return {"boxes": boxes, "scores": scores, "labels": labels, "lidar2ego_r": [1, 0, 0, 0], "lidar2ego_t": [0, 0, 0]}
+
+
+_GRID = None
+
+
+def grid_channels(bev):
+    """X2: BEV grid (256, 32, 48) on the ego crop x -8..41 m (columns), y +16.4..-16.4 m (rows) -> samples where each
+    32x64 latent cell's ray meets z = 0 and z = 1 m: (2*256 + 2, 32, 64) = two samplings + their valid planes."""
+    global _GRID
+    if _GRID is None:
+        vv, uu = np.meshgrid((np.arange(32) + 0.5) * 8 + CROP, (np.arange(64) + 0.5) * 8, indexing="ij")
+        x_r = (uu - W / 2) / _f; y_u = -(vv - H / 2) / _f
+        d = np.stack([_cp + 0 * x_r, -x_r, -_sp + 0 * x_r], -1) + y_u[..., None] * np.array([_sp, 0, _cp])
+        o = np.array([-7.5, 0, 2.4]); grids, valid = [], []
+        for zh in (0.0, 1.0):
+            t = (zh - o[2]) / np.where(d[..., 2] < -1e-6, d[..., 2], np.nan)
+            P = o + d * t[..., None]
+            gx = (P[..., 0] + 8.0) / 49.0 * 2 - 1; gy = (16.4 - P[..., 1]) / 32.8 * 2 - 1
+            ok = np.isfinite(t) & (t > 0) & (np.abs(gx) <= 1) & (np.abs(gy) <= 1)
+            grids.append(torch.tensor(np.stack([np.nan_to_num(gx, nan=2.0), np.nan_to_num(gy, nan=2.0)], -1), dtype=torch.float32))
+            valid.append(torch.tensor(ok, dtype=torch.float32))
+        _GRID = (grids, valid)
+    grids, valid = _GRID
+    b = torch.as_tensor(bev).float()[None]
+    samp = [torch.nn.functional.grid_sample(b, g[None], align_corners=False)[0] * v for g, v in zip(grids, valid)]
+    return torch.cat([*samp, valid[0][None], valid[1][None]])

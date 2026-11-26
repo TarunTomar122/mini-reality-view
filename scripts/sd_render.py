@@ -32,6 +32,10 @@ p.add_argument("--scenes", default="", help="comma list of scenes (overrides --f
 p.add_argument("--scene_list", default="", help="file of scene names to choose from (e.g. E3's quarter)")
 p.add_argument("--keys_like", default="", help="game key folder (e.g. data/sim/keys_tpv): use val scenes that have keys there and pick frames among the keyed ones")
 p.add_argument("--shuffle_cams", action="store_true", help="roll tokens AND rays by 3 (not a real control: geometry stays consistent)")
+p.add_argument("--carmap_boxes", default="", help="car map: glob of BEVFormer box JSONs (checkpoint must have a map branch)")
+p.add_argument("--carmap_oracle", action="store_true", help="car map from nuScenes annotations instead of the detector (oracle test)")
+p.add_argument("--carmap_grid", default="", help="X2: folder of cached BEV grids")
+p.add_argument("--map_swap", action="store_true", help="map-only swap: the car map of the judge drive half the list away")
 p.add_argument("--control", default="", choices=["", "roll_tokens", "swap_scene"],
                help="validation controls: roll_tokens = tokens rolled by 3 cameras, rays kept (front content placed behind); "
                     "swap_scene = tokens + rays of the judge scene half the list away (same frame position), i.e. the wrong street")
@@ -46,6 +50,21 @@ unet.load_state_dict(ck["lora"], strict=False)
 unet.to(dev, AMP).eval()
 adapter = CameraAdapter(n_styles=ar.get("n_styles", 2)).to(dev).eval()
 adapter.load_state_dict(ck["adapter"])
+BR = None
+if "branch" in ck:  # car map branch (scripts/train_carmap.py)
+    import math as _m, json as _j, glob as _g, torch.nn as _nn, torch.nn.functional as _F
+    from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, gt_frame, grid_channels
+    BR = CarMapBranch(c_in=C_MAP + (32 + 2 if ck["grid"] else 0)).to(dev).eval(); BR.load_state_dict(ck["branch"])
+    RED = None
+    if ck["grid"]:
+        RED = _nn.Conv2d(512, 32, 1).to(dev).eval(); RED.load_state_dict(ck["reduce"])
+    BOXES = {}
+    for f_ in _g.glob(a.carmap_boxes):
+        BOXES.update(_j.load(open(f_)))
+    if a.carmap_oracle:
+        from nuscenes.nuscenes import NuScenes
+        NUSC = NuScenes("v1.0-trainval", "data/nuscenes_full", verbose=False)
+    print("car map branch on; boxes for", len(BOXES), "frames; oracle", a.carmap_oracle, flush=True)
 vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev).eval()
 ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler")
 RAYS = torch.load(a.rays)
@@ -61,7 +80,7 @@ if a.scenes:
 index = []
 for si, sc in enumerate(judge):
     e = torch.load(f"{a.tokens}/{sc}.pt")
-    if a.control == "swap_scene":
+    if a.control == "swap_scene" or a.map_swap:
         osc = judge[(si + len(judge) // 2) % len(judge)]; eo = torch.load(f"{a.tokens}/{osc}.pt")
     n = len(e["sample_tokens"])
     ks = np.linspace(2, n - 3, a.frames).round().astype(int).tolist()
@@ -85,11 +104,26 @@ for si, sc in enumerate(judge):
             x = torch.randn(1, 4, 32, 64, generator=g).to(dev)
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
+            RES = None
+            if BR is not None:  # same car map in both guidance passes
+                msc, mk = (osc, min(round(k / max(1, n - 1) * (len(eo["sample_tokens"]) - 1)), len(eo["sample_tokens"]) - 1)) \
+                    if (a.control == "swap_scene" or a.map_swap) else (sc, k)
+                mtok = (eo if msc != sc else e)["sample_tokens"][mk]
+                fr = gt_frame(NUSC, mtok) if a.carmap_oracle else BOXES.get(mtok)
+                M = pool(rasterize(fr))[None].to(dev)
+                if RED is not None:
+                    gg = torch.load(f"{a.carmap_grid}/{msc}.pt"); gi = gg["sample_tokens"].index(mtok)
+                    G2 = grid_channels(gg["bev"][gi])[None].to(dev)
+                    with torch.no_grad():
+                        M = torch.cat([M, RED(G2[:, :512]), G2[:, 512:]], 1)
+                with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
+                    RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M)]
             ddim.set_timesteps(a.steps)
             with torch.no_grad():
                 for t in ddim.timesteps:
                     with torch.autocast("cuda", dtype=AMP):
-                        ep = unet(torch.cat([x, x]), t, encoder_hidden_states=torch.cat([c, u])).sample.float()
+                        ep = unet(torch.cat([x, x]), t, encoder_hidden_states=torch.cat([c, u]),
+                                  down_intrablock_additional_residuals=RES).sample.float()
                     ec, eu = ep.chunk(2)
                     x = ddim.step(eu + a.cfg * (ec - eu), t, x).prev_sample
                 img = vae.decode(x / 0.18215).sample[0].clamp(-1, 1)

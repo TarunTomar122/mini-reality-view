@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 17:45
+- Progress: temporal encode 165/204 drives; lit keyframe re-render 551/600 scene folders (lit-5 running); camera-only BEVFormer caches: train+dev boxes done (tmp/bev_boxes_train_*.json), 195 grid files; other-val and decision running.
+- Car map code: mrv/carmap.py (rasterizer, 4-scale zero-init branch, shared grid sampling, GT oracle frames), scripts/train_carmap.py (X1/X2 on frozen E3), scripts/sd_render.py --carmap_boxes / --carmap_oracle / --map_swap / --carmap_grid.
+- P5 timing: 100-update X1 run on an H200 slice (3752928).
+- Live page plan picture (SVG decision tree) added by the side chat; ETA labels to be kept current.
+
 ## 2026-11-26 18:30 — Car map P2 passed: camera-only BEVFormer
 - P2 (decision drives, hull F1 vs game-key cars, score >= 0.3; gate 0.397): standard (can_bus ego motion) 0.417; can_bus zeroed 0.444; zeroed + no previous grid 0.441; GT boxes 0.459. Camera-only mode (can_bus zeroed, previous grid kept) is used for every cache, so the car map needs no non-camera input.
 - P1 caches restarted in camera-only mode (old standard-mode outputs moved to tmp/old_std, data/bev_tpv cleared): train shards 3752812-15, decision 3752816, other val 3752817, final 3752818 (held; released one at a time within the 12-job cap).

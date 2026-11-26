@@ -166,3 +166,17 @@ def grid_channels(bev):
     b = torch.as_tensor(bev).float()[None]
     samp = [torch.nn.functional.grid_sample(b, g[None], align_corners=False)[0] * v for g, v in zip(grids, valid)]
     return torch.cat([*samp, valid[0][None], valid[1][None]])
+
+
+N_MAP = 9  # spatial planes 0-8 (no availability plane)
+
+
+class MapConvIn(nn.Module):
+    """Car map R (PLAN-carmap v4): frozen conv_in + bias-free zero-initialised 3x3 conv on the nine map planes (fp32),
+    added at every denoising step; set .m (B, 9, 32, 64) before each UNet call (both CFG halves get the same map)."""
+    def __init__(s, base):
+        super().__init__(); s.base = base; s.map = nn.Conv2d(N_MAP, base.out_channels, 3, padding=1, bias=False)
+        nn.init.zeros_(s.map.weight); s.m = None
+    def forward(s, x):
+        y = s.base(x)
+        return y if s.m is None else y + s.map(s.m.float()).to(y.dtype)

@@ -50,14 +50,18 @@ unet.load_state_dict(ck["lora"], strict=False)
 unet.to(dev, AMP).eval()
 adapter = CameraAdapter(n_styles=ar.get("n_styles", 2)).to(dev).eval()
 adapter.load_state_dict(ck["adapter"])
-BR = None
-if "branch" in ck:  # car map branch (scripts/train_carmap.py)
+BR = None; MC = False
+if "branch" in ck or "mapconv" in ck:  # car map: 4-scale branch (train_carmap.py) or input-level map conv (train_carmap2.py)
     import math as _m, json as _j, glob as _g, torch.nn as _nn, torch.nn.functional as _F
-    from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, gt_frame, grid_channels
-    BR = CarMapBranch(c_in=C_MAP + (32 + 2 if ck["grid"] else 0)).to(dev).eval(); BR.load_state_dict(ck["branch"])
+    from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, gt_frame, grid_channels, MapConvIn, N_MAP
     RED = None
-    if ck["grid"]:
-        RED = _nn.Conv2d(512, 32, 1).to(dev).eval(); RED.load_state_dict(ck["reduce"])
+    if "branch" in ck:
+        BR = CarMapBranch(c_in=C_MAP + (32 + 2 if ck["grid"] else 0)).to(dev).eval(); BR.load_state_dict(ck["branch"])
+        if ck["grid"]:
+            RED = _nn.Conv2d(512, 32, 1).to(dev).eval(); RED.load_state_dict(ck["reduce"])
+    else:
+        unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.load_state_dict(ck["mapconv"]); unet.conv_in.map.to(dev).float().eval()
+        MC = True
     BOXES = {}
     for f_ in _g.glob(a.carmap_boxes):
         BOXES.update(_j.load(open(f_)))
@@ -105,7 +109,7 @@ for si, sc in enumerate(judge):
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
             RES = None
-            if BR is not None:  # same car map in both guidance passes
+            if BR is not None or MC:  # same car map in both guidance passes
                 msc, mk = (osc, min(round(k / max(1, n - 1) * (len(eo["sample_tokens"]) - 1)), len(eo["sample_tokens"]) - 1)) \
                     if (a.control == "swap_scene" or a.map_swap) else (sc, k)
                 mtok = (eo if msc != sc else e)["sample_tokens"][mk]
@@ -113,13 +117,16 @@ for si, sc in enumerate(judge):
                 if fr is None:
                     raise SystemExit(f"no car map boxes for {msc} token {mtok}: refusing to render it as 'map unavailable'")
                 M = pool(rasterize(fr))[None].to(dev)
+                if MC:
+                    unet.conv_in.m = torch.cat([M[:, :N_MAP], M[:, :N_MAP]])
                 if RED is not None:
                     gg = torch.load(f"{a.carmap_grid}/{msc}.pt"); gi = gg["sample_tokens"].index(mtok)
                     G2 = grid_channels(gg["bev"][gi])[None].to(dev)
                     with torch.no_grad():
                         M = torch.cat([M, RED(G2[:, :512]), G2[:, 512:]], 1)
-                with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
-                    RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M)]
+                if BR is not None:
+                    with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
+                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M)]
             ddim.set_timesteps(a.steps)
             with torch.no_grad():
                 for t in ddim.timesteps:

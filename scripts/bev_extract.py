@@ -24,6 +24,9 @@ p.add_argument("--shard", default="0/1")
 p.add_argument("--eval", action="store_true", help="also run the official nuScenes detection evaluation (val, all scenes)")
 p.add_argument("--out", default="../../data/bev")
 p.add_argument("--limit_scenes", type=int, default=0)
+p.add_argument("--scenes_file", default="", help="only these scenes (one name per line)")
+p.add_argument("--boxes_out", default="", help="also save detected 3D boxes per sample token to this JSON (lidar frame)")
+p.add_argument("--no_feats", action="store_true", help="do not save BEV feature caches (boxes only)")
 a = p.parse_args()
 
 sys.path.insert(0, os.getcwd())
@@ -51,6 +54,8 @@ scene_name = {s["token"]: s["name"] for s in scenes}
 names = sorted({scene_name[i["scene_token"]] for i in ds.data_infos})
 si, sn = map(int, a.shard.split("/"))
 keep = set(names[si::sn][: a.limit_scenes or None]) if not a.eval else set(names[: a.limit_scenes or None])
+if a.scenes_file:
+    keep = set(open(a.scenes_file).read().split()) & set(names)
 # keep BEVFormer's own (time-sorted) order; drop scenes of other shards and scenes already done
 os.makedirs(a.out, exist_ok=True)
 done = {n for n in keep if os.path.exists(f"{a.out}/{n}.pt")} if not a.eval else set()
@@ -85,22 +90,33 @@ def bev_to_grid(bev, info):
     return F.avg_pool2d(out, 2)[0].half().cpu()
 
 
-results, buf = [], {}
+results, buf, boxes = [], {}, {}
 with torch.no_grad():
     for i, data in enumerate(loader):
         info = ds.data_infos[i]
         res = model(return_loss=False, rescale=True, **data)
         results.extend(res)
+        if a.boxes_out:  # detected boxes in the LIDAR_TOP frame: x, y, z(bottom), w, l, h, yaw, vx, vy; score; class
+            pb = res[0]["pts_bbox"]; b = pb["boxes_3d"].tensor.cpu().numpy(); sco = pb["scores_3d"].cpu().numpy(); lab = pb["labels_3d"].cpu().numpy()
+            m = sco >= 0.2
+            boxes[info["token"]] = {"scene": scene_name[info["scene_token"]], "boxes": b[m].round(3).tolist(),
+                                    "scores": sco[m].round(3).tolist(), "labels": [cfg.class_names[int(l)] for l in lab[m]],
+                                    "lidar2ego_t": list(info["lidar2ego_translation"]), "lidar2ego_r": list(info["lidar2ego_rotation"])}
         bev = model.module.prev_frame_info["prev_bev"]
         sc = scene_name[info["scene_token"]]
         b = buf.setdefault(sc, {"bev": [], "sample_tokens": []})
         b["bev"].append(bev_to_grid(bev, info)); b["sample_tokens"].append(info["token"])
         nxt = ds.data_infos[i + 1]["scene_token"] if i + 1 < len(ds.data_infos) else None
-        if nxt != info["scene_token"]:
+        if nxt != info["scene_token"] and a.no_feats:
+            del buf[sc]; print(sc, "boxes", i + 1, "/", len(ds.data_infos), flush=True)
+        elif nxt != info["scene_token"]:
             torch.save({"bev": torch.stack(b["bev"]), "sample_tokens": b["sample_tokens"],
                         "x_range": (X0, X1), "y_range": (Y1, Y0)}, f"{a.out}/{sc}.pt")
             del buf[sc]
             print(sc, len(b["sample_tokens"]), "frames", i + 1, "/", len(ds.data_infos), flush=True)
+if a.boxes_out:
+    json.dump(boxes, open(a.boxes_out, "w"))
+    print("BOXES", len(boxes), "frames ->", a.boxes_out, flush=True)
 if a.eval:
     print("EVAL", ds.evaluate(results, jsonfile_prefix="../../tmp/bev_eval"), flush=True)
 print("BEV_EXTRACT_DONE")

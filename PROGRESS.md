@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 13:15 — Lighting mismatch explained
+- Keyframe render drawn twice (keep the second) matches the dense frame (mean abs diff 1.7 vs 31 for the old keyframe key; pulled/pilot/light_cmp.jpg). MetaDrive's first render after several unrendered ticks has no shadows / flat lighting. The dense look (shadows) is the correct render; the 12,111 existing TPV keys have the flat look. E1/E2/E3 results stay valid (one look throughout).
+- For the temporal arms (dense rows + keyframe singles in one batch) the singles must have the same look: re-render all TPV keyframe keys with --lit (new flag: render twice) into data/sim/keys_tpv_lit, with the dense render, once the slow OSTs recover. slurm/sim_tpv.sh takes a keys folder name and extra args.
+
 ## 2026-11-26 12:55 — E1/E3 finished 10k; ceiling and controls; warm start first look; lighting mismatch
 - E1, E3 finished 10k (12:34 / 12:38); 10k judges running (3751991 / 3751995).
 - VAE ceiling (true game keys through the SD VAE, same judge): car F1 0.763 (Mask2Former) / 0.624 (SegFormer), road IoU 0.94, LPIPS 0.040. E1 5k = 0.276 = 36% of ceiling (go rule needs >= 50% at 10k).

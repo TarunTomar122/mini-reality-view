@@ -30,6 +30,7 @@ p.add_argument("--split", default="train", choices=["train", "val"])
 p.add_argument("--dense", action="store_true",
                help="temporal data (council/PLAN-temporal.md): a key at EVERY 10 Hz sim tick of the whole drive, keys only, "
                     "saved as t<tick>.jpg plus ticks.json (keyframe k = tick 5k, with its sample token)")
+p.add_argument("--lit", action="store_true", help="keyframe mode: render each key twice and keep the second (same lighting and shadows as --dense)")
 p.add_argument("--only_file", default="", help="file with scene names (one per line): render just these")
 p.add_argument("--keys_name", default="keys", help="sub-folder for the answer keys (e.g. keys_tpv)")
 p.add_argument("--keys_only", action="store_true", help="do not render the 6 rig cameras (already rendered)")
@@ -151,7 +152,8 @@ for idx, sc_name in chosen:
         for ch in hid:
             ch.hide()
         im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
-        if os.environ.get("MRV_DOUBLE_RENDER"):  # diagnostic: render twice, keep the second (lighting / shadow warm-up)
+        if a.lit:  # render twice, keep the second: MetaDrive's first render after several unrendered ticks has no shadows /
+            # flat lighting; the second matches frames rendered every tick (dense mode). Use for keys mixed with dense ones.
             im = drone.perceive(to_float=False, new_parent_node=env.agent.origin, position=VIEW["pos"], hpr=[0, VIEW["pitch"], 0])
         for ch in hid:
             ch.show()

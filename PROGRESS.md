@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 04:40
+- BEV trial failed in detectron2 v0.6 import: Image.LINEAR (removed in Pillow 10) -> pillow 9.5.0 in envs/bev. Trial rerun 3751843 (A6000).
+- sd_run1 39.9k (final render next). Sim encoders waiting for GPUs.
+
 ## 2026-11-26 04:10
 - Sim 8k: shards 6/7 both ran on damnii07 and finished zero scenes in 1.5 h (MetaDrive hangs on every scene there; the pilot's hanging shard was also on damnii07). Cancelled; 7,891 drone pairs in data/sim/keys (pilot + 6 shards), close to the ~8,000 target. Encoders (afterany) start now.
 - BEV trial 3751639 moved to an A6000 (2080 Tis busy). sd_run1 38.5k.

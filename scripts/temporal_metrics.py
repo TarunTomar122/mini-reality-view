@@ -36,6 +36,8 @@ p.add_argument("--link", default="iou", choices=["iou", "flow"],
 p.add_argument("--render_keys", action="store_true", help="metric check: score the key video itself as the render (must be best)")
 a = p.parse_args()
 
+import hashlib
+SCORER_SHA = hashlib.sha1(open(__file__, "rb").read()).hexdigest()[:12]  # content hash of this scorer (cluster copy has no git)
 if a.compare:
     def load_merged(pat):  # a json, or a glob of shard jsons
         out = {"drives": {}, "roll": None, "cold": None}
@@ -43,6 +45,13 @@ if a.compare:
             j_ = json.load(open(f)); out["drives"].update(j_["drives"]); out["roll"] = j_.get("roll"); out["cold"] = j_.get("cold")
         return out
     A, B = (load_merged(f) for f in a.compare)
+    for nm_, D_ in (("A", A), ("B", B)):
+        vs = {(q.get("scorer_sha"), q.get("link")) for q in D_["drives"].values()}
+        if len(vs) != 1:
+            raise SystemExit(f"{nm_}: mixed scorer versions / link modes {vs}")
+    va_, vb_ = ({(q.get("scorer_sha"), q.get("link")) for q in D_["drives"].values()}.pop() for D_ in (A, B))
+    if va_ != vb_ or va_[0] is None:
+        raise SystemExit(f"scorer version / link mode mismatch or missing: A {va_} B {vb_}")
     runs = sorted(set(A["drives"]) & set(B["drives"]))  # "<scene>_s<seed>"
     seeds_of = lambda D, s_: {r.rsplit("_s", 1)[1] for r in D["drives"] if r.rsplit("_s", 1)[0] == s_}
     all_sc = sorted({r.rsplit("_s", 1)[0] for r in runs})
@@ -52,7 +61,7 @@ if a.compare:
     scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == SEEDS and seeds_of(B, s_) == SEEDS]
     unpaired = [s_ for s_ in all_sc if s_ not in scenes]
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
-    PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap")
+    PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap", "ghosts", "ghost_growth", "ghost_ge5")
 
     def per_drive(s_):
         """one value per drive (seeds pooled inside the drive): ID / W on SHARED transitions, others averaged over seeds"""
@@ -114,7 +123,8 @@ if a.compare:
         if sum(q[1] for q in wv):
             out[f"w_valid_share_{nm}"] = round(sum(q[0] for q in wv) / sum(q[1] for q in wv), 3)
     out["lag_median_ticks"] = {pos: {"A": lag_median(A, pos), "B": lag_median(B, pos)} for pos in ("lag_start", "lag_centre", "lag_end")}
-    out["lag_median_ticks"]["gate"] = "<= 5 (inf = not recovered); gating position (end vs centre) open"
+    out["lag_median_ticks"]["gate"] = ("interim rule (drift check 4): median START <= 1 passes under both readings, > 3 fails under both, "
+                                       "in between = lag undecided (no adoption on it; owner rules); inf = not recovered")
     out["lag_excluded_runs"] = {nm: sum(1 for s_ in scenes for r_ in by_scene[s_] if D["drives"][r_].get("lag_excluded")) for nm, D in (("A", A), ("B", B))}
     for k, (x, y, n, nd) in full.items():
         bb = np.array(boots[k]); bb = bb[np.isfinite(bb)]
@@ -330,7 +340,8 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
                                 bool(matched and cmv.any()), int(cmv.sum()), int(cm.sum())])
     d = {"car_f1": 2 * tp / max(1, 2 * tp + fp + fn), "road_iou": float(np.mean(roads)) if roads else None,
          "recall": float(np.mean(rec)) if rec else None, "flips": flips / max(1, len(trans_ID)), "ghosts": float(np.mean(ghosts)) if ghosts else None,
-         "placement_ticks": ptick,
+         "placement_ticks": ptick, "scorer_sha": SCORER_SHA,
+         "ghost_per_tick": {int(kt(i)): int(g_) for i, g_ in zip(idx, ghosts)},
          "ghost_lifetimes": sorted(gh_done + list(gh_life.values()), reverse=True)[:50],
          "ghost_ge5": int(sum(1 for L_ in gh_done + list(gh_life.values()) if L_ >= 5)),  # >= 0.5 s at 10 Hz
          "accepted": len(idx), "ticks": len(ticks), "trans_ID": trans_ID, "trans_W": trans_W, "link": a.link,
@@ -338,10 +349,12 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
          "w_valid_px": int(sum(t[6] for t in trans_W)), "w_total_px": int(sum(t[7] for t in trans_W))}
     # drift vs cold rollout of the same drive / seed: only rollouts whose history chain runs unbroken through tick 169
     rst = R["restart"].tolist() if "restart" in R else [False] * len(ticks)
-    contiguous = len(ticks) >= 170 and not any(rst[1:170])
+    consecutive = all(int(ticks[q + 1]) == int(ticks[q]) + 1 for q in range(min(len(ticks), 170) - 1))
+    contiguous = len(ticks) >= 170 and consecutive and not any(rst[1:170])  # positions 0-169 = 170 consecutive ticks
     d["contiguous_170"] = contiguous
     if a.cold and contiguous and os.path.exists(f"{a.cold}/{b}.pt"):
         C = torch.load(f"{a.cold}/{b}.pt")
+        assert C["ticks"][:170].tolist() == R["ticks"][:170].tolist(), f"{b}: cold rollout ticks differ from the rollout's"
         def win(lo, hi):
             lr, lc, tr, tc = [], [], [0, 0, 0], [0, 0, 0]
             for i in range(lo, hi):
@@ -357,6 +370,10 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
             f1 = lambda q: 2 * q[0] / max(1, 2 * q[0] + q[1] + q[2])
             return float(np.mean(lr) - np.mean(lc)), float(f1(tr) - f1(tc))
         d["late_lpips_gap"], d["late_f1_gap"] = win(150, 170); d["early_lpips_gap"], d["early_f1_gap"] = win(5, 25)
+    if contiguous:
+        gpt = {i: g_ for i, g_ in zip(idx, ghosts)}
+        lw, ew = [gpt[i] for i in range(150, 170) if i in gpt], [gpt[i] for i in range(5, 25) if i in gpt]
+        d["ghost_growth"] = float(np.mean(lw) - np.mean(ew)) if lw and ew else None
     if swap >= 0:
         # lag (drift check 3, both reviewers): per five-tick window, threshold = 0.8 x the DONOR's cold car F1 on the SAME
         # donor ticks (same seed, same 0.3 matcher); windows with zero cold F1 are skipped; full windows only, incl. the
@@ -374,11 +391,12 @@ for _k, fr in enumerate(sorted(glob.glob(f"{a.roll}/*_s*.pt"))):
                 cseg[k] = segment(to_img(Cd["lat"][k]))[0]
             return cseg[k]
         lag, eligible = None, 0
-        for i in range(swap, len(ticks) - 4):
+        first_reset = next((q for q in range(swap + 1, len(ticks)) if rst[q]), len(ticks))  # history wiped from here on
+        for i in range(swap, min(len(ticks), first_reset) - 4):
             w = [j for j in range(i, i + 5) if j in kseg]
             if len(w) < 5:
                 continue
-            if any(int(kt(w[q + 1])) != int(kt(w[q])) + 1 for q in range(4)) or any(rst[j] for j in w[1:]):
+            if any(int(kt(w[q + 1])) != int(kt(w[q])) + 1 for q in range(4)) or any(rst[j] for j in w):
                 continue  # five consecutive distinct donor ticks, no history reset inside the window
             cc = [cold_cars(j) for j in w]
             if any(c is None for c in cc):

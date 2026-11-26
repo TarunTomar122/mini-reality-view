@@ -1,5 +1,7 @@
 # Mini Reality View
 
+**Follow it live: https://taruntomar122.github.io/mini-reality-view/**
+
 A home-made, open version of Tesla's FSD v15 "Reality View": six ordinary car cameras go in, and a picture of the car
 and its surroundings, seen from a camera floating behind it, comes out. Drawn by a diffusion model, not a game engine.
 

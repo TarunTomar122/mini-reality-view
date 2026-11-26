@@ -80,3 +80,41 @@ availability gate ("unavailable" distinct from "empty"). Causal feed only; score
 - At 2k, map-only swap moves car F1 by < 0.02: stop that arm, back to council.
 - No map passes: no X3; back to council.
 - Over time: X1 and X2 cut equally; the full scoring panel is kept. One training seed per arm, stated in the write-up.
+
+---
+# v4 amendment: car map R (signed by Astra and Fable, 26 Nov ~22:40; council/carmap-r2-*.md, carmap-r2-swap-*.md, carmap-r3-*.md)
+
+Why: X1 / X2 stopped at 2k (fixed renders: correct - map-only-swapped car F1 -0.007 / -0.013); diagnostics showed a
+map-independent shift. Also found: detector yaw mirrored + reversed in the rasterizer and hull judge; camera->lidar
+transforms used per-camera timestamped ego poses (not camera-only).
+
+Before any ADOPTABLE run
+- Yaw: mmdet3d boxes use yaw -> -yaw - pi (measured on 1,272 detector-GT car pairs: full-circle heading within 15 deg
+  96%, median 2.3 deg; footprint IoU 0.620 -> 0.667). Re-run the hull baselines.
+- Camera-only: BEVFormer camera->lidar from the fixed rig calibration only (bev_extract.py --fixed_calib), can_bus zeroed;
+  re-extract; repeat P2 with and without previous BEV (hull F1 >= 0.397); repeat P3 including hull F1; re-fit the
+  degradation on 84 of the 96 calibration drives (12 drawn by seed beforehand and reserved, below). No extra box dropout.
+  Only runs on the fixed-calibration caches can be adopted; no probe on the pose-using caches.
+
+Arm R (one arm, one seed)
+- E3 10k frozen (LoRA + CameraAdapter). One bias-free, zero-initialised 3x3 conv from the nine spatial map planes (no
+  availability plane) onto the 320 channels after conv_in, every denoising step, both CFG passes; conv weights fp32.
+- 144 flat-key train drives, batch 16, AdamW 1e-4, 100 warm-up, 4k updates on A6000, checkpoints 500 / 1k / 2k / 4k.
+- Loss 0.5 whole-image eps-MSE + 0.5 eps-MSE on the game key's car cells (Mask2Former car pixels, own car excluded,
+  pooled to 32x64, batch-normalised; a batch without car cells uses the whole-image term). t = floor((1 - u^3) x 1000).
+- Camera dropout 50% through update 1,000, then 25%.
+- First: 100-update timing and the same-noise branch-off = E3 render.
+
+Checks (dev only; keys, seeds and donors fixed before update 1)
+- Single-step at 500 and 1k (6 dev drives, t = 700 / 900, cameras on, fixed noise and donors): car-cell eps-MSE right vs
+  map-only-swapped, RMS(eps_right - eps_swapped) recorded. HARD at 1k (checkpoint before the dropout switch): right <
+  swapped on >= 75% of car-bearing keyframes and mean reduction >= 2% (at both t).
+- Rendered on the pooled 18 dev drives (6 dev + 12 reserved calibration drives with game keyframe keys rendered): car F1
+  recorded at 1k; HARD at 2k: correct beats E3 and correct - map-only-swapped >= 0.02.
+- A failing arm stops and is never scored on decision drives.
+
+Adoption: signed gates unchanged (car F1 >= 0.382; gain >= +0.05 with lower bound > 0; SegFormer gain positive; road
+difference >= 0 with lower bound >= -0.01; full swap <= 0.05; correct - full-swapped and correct - map-only-swapped lower
+bounds > 0, fraction of gain removed reported; oracle test; train-vs-held-out gain gap <= 0.05), comparator E3, ONE
+locked 4k scoring on the 30 decision drives, labelled exploratory (they were looked at twice for X1 / X2). Final 24
+untouched. X3 opens only after adoption. Named fallback (not run now): a bias-free 4-scale branch.

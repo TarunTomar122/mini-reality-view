@@ -1,4 +1,4 @@
-# Temporal consistency and memory: merged plan (v4: all sign-off objections applied)
+# Temporal consistency and memory: merged plan (v5: all sign-off objections applied, W on shared transitions)
 
 Sources: council/temporal-brief.md; round 1 temporal-s1-astra.md, temporal-s1-fable.md; round 2 temporal-s2-astra.md,
 temporal-s2-fable.md. Where round 2 still differed, the choice below and the reason are given in [brackets].
@@ -54,7 +54,8 @@ temporal-s2-fable.md. Where round 2 still differed, the choice below and the rea
   only where the reference score is positive.
 - **Edge-car recall:** share of eligible key edge-car track ticks matched by the render (IoU >= 0.3).
 - **W, car warp residual (co-primary):** pixel residual on car pixels after warping with the keys' motion (round-1
-  definition), outer 20% each side, with the valid car-pixel share reported. Only used if the flow check passes.
+  definition), outer 20% each side, with the valid car-pixel share reported; like ID, each comparison uses only the
+  key transitions where both methods match the car at both ticks [Fable s4]. Only used if the flow check passes.
   [Fable: pixel-only scores reward erased or blurred cars; Astra: identity alone misses jitter. Both kept.]
 - **Flips / ghosts (secondary):** share of track ticks whose matched status changes; unmatched render cars per frame
   and their lifetime.

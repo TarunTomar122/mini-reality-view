@@ -1,5 +1,9 @@
 [
  {
+  "when": "26 Nov, 13:40",
+  "text": "10,000-step scores: a quarter of the data (E3, car score 0.32) does as well as all of it (E1, 0.29), so more data would not help yet. The perfect game picture through the same image compression scores 0.76, so we are at about 42% of what the judge can measure."
+ },
+ {
   "when": "26 Nov, 11:25",
   "text": "First scores at 5,000 steps on 30 unseen drives. Starting from plain Stable Diffusion (E2) places almost no cars correctly (car score 0.04), so we stopped it. A quarter of the data (E3) already scores 0.29, a bit lower than on its own training drives (0.36). E1 is still being scored."
  },

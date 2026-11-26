@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-26 22:50 — temporal metric check: ordering passes (fresh noise worst); car map R timing
+- Fresh noise every tick vs independent (dev, fixed scorer): ID 0.157 vs 0.102 (+54% [+0.048, +0.063]); W 41.1 vs 30.1 (+37% [+6.5, +15.9]); flips 0.240 vs 0.191 (+0.049 [+0.038, +0.063]); car F1 0.470 vs 0.474; road 0.851 vs 0.852. With the key video (ID 0, W 11.4) and VAE round trip (ID -42%, W -54%) the ordering required by the stop rule holds: keys / VAE best, fresh noise worst. Open: track reliability (66% of edge cars linked at IoU >= 0.5) -> council next hour. Decision metrics still unread.
+- Fixed-calibration train + dev box caches done (bevF-train-0..3); other-val and final released. Arm R 100-update timing on fixed-calibration raw train boxes (cmR-timing 3753600, A6000).
+- tmpA at 3,100 / 4,000 (0.54 s/update).
+
 ## 2026-11-26 22:20 — car map: camera-only P2 passes with fixed calibration
 - Fixed calibration (camera->lidar from the rig only; max change vs the pose-using converter 0.560 m) + can_bus zeroed, yaw fixed, decision drives, hull F1 vs game-key cars (score >= 0.3, 120 frames): with previous BEV 0.437, without 0.437; GT boxes 0.459; gate 0.397 -> PASS (above Fable's 0.431 council band). Mode kept: previous BEV on.
 - Released the fixed-calibration train / dev box caches (bevF-train-0..3); other-val (P3 re-fit) and final follow as slots free.

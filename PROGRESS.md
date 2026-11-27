@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 18:55 — owner: no early verdicts; AGREED amendment A1
+- Owner (going to bed ~20:00): "make sure we dont think something is bad after a short training run these things might need more runs ... dont wait for me". council/AGREED-causal-r1.md amendment A1: 2k / 4k checks informational only; bars first applied at 8k; two consecutive safety misses from 8k on stop; extend to 12k / 16k when trending; only clearly broken runs stop earlier. Memory: no-early-verdicts.
+- T2 PASS (ct2 3755044): --off at rho 1.0 reproduces signed A@20k scene-0043 seed 0 exactly (max |diff| 0, 109 ticks, ticks / src / flags / amp equal).
+- Live timing (2080 Ti, frozen A@20k, batch one): DDIM 25 + CFG 2: p50 3427 ms / p95 3448 ms (0.29 fps); no CFG 3466 ms (UNet-call overhead dominates: ~135 ms per call); camera encoder 13 ms, adapter 4 ms, VAE decode 42 ms. 8 / 4 steps pending.
+
 ## 2026-11-27 18:55 — A6000 drained; tests + timing moved to an H200 3g.71gb slice; GPU coordination with live-VSR
 - Astra code review r4 (council/codereview-causal-r4-astra.md): SIGN-IF 061b3f9 with T1-T7 passing, a valid rho decision with finite decisive ratios (non-finite now inadmissible, rho_decision.py), and a 100-update timing / peak GB record before production. Everything else = follow-ups.
 - landonia11 (the only A6000 node) has been DRAINED since 18:19 ("Kill task failed", most likely the Lustre OST 2 hang). Our A6000 jobs could never start. saxa had 3 of 4 h200_3g.71gb slices free and none queued: ctests-h200 (3755086) and vtiming-h200 (3755087, 600 updates, --timing) started there at once (each <= 1 h).

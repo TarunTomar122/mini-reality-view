@@ -49,3 +49,13 @@ by 12k (or 8k if not extended) -> close the pilot, back to council. Report contr
 leave-one-drive-out sensitivity, lingering ghosts, recall, early vs late gap, and the copy warnings: per-tick latent change
 < 0.7 x A's or falling; `--swap` lag > 3 ticks; long minus short memory (`--reset_at 134`) > +0.01 on ticks 150-169.
 "Live" claims only after a 2080 Ti timing run (batch one, p50 / p95 camera-to-display, sustained fps, peak VRAM).
+
+## Amendment A1 (owner directive, 27 Nov ~19:00; supersedes the stop timing above)
+Owner: "just make sure we dont think something is bad after a short training run these things might need more runs".
+- 2k and 4k checks are INFORMATIONAL: full signed scores + videos are reported, but no stop / reject decision is taken on them.
+- The pass / safety bars are unchanged; they are first applied at 8k. Two consecutive safety misses (F1 or late gap) counted
+  from 8k on (8k, 12k, 16k, ...) stop the run; a pass at 8k or later advances to the exam.
+- If the run is trending toward the bars at 8k (smaller reduction rising, F1 / late gap improving), extend to 12k and 16k before
+  any "no pass" verdict; only a clearly broken run (NaN, crash, frozen-check failure, copy alarm with rising late gap at 8k+)
+  stops earlier.
+- The council is informed at the next hourly review; changing these bars again needs the owner or a council round.

@@ -77,28 +77,28 @@
  "timeline": [
   [
    "done",
-   "C draws its own practice drives",
-   "48 whole drives, so it can learn from its own mistakes"
-  ],
-  [
-   "done",
    "A trained to 20k",
    "the no-memory version, for a fair comparison at every check"
   ],
   [
-   "now",
-   "C trains to 20k",
-   "at 12k now; its practice drives are redrawn from its newer self"
+   "done",
+   "Found why late drives drift",
+   "C practised on stale drives drawn by its 4k self, so it learned to freeze (council: Astra + Fable)"
   ],
   [
    "now",
-   "Checks at 5k, 10k, 15k, 20k",
-   "10k: smoother than A, but cars less accurate late in long drives (1st warning). 15k decides"
+   "Fix: C trains on fresh practice drives",
+   "restart from C at 8k; redraw its practice drives every 2k steps from its current self"
   ],
   [
    "next",
-   "One full exam at 20k",
-   "30 test drives, this afternoon"
+   "10k check of the fix",
+   "does late-drive drift drop by 0.02 or more? (~14:40)"
+  ],
+  [
+   "next",
+   "15k and 20k checks, then one full exam",
+   "30 test drives"
   ],
   [
    "later",

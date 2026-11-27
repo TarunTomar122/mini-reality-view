@@ -1,0 +1,101 @@
+{
+ "arm": "C",
+ "lock_s": 0.3,
+ "label": "failed dev screen",
+ "table": [
+  {
+   "s": 0.0,
+   "eligible": false,
+   "fails": [
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.8977,
+   "ID": [
+    0.0896,
+    0.1046
+   ],
+   "W": [
+    28.2936,
+    31.5188
+   ],
+   "car_f1_diff": -0.0107,
+   "road_diff": 0.002,
+   "recall_diff": -0.0074,
+   "late_lpips": 0.0104,
+   "late_f1": 0.0014,
+   "ghost_growth_diff": 0.0338,
+   "ghost_ge5_diff": 6.0
+  },
+  {
+   "s": 0.1,
+   "eligible": false,
+   "fails": [
+    "ghost_ge5.diff"
+   ],
+   "score": 0.8998,
+   "ID": [
+    0.0929,
+    0.1065
+   ],
+   "W": [
+    28.1209,
+    31.2511
+   ],
+   "car_f1_diff": -0.02,
+   "road_diff": 0.002,
+   "recall_diff": -0.0115,
+   "late_lpips": 0.0102,
+   "late_f1": 0.0052,
+   "ghost_growth_diff": -0.0978,
+   "ghost_ge5_diff": 5.25
+  },
+  {
+   "s": 0.3,
+   "eligible": false,
+   "fails": [
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9059,
+   "ID": [
+    0.0882,
+    0.1091
+   ],
+   "W": [
+    28.9539,
+    31.9628
+   ],
+   "car_f1_diff": -0.0152,
+   "road_diff": 0.001,
+   "recall_diff": -0.0182,
+   "late_lpips": 0.0074,
+   "late_f1": 0.0049,
+   "ghost_growth_diff": -0.1073,
+   "ghost_ge5_diff": 4.4167
+  },
+  {
+   "s": 0.5,
+   "eligible": false,
+   "fails": [
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9146,
+   "ID": [
+    0.0921,
+    0.1091
+   ],
+   "W": [
+    29.2254,
+    31.9551
+   ],
+   "car_f1_diff": -0.0148,
+   "road_diff": 0.0025,
+   "recall_diff": -0.0151,
+   "late_lpips": 0.0084,
+   "late_f1": 0.0065,
+   "ghost_growth_diff": 0.0387,
+   "ghost_ge5_diff": 3.9167
+  }
+ ]
+}

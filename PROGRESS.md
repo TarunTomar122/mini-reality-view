@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 05:50 — temporal dev sweeps rendered; scoring queued
+- Rollouts done: B 4k s = 0 / 0.1 / 0.3 / 0.5 (dev, 12 runs each), C 4k s sweep (dev, 12 each), A 4k dev (12; scored, panel OK). Count list for the s-lock frozen from A 4k dev before any sweep is scored (council/count_A4k_dev_k3.json: 6 / 6 drives count).
+- Scoring queued on scorer 764dd3ec95db: B cold + B sweep (afterok on B cold dev, 3753785-89); C cold + C sweep (3753790-94, held for the cap).
+- Still rendering: A 4k decision (59/60), A 4k + warm 0.7 decision (43/60), B 4k cold decision (21/60), B / C cold dev (11 / 9 of 12). A 2k (+ warm) decision queued (held).
+
 ## 2026-11-27 05:10 — drift check 9 outcome (both)
 - Car-map closure confirmed by both. Write-up wording (both): F reached about two thirds right-map wins, FLAT from 500 to 1k (63.4 -> 65.6%, 64.5 -> 66.7%; reductions flat), uneven across drives (t700: 18/19 on scene-0234, 2/7 on scene-0043); F also changed tmax (not architecture alone); X1 / X2 stopped at a 2k rendered-F1 rule on mirrored-yaw, pose-using boxes; R / F stopped at the 1k single-step rule; the planned F@1k pooled-18 renders were not run and R / F were never scored on renders, so no placement claim is made.
 - Temporal (both): arms are compared at EQUAL updates - B / C 2k only against A 2k and A 2k + warm 0.7 (with count lists made from those) using B / C 2k cold; 4k against A 4k. Order (Fable): 4k to completion first, then 4k lag (--swap rollouts for every method; none exist yet, so nothing can pass until then), then 2k. Each sweep scored with --cold = the arm's own cold folder; compared with --cold_ref B, --floor 0, count list from A 4k dev.

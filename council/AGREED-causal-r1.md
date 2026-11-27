@@ -71,3 +71,17 @@ Sources: council/causal-video-r4-fallback.md, causal-video-r4-{astra,fable}.md, 
    worse than 0.5 on both ID and W. Otherwise back to council.
 4. The fallback code path (decision modes rule / fallback / override; trainer accepts them) needs the test suite re-passed and
    Astra's code signature before any fallback launch. Every check also reports reductions vs the model's own cold baseline.
+
+## Amendment A3 (next arm; pre-registered 27 Nov ~22:00 UTC BEFORE any vlive 8k number; Astra + Fable)
+Sources: council/causal-video-a3*.md (proposals, swap, lambda). Probe evidence at the time: scripts/noise_probe.py on vlive
+ckpt_2000 (the blocks use the 95%-shared past noise, not past content; pulled/noise_2000.json).
+- vlive runs unchanged to 16k as the control (A1 bars and timing).
+- TRIGGER: vlive finishes 16k with no joint pass (any of 8k / 12k / 16k) AND both safety bars (F1, late gap) met at 16k.
+  Probes are diagnostic only. Same single H200-3g slice (no second slice without the live-VSR session's OK).
+- ARM: fresh from frozen A@20k, rho 0.95, K = 4, everything as AGREED r1 except the loss: MSE (ticks 1..15) + lambda x
+  adjacent-tick difference loss mean over pairs i = 2..15 of ((pred_i - pred_{i-1}) - (eps_i - eps_{i-1}))^2. No Min-SNR.
+- lambda = 1.0 fixed (Fable's signed rule; Astra's original proposal; Astra's latest note signed the computed ratio 0.928,
+  within 7% -> Astra confirms 1.0 when signing the A3 code). Launch check: the first batch's ratio difference-term /
+  MSE-term must lie in [0.5, 2], else no launch and a council round. Record lambda, the probe ratio (per t) and the probe
+  file's sha256 in the launch note / config; log both terms at every log step.
+- Before launch: T1-T7 + new fixtures for the difference loss, Astra's code signature. Bars and A1 timing unchanged.

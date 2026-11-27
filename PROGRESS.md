@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:43 UTC — amendment A3 pre-registered (Astra + Fable, before any 8k number)
+- council/AGREED-causal-r1.md A3: if vlive ends 16k with no pass and both safety bars met, train ONE fresh arm from frozen A@20k at rho 0.95 with MSE + 1.0 x adjacent-tick difference loss (pairs 2..15), no Min-SNR, launch check ratio in [0.5, 2]; T1-T7 + fixtures + Astra code signature first; same H200-3g slice. Lambda: seats crossed over (Astra -> computed 0.928, Fable -> fixed 1.0); written as 1.0 with Astra to confirm at code signing. Fable's caution: at 2k the blocks cut the difference term about as much as the plain one, so it may not punish the noise shortcut as hoped.
+
 ## 2026-11-27 21:42 UTC — noise probe @2k: the blocks use the shared NOISE, not the past content
 - scripts/noise_probe.py on runs/vlive/ckpt_2000 (8 dev pairs from different drives x 4 noise draws; recipient tick fixed; eps-MSE on the recipient tick; pulled/noise_2000.json):
   t300: on .0459, off .0919, noise_only (donor content + shared noise) .0374, content_only (true content + fresh past noise) .3688, neither .3253.

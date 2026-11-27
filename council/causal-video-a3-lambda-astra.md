@@ -1,0 +1,3 @@
+I accept Fable’s capped ratio. Across the three blocks-off probes, M sums to 0.110242 and D to 0.118747, giving λ ≈ 0.92838. Both terms already have comparable scale.
+At t300 the blocks cut D from 0.098391 to 0.047011 despite the shared-noise shortcut. Only the agreed outcome panels can establish whether training with D helps.
+SIGNED lambda: λ = min(10, Σ_t off[t] / Σ_t diff_off[t]) for t ∈ {900,700,300}, using pulled/noise_2000.json once before A3 update 1. Neon independently recomputes it. Record the JSON and script hashes, six inputs, both sums and full-precision λ in the launch record and fix λ for all updates.

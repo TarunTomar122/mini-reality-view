@@ -16,6 +16,9 @@ PY = ".venv/bin/python"; A = "runs/longA/ckpt_20000.pt"
 DEVL = json.load(open("data/temporal_lists.json"))["dev"]
 WANT = {f"{d}_s{s}" for d in DEVL for s in (0, 1)}
 sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()[:16]
+# renders must carry the reviewed rollout code's fingerprint (same recipe as causal_rollout.py ROLL_CODE) and the A@20k digest
+ROLL_CODE = hashlib.sha256(b"".join(open(f, "rb").read() for f in ["scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
+A_SHA = hashlib.sha256(open(A, "rb").read()).hexdigest()[:16]
 subprocess.run([PY, "scripts/temporal_compare.py", "--make_count_list", "runs/troll/m_A20k_indep_dev.json", "--k", "3",
                 "--out", "runs/count/count_A20k_dev_k3.json"], check=True, capture_output=True)
 rows = {}
@@ -26,6 +29,7 @@ for rho in ("0.5", "0.8"):
         r_ = torch.load(f); sc_ = name.rsplit("_s", 1)[0]
         n_ = len(torch.load(f"data/enc_tpv10/{sc_}.pt")["ticks"])
         return (r_.get("rho") == float(rho) and r_.get("method") == "causal_off" and r_.get("snapshot") == A and len(r_["lat"]) == n_
+                and r_.get("roll_code") == ROLL_CODE and r_.get("ckpt_sha") == A_SHA
                 and r_.get("swap_from", -1) == -1 and r_.get("salt_from", -1) == -1 and r_.get("reset_at", -1) == -1
                 and r_.get("start_tick", 0) == 0)
     ident = all(ok_render(k, f) for k, f in files.items())
@@ -56,7 +60,7 @@ for rho in ("0.5", "0.8"):  # ordered rule
         break
 json.dump({"rule": "first of (0.5, 0.8) with ID and W each <= 1.20 x signed A@20k on admissible evidence; else back to council",
            "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json"),
-           "rows": rows, "chosen": chosen, "valid": valid}, open(a.out, "w"), indent=1)
+           "rows": rows, "chosen": chosen, "valid": valid, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
 print(json.dumps({k: {"ID_ratio": round(v["ID_ratio"], 4), "W_ratio": round(v["W_ratio"], 4), "meets": v["meets"],
                       "admissible": v["admissible"]} for k, v in rows.items()}), "chosen", chosen, "valid", valid)
 sys.exit(0 if valid else 2)

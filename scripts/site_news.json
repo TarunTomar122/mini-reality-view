@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 06:45",
+  "text": "Memory version C (trained partly on its own output) is the best so far on the practice drives: 12-19% fewer car jumps, 9-11% less wobble, car placement and drift fine. Its only weak point is a few lingering fake cars (+4 to +6 per drive; B had +8 to +14), which we will deal with later. The reviewers now pick the one version to train long."
+ },
+ {
   "when": "27 Nov, 06:55",
   "text": "Change of plan: we were spending most GPU time on drawing and grading test videos and too little on training (training was about 13%). Now: ONE memory version trained long (about 20k steps) next to a no-memory version of the same length, quick checks every 5k steps with a side-by-side video, and one full exam at the end. The two AI reviewers pick which version. The car map is parked, not dead: it only ever got 1-2k steps."
  },

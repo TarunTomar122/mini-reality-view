@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 06:45 — owner: ONE long bet; C dev screen (best so far); videos; council picks the bet
+- Owner decisions (side chat + here): one candidate trained long (~20k) + A at the same length; cheap 5k checks (6 dev drives + a side-by-side video); one exam + one council review at the end; hourly drift checks stopped (scheduled task disabled); "spend more compute testing one good thing then 3 okay things"; video smoothness is the only goal now; "if this works then we will figure out how to get rid of fake cars later" (ghosts measured and shown, not blocking). Car map parked (only 1-2k steps), not dead.
+- Cancelled: tmpA-12k / tmpB-12k, A 2k (+ warm) decision rollouts, B 0.3 decision rollouts, B 2k dev rollouts, A 4k decision scoring, A 4k + warm decision rollouts, B 4k cold decision rollouts, R dev18 renders.
+- C 4k dev s-lock (mechanical, council/s_lock_C.json): ID 0.088-0.093 vs 0.105-0.109 (-12..-19%), W 28.1-29.2 vs 31.3-32.0 (-9..-11%), car F1 -0.011..-0.020, recall -0.007..-0.018, own late LPIPS +0.007..+0.010, late F1 +0.001..+0.007 -> passes every clause except lingering ghosts (+3.9..+6.0 per run vs A; B was +7.6..+14.2). Supports Fable's reading: training on own outputs removes drift and most ghosts. Locked s = 0.3 under the rule ("failed dev screen" on the ghost clause only).
+- Owner videos (scripts/compare_video.py): pulled/videos/scene-0234_s0.mp4 and scene-0396_s0.mp4 (key | E3 | A 4k | E3 + warm 0.7 | B 4k s 0.3).
+- Council (one round + converge): council/long-bet-brief.md -> which arm to train long and with what recipe.
+
 ## 2026-11-27 06:35 — owner: undertraining? + videos
 - Owner: "we might be undertraining". Evidence: B's history-conv weight norm still growing at the stop (0.85 at 1k, 1.27 at 2k, 1.37 at 2.5k, 1.55 at 4k; slowing, not flat); losses too noisy to call (A / B / C 1k-windows 0.073-0.098). All arms were cut 6k -> 4k for the slice budget. So "failed dev screen" may partly be "not trained enough". Test queued (held for the cap): B 2k at s = 0.3 and B 2k cold on dev -> does the ghost / drift problem shrink or grow from 2k to 4k? The question goes to the council swap on the next video step (is longer training the fix?).
 - Owner: wants to SEE the video. scripts/compare_video.py makes side-by-side MP4s from saved rollouts (game key | E3 no memory | A 4k | E3 + warm 0.7 | B 4k s = 0.3), 10 fps; jobs for scene-0234 (turn with parked cars) and scene-0396 (busy) queued (vid-*, held for the cap; first slot that frees).

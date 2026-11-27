@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 07:55 — C's practice drives done; C waits for the A6000
+- own4k done: 48/48 own drives in data/own_4k. scene-0059 and scene-0715 are 1-tick drives in data/enc_tpv10 itself (1 tick, 1 ok), so the 1-tick rollouts are correct.
+- longC-s1 (3753864) sat at Reason=Resources: landonia11 (only A6000 node we can use) has 11/12 CPUs and 168/193 GB allocated. Scheduler estimate 14:43 (= longA's time limit). Resubmitted as 3753891 with 4 CPUs (same command, 96G); it is the top-priority runnable A6000 job, so it should start when longA ends (~09:35). H200 nodes are not available on our partition; 2080 Ti would mean fp16 vs A's bf16 and ~3x slower, so not used.
+- longA at 9,600 (07:46), loss 0.058. troll-A5k-dev running.
+
 ## 2026-11-27 07:25 — long run: A at 6.2k, C's practice drives 30/48
 - longA (3753863): A6000, ~100 updates/min, at 6,200 at 07:16 (loss ~0.06); 20k expected ~09:35. ckpt_5000 saved.
 - own4k (3753855-62): 30 of 48 own drives rendered. Two drives (scene-0059, scene-0715) have only 1 usable tick, so they add almost nothing to the pool; harmless.

@@ -87,3 +87,18 @@ ckpt_2000 (the blocks use the 95%-shared past noise, not past content; pulled/no
   MSE-term must lie in [0.5, 2], else no launch and a council round. Record lambda, the probe ratio (per t) and the probe
   file's sha256 in the launch note / config; log both terms at every log step.
 - Before launch: T1-T7 + new fixtures for the difference loss, Astra's code signature. Bars and A1 timing unchanged.
+
+## Amendment A3 (CONVERGED, supersedes the DRAFT above; Astra + Fable, 27 Nov ~22:55 UTC, before vlive's 8k / 16k panels)
+Sources: council/causal-video-a3r2.md, causal-video-a3r2-{astra,fable}.md, causal-video-a3r2-swap{,-astra,-fable}.md.
+Evidence at the time: V2k jumpier than A and own cold; offline noise probes @2k / @8k (blocks rely on shared past noise, more
+so at 8k); gradient-cosine probe (pulled/gradcos_*.json) informational.
+- vlive runs unchanged to 16k (control; A1).
+- TRIGGER: vlive has no joint pass at 8k, 12k or 16k AND both safety bars (F1, late gap) are met at 16k.
+- ARM "vpriv": fresh from frozen A@20k, vlive's seed and draws, plain MSE (ticks 1..15), K = 4, everything as AGREED r1 except
+  training noise: BOTH clips of every update use fully private noise per tick (no shared component) -- unless vlive's signed
+  16k panel has ID AND W strictly lower than its own cold (off at 0.95), in which case ONE clip per update is private and
+  the private slot alternates each update. Rollout noise unchanged (rho 0.95, from the A2 decision); the training mixture is
+  stored in the checkpoint separately from the rollout rho. Difference loss (old draft arm) rejected.
+- Before launch: T1-T7 + new fixtures (private-noise batches; alternating slot; resume compatibility) + Astra code signature.
+- Reports (no gate): the noise probe fed with shared and with private noise at each check. Cleaner-past design = next full
+  council round if vpriv also fails. History guidance (blocks off on the uncond row) = informational side probe.

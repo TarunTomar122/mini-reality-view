@@ -1,0 +1,6 @@
+I accept Fable’s switch. A shared training clip can still reward noise matching. I would retain one only if vlive shows a live benefit on both motion metrics.
+Use the signed 16k panel’s paired point estimates against vlive’s own cold (off@0.95). If ID and W are both strictly lower, make clip 0 private and clip 1 shared at ρ=0.95. A tie or loss on either makes both clips private. Record both estimates and n_private before launch.
+Launch only after valid signed 8k, 12k and 16k panels, no joint pass, and both safety bars met at 16k. A pass takes the exam and voids A3. A safety stop, broken run or invalid panel returns to council.
+Start vpriv fresh from frozen A@20k on the same slice with vlive’s initialization, seed, draw order, optimizer and schedule. Train the 16 temporal blocks at K=4 for up to 16k updates. Use each clip’s assigned ε for corruption and target, with plain FP32 ε-MSE on ticks 1–15.
+Keep rollout ρ=0.95, AGREED bars and A1 timing. Report own-cold and equal-update vlive controls. Re-pass T1–T7 and Fable’s P1–P5, then obtain Astra’s signature on the code hash and results before update 1.
+SIGNED: A3 adopts vpriv alone on the safe vlive 16k non-pass trigger above, with both clips private unless signed 16k ID and W both beat own cold, then only clip 0 private; rollout ρ=0.95, plain ε-MSE, tests and gates as above.

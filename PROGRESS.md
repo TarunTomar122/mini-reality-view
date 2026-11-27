@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 22:45 UTC — A3 CONVERGED ("vpriv"); gradient-cosine probe
+- A3 (council/AGREED-causal-r1.md, supersedes the draft): if vlive has no joint pass at 8k / 12k / 16k and both safety bars are met at 16k, train ONE fresh arm from frozen A@20k with plain MSE where BOTH clips of every update use fully private per-tick noise (ONE alternating clip if vlive's 16k ID and W are both strictly better than its own cold); rollouts stay at rho 0.95; tests + fixtures + Astra signature first. Draft code (--private_clips, alternating slot, train_noise recorded) in the local tree only, NOT deployed.
+- Gradient-cosine probe (pulled/gradcos_*.json): cos(grad MSE, grad difference) at t 900 / 700 / 300 = 0.45 / 0.49 / 0.22 (2k), 0.47 / 0.54 / 0.28 (8k); difference-term gradient norm 0.52-0.71 x MSE's: the difference loss is not redundant (informational; arm already chosen).
+- vlive 10,300 updates (22:52); 4k / 8k checks still scoring / rendering.
+
 ## 2026-11-27 22:37 UTC — review 22:30 converged: keep vlive to 16k; A3 arm reopened (round 2); gradient-cosine probe
 - Fable (council/review-20261127-2230-fable.md): sound except my "slightly weaker" over-claim (already corrected); probe loss flat since 6k; keep vlive to 16k (A3 early buys nothing); A3's own arm likely repeats vlive (at 8k the shortcut cuts the difference loss as much as the plain one) -> swap the arm before 16k; ideas: history guidance without training (blocks off on the uncond row), half of training clips with fully private noise, cleaner-past design; score 12k / 16k as per-drive jobs (2k scoring took 24.7 min as one job).
 - Astra + Fable agree: vlive continues to 16k as the control. A3 round 2 opened (council/causal-video-a3r2.md: arms (a) draft difference loss, (b) half private-noise clips, (c) cleaner past, (d) history guidance side probe). Gradient-cosine probe scripts/grad_cos_probe.py (plain vs difference loss gradients on train clips) on ckpt_2000 / ckpt_8000 (gradcos2k 3755569, gradcos8k 3755570; short jobs on free saxa h200_1g slices, as agreed with live-VSR for <= 1 h jobs).

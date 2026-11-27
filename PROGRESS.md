@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 03:20 — drift check 7: amendment 3 settled (k = 3 + floor), comparisons split into temporal_compare.py
+- Final votes: floor 20 decision / 12 final per comparator, ID and W separately (both). k: Astra 1, Fable 3 after one swap -> stricter pair per my brief: k = 3 + floor (owner may revise).
+- To keep the SIGNED scorer byte-identical (scripts/temporal_metrics.py = 764dd3ec95db, restored from fded34e), all comparison rules moved to the new scripts/temporal_compare.py (hash ffaffe4425a1, git 5c0d234): --make_count_list (comparator file alone, both seeds required), --compare with counting drives, --floor, missing-seed / zero-shared failures, hard fail on a missing late gap of a contiguous run (a rollout scored without --cold = its own cold reference). Signature requested from both.
+- Counting list vs independent on the decision set (council/count_indep_dec_k3.json): 28 / 30 drives count for ID and W (out: scene-0036, 0 matched; scene-0014, no eligible). Re-check: warm 0.7 vs independent -> ID and W can_pass false (scene-0016 counting, zero shared); verdict unchanged.
+- Fixes: C resume checks the snapshot path on every cache file (Astra); rollouts stamp the autocast dtype (Fable). Queued (held, cap): B 4k independent / cold rollouts dev + decision (3753725-28) (Fable: B's late gaps need B's own cold rollouts).
+
 ## 2026-11-27 02:20 — drift check 6 swap results; trained-arm rollouts started (not read yet)
 - Converged (both): option (b) for drive counting; rank s by max(ID / ID_A, W / W_A); ties -> the LARGEST s (s = noise on the history, so larger = weaker history; my brief had the direction backwards). council/temporal-s-lock-rule.md rewritten with the agreed rule. OPEN for the next hourly check: counting threshold k (Astra 1, Fable 3; identical on known data) and Fable's floor (< 20 counting decision drives / < 12 final -> that comparison cannot pass). The counting rule then goes into --compare (non-swap edit -> both re-sign) before any B / C decision file is read.
 - Rollouts on the 2080 Tis (A6000 queue busy; nothing read until the rule is signed): A 4k independent dev (3753705); B 4k history s = 0 / 0.1 / 0.3 / 0.5 dev (3753706-09); A 4k independent decision (3 shards) and A 4k + warm 0.7 decision (3 shards) (3753710-15; two held for the cap).

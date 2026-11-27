@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 20:50 UTC — Astra SIGN-IF on A2 (37d24f9 + e537ffc); launchers armed
+- council/codereview-causal-a2r2-astra.md: rung order, both F1 floors, trainer rebuild and fixture failure handling verified; Astra's 90-min assent recorded at 20:45:12 UTC (after the 0.8 failure at 20:40:42; deadline 22:10:42 UTC). Condition: F1 admission finite + EXACT 4-decimal agreement with the signed values (fixed in e537ffc, fixtures for one-unit mismatch / NaN / inf), corrected suite + T2 + decision gates pass.
+- Dry run on real evidence: off car F1 unrounded 0.4597 (0.5), 0.4581 (0.8), A 0.4456 -> exact agreement; decision "waiting for the complete 0.9 / 0.95 panel (9.1 of 90 min)".
+- Jobs: suite ctests-h200 3755421 + T2 ct2 3755422 on e537ffc (10 files sha-verified); launch-vlive3 3755423 after suite + T2 + 0.9 / 0.95 scorings; launch-vlive-deadline (begin 22:12 UTC) for the A2 deadline path; never-two-runs guard in both.
+
 ## 2026-11-27 20:46 UTC — Astra a2 review: DO NOT SIGN cd2605d; 90-min deadline accepted; fixes in 37d24f9
 - council/codereview-causal-a2-astra.md: Astra ACCEPTS the 90-min deadline (assent given in this review, after the 0.8 result; correcting the earlier claim that both seats had signed it with A2): wait for both higher rungs until 22:10:42 UTC; after that an incomplete panel allows only the guarded 0.8 override; failed guard -> council. Not fixed in cd2605d: rung order (0.9 chosen with 0.95 missing), F1 floors (0.8 floor not applied to fallback; rounded means), trainer trusting cached flags, suite chk defined after use.
 - 37d24f9: decide() needs the complete 0.9 / 0.95 panel before any higher rung; off@0.8 and chosen-rung F1 floors at full precision (unrounded per-drive means, checked against the signed 4-decimal values); trainer rebuilds the decision from the canonical evidence + bound clock and requires the same mode / rho / row digests / rule sha; chk order fixed. 22 CPU fixtures pass (incl. Astra's 0.41556 vs 0.44564 case). 10 files sha-verified; suite re-run ctests-h200 3755418; launcher 3 (3755419) HELD for Astra (re-review requested).

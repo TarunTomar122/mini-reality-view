@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 23:19 UTC — 8k GATED CHECK: no pass (smoothness), both safety bars met -> continue (A1)
+- V8k (signed, 6 dev drives x 2 seeds): vs A@20k: ID 0.1559 vs 0.1032 (+51.1%, CI of diff 0.036..0.075), W 36.15 vs 29.73 (+21.6%, CI 3.29..9.49), both eligible; car F1 0.448 vs 0.4456 (+0.0024, CI -0.032..0.032) OK; late LPIPS gap +0.004 (CI -0.005..0.011) OK; recall 0.442 vs 0.446; lingering ghosts 0.42 vs 4.33.
+  vs own cold (off at 0.95): ID +34.1%, W +12.8%, F1 +0.003, ghosts 0.42 vs 3.42.
+- Verdict under AGREED + A1: smoothness bar FAILS (needs > 9.4% LESS jumpy than A), safety bars (F1, late gap) MET -> no stop; continue to 12k / 16k. Trend vs A: ID +61.5% (2k) -> +32.2% (4k) -> +51.1% (8k); W +30.7 -> +15.0 -> +21.6%: the 4k improvement reversed, consistent with the noise probe (more reliance on shared noise at 8k). docs/figs/vlive_2k_8k.png.
+- vlive 14,500 (23:18); 12k check rendering; 16k check queued (3755683-90). If 12k and 16k also do not pass with safety met, A3 "vpriv" triggers: its code + fixtures are being prepared now (not deployed).
+
 ## 2026-11-27 22:48 UTC — 4k informational: still jumpier, but improving from 2k; 12k check queued
 - V4k (signed): vs A@20k ID 0.1400 vs 0.1059 (+32.2%), W 34.24 vs 29.77 (+15.0%), car F1 0.4263 vs 0.4456 (-0.019), recall 0.454 vs 0.446, late gap +0.0003, lingering ghosts 0.42 vs 4.33. vs own cold (off at 0.95): ID +16.8%, W +8.2%, F1 -0.019, ghosts 0.42 vs 3.42. 2k -> 4k: ID vs A +61.5% -> +32.2%, W +30.7% -> +15.0%. docs/figs/vlive_2k_4k.png.
 - CORRECTION: the previous entry stamped vlive's 10,300 updates at "22:52"; that entry was written before 22:48 UTC (future-dated header again). vlive at 10,800 at 22:48; ckpt_10000 saved.

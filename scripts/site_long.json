@@ -153,7 +153,7 @@
   [
    "now",
    "Training the live model",
-   "started ~21:14 UTC, 16k steps ~23:20; checks at 2k / 4k (look only), 8k / 12k / 16k (decide), with videos"
+   "8k check: cars accurate and no drift, but still JUMPIER than A (+51% car jumps); 12k / 16k next; if no pass by 16k, a pre-agreed fix (private noise per frame) trains next"
   ],
   [
    "later",

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 14:25 — lever 2 launched (longC3); longC2 stopped
+- Astra round 3 (council/drift-r3-astra.md): agree stop longC2; agree lever 2 from C@8k; probe inference s 0.5 / 0.7 on frozen longC2@10k but keep decision s 0.3 (a new s lock needs a prospective rule + an independent checkpoint). Lever-2 gate at 10k: late gap <= +0.03 and car F1 >= own cold - 0.03 (s 0.3), else stop; 15k / 20k: same drift limit and F1 >= A - 0.03; 9.4% smoothness rule unchanged -> else second history frame. Fable's round-2 plan already named this step (step 6); Fable round 3 pending.
+- Cancelled longC2 at 14.9k (ckpt_10000 / 12000 / 14000 kept; it was on own_12000) and its own_12000 / own_14000 refresh jobs.
+- longC3 (3754417): --init runs/longC/ckpt_8000.pt, own_8k, live cache data/live3, refresh every 2k, --true_s_min 0.3 --true_drop 0.4, to 20k. 10k check queued (M10k, 2+2 shards + metrics).
+
 ## 2026-11-27 14:15 — 10k gate FAILED: fresh cache alone does not stop the drift
 - First live refresh worked end to end (own_10000: 48 files, DONE, swapped in at 12.2k after a ~5 min wait at the 4k age limit; refresh waves take ~30 min with 8 jobs). own_12000 rendering.
 - Gate (signed): longC2@10k (8k -> 10k on own_8k, cache 0-2k old) late gap +0.050 [0.032, 0.068] vs stale C@10k +0.0585 -> fall 0.0084 [-0.0165, -0.0019] < 0.01 -> stop rule. longC2@10k vs own cold: F1 0.379 vs 0.415, ghost_ge5 14.75 vs 3.9; vs A@10k: ID -26%, F1 0.379 vs 0.454.

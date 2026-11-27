@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 22:37 UTC — review 22:30 converged: keep vlive to 16k; A3 arm reopened (round 2); gradient-cosine probe
+- Fable (council/review-20261127-2230-fable.md): sound except my "slightly weaker" over-claim (already corrected); probe loss flat since 6k; keep vlive to 16k (A3 early buys nothing); A3's own arm likely repeats vlive (at 8k the shortcut cuts the difference loss as much as the plain one) -> swap the arm before 16k; ideas: history guidance without training (blocks off on the uncond row), half of training clips with fully private noise, cleaner-past design; score 12k / 16k as per-drive jobs (2k scoring took 24.7 min as one job).
+- Astra + Fable agree: vlive continues to 16k as the control. A3 round 2 opened (council/causal-video-a3r2.md: arms (a) draft difference loss, (b) half private-noise clips, (c) cleaner past, (d) history guidance side probe). Gradient-cosine probe scripts/grad_cos_probe.py (plain vs difference loss gradients on train clips) on ckpt_2000 / ckpt_8000 (gradcos2k 3755569, gradcos8k 3755570; short jobs on free saxa h200_1g slices, as agreed with live-VSR for <= 1 h jobs).
+
 ## 2026-11-27 22:36 UTC — 2k informational result (jumpier); Neon 22:30: A3 NOT converged (marked DRAFT); corrections
 - V2k (live stream at rho 0.95, signed, 6 dev drives x 2 seeds), informational under A1:
   vs signed A@20k: ID 0.1635 vs 0.1012 (+61.5%), W 39.42 vs 30.16 (+30.7%), car F1 0.4377 vs 0.4456 (-0.008), recall 0.439 vs 0.446, late gap +0.003, lingering ghosts 0.25 vs 4.33.

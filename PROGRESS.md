@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 03:50 — arm C done at 4k; C dev sweep queued
+- tmpC-b finished: C resumed from 2,500 with the C@2.5k cache (snapshot path + all clip ticks asserted), 4,000 updates, own_share 0.5, loss ~0.075. Checkpoints runs/tmpC/ckpt_2000 / 2500 / 4000.
+- Queued (held for the cap): C 4k cold (independent) dev rollouts and C 4k history s = 0 / 0.1 / 0.3 / 0.5 dev rollouts. B sweep rollouts ~1.5 h in; B cold queued. R 1k single-step gate running.
+
 ## 2026-11-27 03:25 — comparison script SIGNED by both (fc7ee2b886a5)
 - scripts/temporal_compare.py content hash fc7ee2b886a5 (git 1c8cc85) signed by Astra and Fable (council/compare-sign-fc7ee2b886a5-*.md), after five rejected revisions (ffaffe4425a1, c5369399a97c, cb720c354157, 8a190caa6de2, b690f024c74e). It recomputes the whole count list from the comparator's own files and refuses any difference; strict schema; python -O safe; one rollout per glob; comparator files / link / panel bound; --floor and k = 3 enforced; explicit --cold_ref; incomplete panels and missing late gaps on contiguous runs are hard failures. Scorer unchanged (764dd3ec95db). Decision count list vs independent: council/count_indep_dec_k3.json (28 / 30).
 - Usage from now on: every decision comparison = temporal_compare.py --compare CAND COMP --count_list <list made from COMP> --floor 20 --cold_ref <side that is the cold reference>; dev s-sweep uses --floor 0 with a list made from A 4k dev.

@@ -125,6 +125,6 @@ for di, sc in enumerate(drives):
             out.append(z[0].half().cpu())
         n_out = len(out)
         torch.save({"ticks": E["ticks"][:n_out], "src_ticks": torch.tensor(srct), "lat": torch.stack(out), "ok": torch.tensor(oks), "hard": torch.tensor(hards),
-                    "restart": torch.tensor(restart), "swap_from": 50 if E2 is not None else -1, "other": other if E2 is not None else ""}, fo)
+                    "restart": torch.tensor(restart), "amp": str(AMP), "swap_from": 50 if E2 is not None else -1, "other": other if E2 is not None else ""}, fo)
         print(sc, "seed", seed, n, "ticks", flush=True)
 print("ROLLOUT_DONE", a.method, a.s, a.split)

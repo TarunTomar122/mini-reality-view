@@ -17,6 +17,7 @@ from diffusers import UNet2DConditionModel, DDPMScheduler
 from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
 from mrv.causal_video import add_causal_temporal, set_mode
+from mrv.noise import build_eps
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -33,6 +34,8 @@ p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
+p.add_argument("--private_clips", type=int, default=0, choices=[0, 1, 2],
+               help="A3 draft (council/causal-video-a3r2*): number of the 2 clips per update trained with FULLY private noise per tick (rho 0 for those clips); rollout rho unchanged")
 p.add_argument("--rho_decision", default="", help="JSON written by scripts/rho_decision.py; required unless --timing (AGREED: rho fixed before update 1)")
 p.add_argument("--timing", action="store_true", help="timing / test run: output dir must contain 'timing' or 'ctest'; weights are throwaway")
 a = p.parse_args()
@@ -72,7 +75,7 @@ else:
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"
-CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in [__file__, "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
+CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in [__file__, "mrv/causal_video.py", "mrv/sd.py", "mrv/noise.py"])).hexdigest()[:12]
 TRAIN = json.load(open(a.lists))["train"]
 assert not set(TRAIN) & set(json.load(open(a.lists))["dev"]), "train / dev overlap"
 RAYS = torch.load(a.rays)
@@ -133,7 +136,7 @@ if os.path.exists(ck):
     if s_.get("timing") and not a.timing:
         raise SystemExit("refusing to resume production training from a timing / test checkpoint")
     rec_ = s_.get("args", {}).get("causal", {})
-    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_decision", a.rho_decision)):
+    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_decision", a.rho_decision), ("private_clips", a.private_clips)):
         if rec_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: recipe {key_} {rec_.get(key_)} != {want_}")
     for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho), ("base_sha", BASE_SHA), ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA)):
@@ -151,7 +154,7 @@ json.dump({**vars(a), "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names":
 
 def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K,
-         "frames": Fn, "noise_policy": "one t per clip; eps = sqrt(rho) eps_clip + sqrt(1-rho) eps_tick", "rho": a.rho, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
+         "frames": Fn, "noise_policy": "one t per clip; eps = sqrt(rho) eps_clip + sqrt(1-rho) eps_tick", "rho": a.rho, "train_noise": {"private_clips": a.private_clips, "rho_shared_clips": a.rho}, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
          "args": {**ck0["args"], "causal": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
@@ -216,7 +219,7 @@ for step in range(start, end):
     pick = torch.randint(0, len(starts), (a.clips,), generator=g).tolist()
     t = torch.randint(0, 1000, (a.clips,), generator=g)
     eps_clip = torch.randn(a.clips, 1, 4, 32, 64, generator=g); eps_own = torch.randn(a.clips, Fn, 4, 32, 64, generator=g)
-    eps = (a.rho ** 0.5 * eps_clip + (1 - a.rho) ** 0.5 * eps_own).reshape(a.clips * Fn, 4, 32, 64)
+    eps = build_eps(eps_clip, eps_own, a.rho, a.private_clips, step)  # mrv/noise.py (CPU-tested; private 0 == AGREED r1)
     drop = (torch.rand(a.clips, generator=g) < 0.1).repeat_interleave(Fn)
     batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[:, 0, 0, 0].numpy().tobytes() + drop.numpy().tobytes()).hexdigest()[:10]
     tok, lat, ray = [], [], []

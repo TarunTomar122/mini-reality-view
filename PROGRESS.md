@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 10:00 — faster checks: 24-job cap, 6-way split, batched rollouts
+- Owner: make the slow scoring step fast; use free GPUs, cap raised 12 -> 24.
+- A 10k / 15k / 20k dev checks re-split 6 ways (one drive x 2 seeds per job; finished files kept): 3753940-59, metrics 3753946 / 3753953 / 3753960. A 5k rollouts done, metrics 3753876 running.
+- temporal_rollout.py now renders up to --batch 12 (drive, seed) streams in lockstep (same per-stream noise and history streams; atomic file writes). Check (eqtest 3753939, C@4k hist s 0.3, 6 dev drives x 2 seeds x 12 ticks): batched vs old mean |diff| 0.0005-0.002 (latent std 0.7; fp16 batch rounding), restart / ok flags identical; 311 s vs 513 s incl. ~2.5 min model load, i.e. ~2x faster compute, not 3-5x.
+- longC-s1 (3753891) started 09:17 but spent ~30 min loading; at 4,600 at 09:55. C 5k check queued: cold + hist s 0.3, 6 shards each, start when runs/longC/ckpt_5000.pt appears (3753962-73), metrics 3753974 / 3753975.
+- Queued: longC-s2 (3753928, 8k -> 12k on own_4k), own_8k redraw (3753929-36, 8 jobs after s1).
+
 ## 2026-11-27 07:55 — C's practice drives done; C waits for the A6000
 - own4k done: 48/48 own drives in data/own_4k. scene-0059 and scene-0715 are 1-tick drives in data/enc_tpv10 itself (1 tick, 1 ok), so the 1-tick rollouts are correct.
 - longC-s1 (3753864) sat at Reason=Resources: landonia11 (only A6000 node we can use) has 11/12 CPUs and 168/193 GB allocated. Scheduler estimate 14:43 (= longA's time limit). Resubmitted as 3753891 with 4 CPUs (same command, 96G); it is the top-priority runnable A6000 job, so it should start when longA ends (~09:35). H200 nodes are not available on our partition; 2080 Ti would mean fp16 vs A's bf16 and ~3x slower, so not used.

@@ -40,8 +40,9 @@ def load_merged(pat):  # a json, or a glob of shard jsons OF ONE ROLLOUT (one ro
     return out
 
 
-if a.make_count_list:
-    C_ = load_merged(a.make_count_list); shas = {q.get("scorer_sha") for q in C_["drives"].values()}
+def build_count_list(pattern, k):
+    """the counting-drive list of a comparator, computed from its metric files alone"""
+    C_ = load_merged(pattern); shas = {q.get("scorer_sha") for q in C_["drives"].values()}
     if len(shas) != 1:
         raise SystemExit(f"comparator files mix scorer versions: {shas}")
     scs = sorted({r.rsplit("_s", 1)[0] for r in C_["drives"]})
@@ -49,9 +50,9 @@ if a.make_count_list:
     if len(links) != 1:
         raise SystemExit(f"comparator files mix link modes: {links}")
     import hashlib
-    fsha = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(a.make_count_list)))).hexdigest()[:12]
-    res = {"comparator": a.make_count_list, "comparator_roll": C_["roll"], "comparator_files_sha": fsha, "scorer_sha": shas.pop(),
-           "link": links.pop(), "k": a.k, "seeds_pooled": ["0", "1"], "drives": scs}
+    fsha = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(pattern)))).hexdigest()[:12]
+    res = {"comparator": pattern, "comparator_roll": C_["roll"], "comparator_files_sha": fsha, "scorer_sha": shas.pop(),
+           "link": links.pop(), "k": k, "seeds_pooled": ["0", "1"], "drives": scs}
     fin = lambda x: isinstance(x, (int, float)) and np.isfinite(x)
     for name in ("ID", "W"):
         cnt, elig, per_seed = {}, {}, {}
@@ -62,9 +63,14 @@ if a.make_count_list:
             per_seed[s_] = {r[-1]: {"eligible": len(C_["drives"][r]["trans_" + name]),
                                     "matched": sum(1 for t in C_["drives"][r]["trans_" + name] if t[5] and fin(t[4]))} for r in rs}
             cnt[s_] = sum(v["matched"] for v in per_seed[s_].values()); elig[s_] = sum(v["eligible"] for v in per_seed[s_].values())
-        res[name] = {"counting": [s_ for s_ in scs if cnt[s_] >= a.k], "comparator_matched": cnt, "eligible": elig, "per_seed": per_seed}
+        res[name] = {"counting": [s_ for s_ in scs if cnt[s_] >= k], "comparator_matched": cnt, "eligible": elig, "per_seed": per_seed}
+    return res
+
+
+if a.make_count_list:
+    res = build_count_list(a.make_count_list, a.k)
     json.dump(res, open(a.out, "w"), indent=1)
-    print("COUNTLIST", {n: len(res[n]["counting"]) for n in ("ID", "W")}, "of", len(scs), "drives, k =", a.k); raise SystemExit
+    print("COUNTLIST", {n: len(res[n]["counting"]) for n in ("ID", "W")}, "of", len(res["drives"]), "drives, k =", a.k); raise SystemExit
 
 if a.compare:
     def _unused_load_merged(pat):  # a json, or a glob of shard jsons
@@ -151,6 +157,13 @@ if a.compare:
             raise SystemExit("count list drive panel differs from the compared panel")
         if not (isinstance(a.floor, int) and a.floor >= 0):
             raise SystemExit("--floor must be a non-negative integer")
+        if not isinstance(CL.get("k"), int):
+            raise SystemExit("count list k must be an integer")
+        rebuilt_ = build_count_list(a.compare[1], CL["k"])  # the whole list, recomputed from the comparator's files
+        cmp_ = lambda d: {k_: v_ for k_, v_ in d.items() if k_ != "comparator"}  # the glob string itself may differ
+        if json.dumps(cmp_(rebuilt_), sort_keys=True) != json.dumps(cmp_(CL), sort_keys=True):
+            diff_ = [k_ for k_ in set(rebuilt_) | set(CL) if k_ != "comparator" and rebuilt_.get(k_) != CL.get(k_)]
+            raise SystemExit(f"count list differs from the one recomputed from the comparator files in: {sorted(diff_)}")
         for name in ("ID", "W"):  # recompute the counting drives from the comparator's own files; must equal the list
             re_ = sorted(s_ for s_ in scenes if sum(1 for r in by_scene[s_] for t in B["drives"][r]["trans_" + name]
                                                     if t[5] and isinstance(t[4], (int, float)) and np.isfinite(t[4])) >= CL["k"])

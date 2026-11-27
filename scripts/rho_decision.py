@@ -67,6 +67,6 @@ for rho in ("0.5", "0.8"):
 json.dump({"rule": "first of (0.5, 0.8) with ID and W each <= 1.20 x signed A@20k on admissible evidence; else back to council",
            "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json"),
            "rows": rows, "chosen": chosen, "valid": valid, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
-print(json.dumps({k: {"ID_ratio": round(v["ID_ratio"], 4), "W_ratio": round(v["W_ratio"], 4), "meets": v["meets"],
-                      "admissible": v["admissible"]} for k, v in rows.items()}), "chosen", chosen, "valid", valid)
+print(json.dumps({k: {"ID_ratio": v.get("ID_ratio"), "W_ratio": v.get("W_ratio"), "meets": v["meets"],
+                      "admissible": v["admissible"], "missing": v.get("missing_metrics")} for k, v in rows.items()}), "chosen", chosen, "valid", valid)
 sys.exit(0 if valid else 2)

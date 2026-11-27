@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 11:10 — C 5k check: ahead of A, but less than at 4k
+- VPN dropped ~10:15-10:58 (FortiTray reconnected); cluster work continued. longC-s1 done, longC-s2 (8k -> 12k) at 11,900. Queued longC-s3 (3754078, 12k -> 16k, own_4k cache because own_8k is 18/48 drives; the 5 held own8k jobs were still held -> released). C 10k check queued (3754079-92, 6+6 shards, batched script).
+- C 5k (s 0.3) vs A 5k, signed temporal_compare (count list runs/count/count_A5k_dev_k3.json, floor 0, cold_ref B): ID 0.0929 vs 0.1039 (-10.6%, CI -0.0175..-0.0044); W 29.56 vs 30.81 (-4.1%, CI -2.42..-0.20); headline (smaller) 4.1% (4k: 9.4%). car F1 0.441 vs 0.448 (-0.007; stop line -0.03); late LPIPS gap +0.006 (stop +0.03); ghosts 2.35 vs 2.07; lingering ghosts (>=5 ticks) 9.25 vs 4.25 per run; recall +0.017.
+- Reading: A gained from 4k -> 5k (ID 0.109 -> 0.104, W 32.0 -> 30.8) while C stood still or dipped slightly (ID 0.088 -> 0.093, W 29.0 -> 29.6) in its first 1k steps on the new whole-drive pool. No stop rule hit. The plan's decision point is 10k / 15k: beat 9.4%, else add a second history frame.
+- Videos: vid5k jobs 3754093/94 (key | A 5k | C 5k memory off | C 5k memory on).
+
 ## 2026-11-27 10:00 — faster checks: 24-job cap, 6-way split, batched rollouts
 - Owner: make the slow scoring step fast; use free GPUs, cap raised 12 -> 24.
 - A 10k / 15k / 20k dev checks re-split 6 ways (one drive x 2 seeds per job; finished files kept): 3753940-59, metrics 3753946 / 3753953 / 3753960. A 5k rollouts done, metrics 3753876 running.

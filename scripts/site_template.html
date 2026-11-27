@@ -170,28 +170,8 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <text x="327" y="125" text-anchor="middle" font-size="12" fill="var(--ink-3)">stop early if car placement or drift gets worse twice in a row</text>
   </svg></div>
 <!--/PLAN-->
-  <h2>Earlier runs (base model, 25-26 Nov)</h2>
-  <p class="small">The three starting points we compared before choosing E3. The work right now is in the box at the top.</p>
-  <div class="runs" id="runs"></div>
-
-  <h2>Training</h2>
-  <p>Training error, lower is better. A health check; the scores below are what count.</p>
-  <div class="card chart" id="chart"><div class="legend" id="legend"></div><svg id="svg" viewBox="0 0 880 300" role="img" aria-label="Training loss per run"></svg><div class="tip" id="tip"></div>
-    <details><summary>Show as a table</summary><div id="lossTable"></div></details></div>
-
-  <h2>Scores</h2>
-  <p>30 unseen drives: are the cars and the road where the answer has them? Higher is better.</p>
-  <div class="card" id="scores"></div>
-
-  <h2>Pictures</h2>
-  <div class="tabs" id="stepTabs" aria-label="Checkpoint"></div>
-  <div class="tabs" id="driveTabs" aria-label="Drive"></div>
-  <p id="driveNote" class="small"></p>
-  <div class="pic"><a id="picLink" target="_blank" rel="noopener"><img id="pic" alt=""></a></div>
-  <p class="small"><a id="picFull" target="_blank" rel="noopener">Open full size</a></p>
-  <p class="cols">Rows: start, middle and end of the drive. "Wrong street" gets another drive's cameras, so it should not match.</p>
-
-  <h2>News</h2>
+  <h2>Latest news</h2>
+  <p class="small">The last six updates. Everything older is in the <a href="https://github.com/TarunTomar122/mini-reality-view/blob/main/PROGRESS.md">lab notes</a>.</p>
   <ul class="news" id="news"></ul>
 
   <footer>Data: nuScenes (free for non-commercial use); simulator: MetaDrive; renderer: Stable Diffusion 1.5 with our camera
@@ -199,7 +179,6 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
 </main>
 <script>
 const D = /*DATA*/null;
-const COL = { E1: "var(--s1)", E2: "var(--s2)", E3: "var(--s3)" };
 const $ = id => document.getElementById(id);
 const fmt = n => n.toLocaleString("en-GB");
 $("updated").textContent = "Updated " + D.updated;
@@ -207,86 +186,7 @@ if (D.hero) $("hero").innerHTML = [[D.hero.cam, "real camera", ""], [D.hero.key,
   .map(([src, t, c]) => `<div class="panel"><img src="${src}" alt="${t}"><span class="tag ${c}">${t}</span></div>`).join('<span class="arrow" aria-hidden="true">→</span>')
   + `<figcaption><span class="pill">unseen drive</span><span class="pill">step ${fmt(D.hero.step)}</span></figcaption>`; else $("hero").remove();
 
-// run cards
-$("runs").innerHTML = D.runs.map(([r, start, data]) => {
-  const c = D.curves[r] || []; const step = c.length ? c[c.length - 1][0] : 0;
-  const pct = Math.min(100, step / D.total * 100);
-  return `<div class="card run"><h3><span class="dot" style="background:${COL[r]}"></span>${r}</h3>
-    <p><span class="pill">${start}</span> <span class="pill">${data}</span></p>
-    <div class="bar"><div style="width:${pct}%;background:${COL[r]}"></div></div>
-    <div class="small">step ${fmt(step)} of ${fmt(D.total)}</div></div>`;
-}).join("");
-
-// training chart: smoothed loss vs step, one axis, hover crosshair
-(function () {
-  const W = 880, H = 300, m = { l: 48, r: 56, t: 12, b: 34 };
-  const runs = D.runs.map(r => r[0]).filter(r => (D.curves[r] || []).length);
-  const sm = {};
-  runs.forEach(r => { let e = null; sm[r] = D.curves[r].map(([s, l]) => { e = e === null ? l : 0.9 * e + 0.1 * l; return [s, e]; }); });
-  const all = runs.flatMap(r => sm[r].slice(3).map(p => p[1]));
-  if (!all.length) { $("svg").outerHTML = '<p class="empty">No training data yet.</p>'; return; }
-  let y0 = Math.min(...all), y1 = Math.max(...all); const pad = (y1 - y0) * 0.1 || 0.01; y0 -= pad; y1 += pad;
-  const X = s => m.l + s / D.total * (W - m.l - m.r), Y = v => m.t + (1 - (v - y0) / (y1 - y0)) * (H - m.t - m.b);
-  let g = "";
-  for (let i = 0; i <= 4; i++) { const v = y0 + (y1 - y0) * i / 4, y = Y(v);
-    g += `<line x1="${m.l}" x2="${W - m.r}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${m.l - 8}" y="${y + 4}" text-anchor="end" font-size="11" fill="var(--ink-3)">${v.toFixed(3)}</text>`; }
-  for (let s = 0; s <= D.total; s += 2500) g += `<text x="${X(s)}" y="${H - 10}" text-anchor="middle" font-size="11" fill="var(--ink-3)">${fmt(s)}</text>`;
-  const labs = [];
-  runs.forEach(r => {
-    const pts = sm[r].map(([s, v]) => `${X(s).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
-    const last = sm[r][sm[r].length - 1];
-    g += `<polyline fill="none" stroke="${COL[r]}" stroke-width="2" stroke-linejoin="round" points="${pts}"/>`;
-    labs.push({ r, x: X(last[0]) + 6, y: Y(last[1]) + 4 });
-  });
-  labs.sort((a, b) => a.y - b.y);  // spread end labels at least 14 px apart so they never overlap
-  for (let i = 1; i < labs.length; i++) labs[i].y = Math.max(labs[i].y, labs[i - 1].y + 14);
-  labs.forEach(l => { g += `<text x="${l.x}" y="${l.y}" font-size="12" fill="var(--ink-2)">${l.r}</text>`; });
-  g += `<line id="xh" y1="${m.t}" y2="${H - m.b}" stroke="var(--ink-3)" stroke-dasharray="3 3" visibility="hidden"/>`;
-  $("svg").innerHTML = g;
-  $("legend").innerHTML = runs.map(r => `<span><span class="dot" style="background:${COL[r]}"></span>${r}</span>`).join("");
-  const svg = $("svg"), tip = $("tip"), xh = document.getElementById("xh");
-  svg.addEventListener("mousemove", e => {
-    const b = svg.getBoundingClientRect(), x = (e.clientX - b.left) / b.width * W;
-    const s = Math.max(0, Math.min(D.total, (x - m.l) / (W - m.l - m.r) * D.total));
-    const rows = runs.map(r => { const a = sm[r]; let best = a[0]; for (const p of a) if (Math.abs(p[0] - s) < Math.abs(best[0] - s)) best = p; return [r, best]; });
-    const st = rows[0][1][0]; if (st > Math.max(...runs.map(r => sm[r][sm[r].length - 1][0])) + 200) { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); return; }
-    xh.setAttribute("x1", X(st)); xh.setAttribute("x2", X(st)); xh.setAttribute("visibility", "visible");
-    tip.innerHTML = `<div class="small">step ${fmt(st)}</div>` + rows.map(([r, p]) => `<div><span class="dot" style="background:${COL[r]}"></span> ${r} ${p[1].toFixed(4)}</div>`).join("");
-    tip.style.display = "block";
-    const left = (X(st) / W) * b.width + 12; tip.style.left = Math.min(left, b.width - tip.offsetWidth - 4) + "px"; tip.style.top = "36px";
-  });
-  svg.addEventListener("mouseleave", () => { tip.style.display = "none"; xh.setAttribute("visibility", "hidden"); });
-  const steps = [...new Set(runs.flatMap(r => sm[r].map(p => p[0])))].filter(s => s % 500 === 0).sort((a, b) => a - b);
-  $("lossTable").innerHTML = `<table><tr><th>step</th>${runs.map(r => `<th>${r}</th>`).join("")}</tr>` + steps.map(s =>
-    `<tr><td>${fmt(s)}</td>${runs.map(r => { const p = sm[r].find(q => q[0] === s); return `<td>${p ? p[1].toFixed(4) : ""}</td>`; }).join("")}</tr>`).join("") + "</table>";
-})();
-
-// scores
-(function () {
-  const k = Object.keys(D.scores);
-  if (!k.length) { $("scores").innerHTML = '<p class="empty">The first scores arrive at 5,000 steps. Until then, see the pictures below.</p>'; return; }
-  const name = n => n.replace(/^tpv/, "").replace(/_m2f$/, "").replace(/_/g, " at ").replace(/ at swap/, ", wrong street").replace(/ at train/, ", training drives");
-  $("scores").innerHTML = `<table><tr><th>Run</th><th>Car score</th><th>Road overlap</th><th>Looks (LPIPS, lower is better)</th></tr>` +
-    k.sort().map(n => { const s = D.scores[n]; return `<tr><td>${name(n)}</td><td>${s.f1.toFixed(2)}</td><td>${s.road_iou.toFixed(2)}</td><td>${s.lpips.toFixed(3)}</td></tr>`; }).join("") + "</table>";
-})();
-
-// pictures
-(function () {
-  const steps = Object.keys(D.pics).map(Number).sort((a, b) => a - b);
-  if (!steps.length) { $("pic").outerHTML = '<p class="empty">No pictures yet.</p>'; return; }
-  let step = steps[steps.length - 1], drive = D.drives[0][0];
-  const draw = () => {
-    $("stepTabs").innerHTML = steps.map(s => `<button aria-pressed="${s === step}" data-s="${s}">step ${fmt(s)}</button>`).join("");
-    $("driveTabs").innerHTML = D.drives.map(([sc, nm]) => `<button aria-pressed="${sc === drive}" data-d="${sc}">${nm}</button>`).join("");
-    const d = D.drives.find(x => x[0] === drive); $("driveNote").textContent = `${d[1]}: ${d[2]}.`;
-    const src = (D.pics[step] || {})[drive]; $("pic").src = src || ""; $("picLink").href = src || "#"; $("picFull").href = src || "#"; $("pic").alt = `${d[1]} at step ${step}`;
-  };
-  $("stepTabs").addEventListener("click", e => { if (e.target.dataset.s) { step = +e.target.dataset.s; draw(); } });
-  $("driveTabs").addEventListener("click", e => { if (e.target.dataset.d) { drive = e.target.dataset.d; draw(); } });
-  draw();
-})();
-
-$("news").innerHTML = D.news.map(n => `<li><span class="when">${n.when}</span><p>${n.text}</p></li>`).join("");
+$("news").innerHTML = D.news.slice(0, 6).map(n => `<li><span class="when">${n.when}</span><p>${n.text}</p></li>`).join("");
 </script>
 </body>
 </html>

@@ -14,7 +14,7 @@ import torch
 from diffusers import UNet2DConditionModel, DDPMScheduler
 from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
-from mrv.carmap import rasterize, pool, MapConvIn, N_MAP
+from mrv.carmap import rasterize, pool, MapConvIn, N_MAP, CarMapBranchBF
 
 p = argparse.ArgumentParser()
 p.add_argument("--ckpt", required=True)
@@ -39,10 +39,20 @@ for sc in drives:
     assert not missing, f"{sc}: {len(missing)} keyframes without boxes (coverage must be complete)"
     rows[sc] = [(t, e["tokens"][pos[t]], k["lat"][j], kc["mask"][kpos[t]].float()) for j, t in enumerate(k["sample_tokens"])]
 ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
+if not ("branch4" in ck or "mapconv" in ck):
+    raise SystemExit("checkpoint has neither a map conv (R) nor a bias-free 4-scale branch (F)")
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck["lora"], strict=False)
 unet.to(dev, AMP).eval()
-unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.load_state_dict(ck["mapconv"]); unet.conv_in.map.to(dev).float().eval()
+BR4 = None
+if "branch4" in ck:  # fallback F: bias-free 4-scale branch
+    BR4 = CarMapBranchBF().to(dev).float().eval(); BR4.load_state_dict(ck["branch4"])
+    with torch.no_grad():  # an empty map must give exactly zero at all four scales
+        z_ = BR4(torch.zeros(1, N_MAP, 32, 64, device=dev))
+    if any(float(r_.abs().max()) != 0.0 for r_ in z_):
+        raise SystemExit("branch4: empty map does not give exactly zero residuals")
+else:
+    unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.load_state_dict(ck["mapconv"]); unet.conv_in.map.to(dev).float().eval()
 ad = CameraAdapter(n_styles=ck["args"].get("n_styles", 3)); ad.load_state_dict(ck["adapter"]); ad.to(dev).eval()
 acp = DDPMScheduler.from_pretrained(SD, subfolder="scheduler").alphas_cumprod.to(dev)
 st = torch.full((1,), 2, dtype=torch.long, device=dev)
@@ -61,10 +71,15 @@ for di, sc in enumerate(drives):
             xt = ab.sqrt() * lat[None].float().to(dev) + (1 - ab).sqrt() * eps; tt = torch.full((1,), T, device=dev)
             out = {}
             for name, M in (("right", Mr), ("swap", Ms), ("off", None)):
-                unet.conv_in.m = M
                 with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
-                    out[name] = unet(xt, tt, encoder_hidden_states=c).sample.float()
-            unet.conv_in.m = None
+                    if BR4 is None:
+                        unet.conv_in.m = M
+                        out[name] = unet(xt, tt, encoder_hidden_states=c).sample.float()
+                    else:
+                        res_ = None if M is None else [r_.to(AMP) for r_ in BR4(M)]
+                        out[name] = unet(xt, tt, encoder_hidden_states=c, down_intrablock_additional_residuals=res_).sample.float()
+            if BR4 is None:
+                unet.conv_in.m = None
             ce = lambda pr: float((((pr - eps) ** 2).mean(1, keepdim=True) * W).sum() / W.sum()) if W.sum() > 0 else None
             res["per"].append({"scene": sc, "token": tok, "t": T, "car_cells": float((W > 0).float().sum()),
                                "car_right": ce(out["right"]), "car_swap": ce(out["swap"]), "car_off": ce(out["off"]),

@@ -208,3 +208,22 @@ class MapConvIn(nn.Module):
     def forward(s, x):
         y = s.base(x)
         return y if s.m is None else y + s.map(s.m.float()).to(y.dtype)
+
+
+class CarMapBranchBF(nn.Module):
+    """Car map fallback F (PLAN-carmap v4 named fallback): BIAS-FREE 4-scale branch on the nine spatial planes; SiLU(0) = 0,
+    so an empty map gives exactly zero residuals at all four scales (320@32x64, 640@16x32, 1280@8x16, 1280@4x8);
+    zero-initialised output projections; passed as down_intrablock_additional_residuals (a fresh list per UNet call)."""
+    def __init__(s, c_in=N_MAP, width=64):
+        super().__init__()
+        s.stem = nn.Sequential(nn.Conv2d(c_in, width, 3, padding=1, bias=False), nn.SiLU(), nn.Conv2d(width, width, 3, padding=1, bias=False), nn.SiLU())
+        s.down = nn.ModuleList([nn.Identity()] + [nn.Sequential(nn.Conv2d(width, width, 3, stride=2, padding=1, bias=False), nn.SiLU()) for _ in range(3)])
+        s.proj = nn.ModuleList([nn.Conv2d(width, ch, 1, bias=False) for ch in (320, 640, 1280, 1280)])
+        for p_ in s.proj:
+            nn.init.zeros_(p_.weight)
+
+    def forward(s, m):
+        h = s.stem(m.float()); outs = []
+        for d, p_ in zip(s.down, s.proj):
+            h = d(h); outs.append(p_(h))
+        return outs

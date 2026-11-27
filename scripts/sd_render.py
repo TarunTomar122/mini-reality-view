@@ -52,11 +52,14 @@ unet.to(dev, AMP).eval()
 adapter = CameraAdapter(n_styles=ar.get("n_styles", 2)).to(dev).eval()
 adapter.load_state_dict(ck["adapter"])
 BR = None; MC = False
-if "branch" in ck or "mapconv" in ck:  # car map: 4-scale branch (train_carmap.py) or input-level map conv (train_carmap2.py)
+if "branch" in ck or "mapconv" in ck or "branch4" in ck:  # car map: X1 branch, R map conv, or F bias-free 4-scale branch
     import math as _m, json as _j, glob as _g, torch.nn as _nn, torch.nn.functional as _F
-    from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, gt_frame, grid_channels, MapConvIn, N_MAP
+    from mrv.carmap import rasterize, pool, CarMapBranch, C_MAP, gt_frame, grid_channels, MapConvIn, N_MAP, CarMapBranchBF
     RED = None
-    if "branch" in ck:
+    BF = False
+    if "branch4" in ck:
+        BR = CarMapBranchBF().to(dev).float().eval(); BR.load_state_dict(ck["branch4"]); BF = True
+    elif "branch" in ck:
         BR = CarMapBranch(c_in=C_MAP + (32 + 2 if ck["grid"] else 0)).to(dev).eval(); BR.load_state_dict(ck["branch"])
         if ck["grid"]:
             RED = _nn.Conv2d(512, 32, 1).to(dev).eval(); RED.load_state_dict(ck["reduce"])
@@ -140,7 +143,7 @@ for si, sc in enumerate(judge):
                         M = torch.cat([M, RED(G2[:, :512]), G2[:, 512:]], 1)
                 if BR is not None:
                     with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
-                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M)]
+                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M[:, :N_MAP] if BF else M)]
             ddim.set_timesteps(a.steps)
             with torch.no_grad():
                 for t in ddim.timesteps:

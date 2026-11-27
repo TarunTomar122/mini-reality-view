@@ -20,7 +20,7 @@ import torch.nn as nn
 from diffusers import UNet2DConditionModel, DDPMScheduler
 from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
-from mrv.carmap import rasterize, pool, MapConvIn, N_MAP
+from mrv.carmap import rasterize, pool, MapConvIn, N_MAP, CarMapBranchBF
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -36,6 +36,7 @@ p.add_argument("--drop_hi", type=float, default=0.5)
 p.add_argument("--drop_switch", type=int, default=1000)
 p.add_argument("--drop_lo", type=float, default=0.25)
 p.add_argument("--seed", type=int, default=0)
+p.add_argument("--arch", default="conv", choices=["conv", "branch4"], help="conv = arm R (map conv after conv_in); branch4 = fallback F (bias-free 4-scale branch)")
 p.add_argument("--budget_min", type=float, default=0, help="timing run: exit 3 if the projected 4k run (map prep + 4,000 updates + checkpoints) exceeds this many minutes")
 p.add_argument("--resume", action="store_true", help="continue <out>/ckpt.pt (staged 1k / 2k gates)")
 p.add_argument("--out", required=True)
@@ -95,22 +96,28 @@ if __name__ == "__main__":
     unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
     unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck0["lora"], strict=False)
     unet.requires_grad_(False); unet.to(dev, AMP).eval()
-    unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.to(dev).float().requires_grad_(True)
+    BR = None
+    if a.arch == "conv":
+        unet.conv_in = MapConvIn(unet.conv_in); unet.conv_in.map.to(dev).float().requires_grad_(True)
+    else:
+        BR = CarMapBranchBF().to(dev).float().train()
     adapter = CameraAdapter(n_styles=ck0["args"].get("n_styles", 3)); adapter.load_state_dict(ck0["adapter"])
     adapter.requires_grad_(False); adapter.to(dev).eval()
-    params = list(unet.conv_in.map.parameters())
+    params = list(unet.conv_in.map.parameters()) if BR is None else list(BR.parameters())
+    KEY = "mapconv" if BR is None else "branch4"
+    MOD = (lambda: unet.conv_in.map) if BR is None else (lambda: BR)
     opt = torch.optim.AdamW(params, lr=1e-4, weight_decay=0.0)
     sched = DDPMScheduler.from_pretrained(SD, subfolder="scheduler"); acp = sched.alphas_cumprod.to(dev)
     start = 0; ck = f"{a.out}/ckpt.pt"
     if os.path.exists(ck) and not a.resume:
         raise SystemExit(f"{ck} exists: pass --resume to continue it, or use a fresh --out")
     if os.path.exists(ck):
-        s_ = torch.load(ck, map_location="cpu"); unet.conv_in.map.load_state_dict(s_["mapconv"]); opt.load_state_dict(s_["opt"])
+        s_ = torch.load(ck, map_location="cpu"); MOD().load_state_dict(s_[KEY]); opt.load_state_dict(s_["opt"])
         start = s_["step"]; print("resumed at", start, flush=True)
 
     def save(step, path):
         ts_ = time.time()
-        d = {"mapconv": unet.conv_in.map.state_dict(), "opt": opt.state_dict(), "step": step, "init": a.init,
+        d = {KEY: MOD().state_dict(), "opt": opt.state_dict(), "step": step, "init": a.init,
              "args": {**ck0["args"], "carmap2": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
         torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
         SAVE_T[0] += time.time() - ts_; SAVE_T[1] += 1
@@ -138,9 +145,14 @@ if __name__ == "__main__":
             g_["lr"] = 1e-4 * min(1, (step + 1) / 100)
         with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
             ctx = adapter(tok, ray, style, drop.to(dev))
-        unet.conv_in.m = M
-        with torch.autocast("cuda", dtype=AMP):
-            pred = unet(xt, t, encoder_hidden_states=ctx).sample
+        if BR is None:
+            unet.conv_in.m = M
+            with torch.autocast("cuda", dtype=AMP):
+                pred = unet(xt, t, encoder_hidden_states=ctx).sample
+        else:
+            res_ = [r_.to(AMP) for r_ in BR(M)]  # fresh list each call (diffusers pops it)
+            with torch.autocast("cuda", dtype=AMP):
+                pred = unet(xt, t, encoder_hidden_states=ctx, down_intrablock_additional_residuals=res_).sample
         err = (pred.float() - eps) ** 2
         whole = err.mean()
         wsum = W.sum()
@@ -150,7 +162,7 @@ if __name__ == "__main__":
         CLIP[0] += 1; CLIP[1] += int(gn.item() > 1.0)  # amendment 3: clip 1.0 kept (as E3 / X1), share of clipped updates reported
         if step % 100 == 0:
             rec = {"step": step, "loss": round(loss.item(), 4), "whole": round(whole.item(), 4), "car": round(car.item(), 4),
-                   "gn": round(gn.item(), 4), "wnorm": round(unet.conv_in.map.weight.norm().item(), 4), "cam_drop": pdrop, "clipped_share": round(CLIP[1] / max(1, CLIP[0]), 4),
+                   "gn": round(gn.item(), 4), "wnorm": round(sum(p_.norm().item() ** 2 for p_ in params) ** 0.5, 4), "cam_drop": pdrop, "clipped_share": round(CLIP[1] / max(1, CLIP[0]), 4),
                    "min": round((time.time() - t0) / 60, 1)}
             print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
         if (step + 1) % 500 == 0 or step + 1 == a.steps:

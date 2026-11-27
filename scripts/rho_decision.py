@@ -9,7 +9,7 @@ decision JSON that train_causal.py requires (valid = a choice was made on admiss
 
   python scripts/rho_decision.py --out council/rho_decision.json
 """
-import argparse, glob, hashlib, json, os, subprocess, sys
+import argparse, glob, hashlib, json, math, os, subprocess, sys
 import torch
 p = argparse.ArgumentParser(); p.add_argument("--out", required=True); a = p.parse_args()
 PY = ".venv/bin/python"; A = "runs/longA/ckpt_20000.pt"
@@ -36,7 +36,8 @@ for rho in ("0.5", "0.8"):
                           "--count_list", "runs/count/count_A20k_dev_k3.json", "--floor", "0", "--cold_ref", "B"],
                          check=True, capture_output=True, text=True).stdout
     d = json.loads(out.split("TCOMPARE ", 1)[1])
-    rel_ok = d["ID"].get("rel") is not None and d["W"].get("rel") is not None and d["ID"]["B"] > 0 and d["W"]["B"] > 0
+    fin = lambda v: isinstance(v, (int, float)) and math.isfinite(v)
+    rel_ok = all(fin(d[k].get("rel")) and fin(d[k].get("A")) and fin(d[k].get("B")) and d[k]["B"] > 0 for k in ("ID", "W"))
     idr = 1 + d["ID"]["rel"] if rel_ok else float("nan"); wr = 1 + d["W"]["rel"] if rel_ok else float("nan")
     elig = {"ID": bool(d["ID"].get("can_pass")), "W": bool(d["W"].get("can_pass"))}
     borderline = (not rel_ok) or abs(idr - 1.20) <= 0.0005 or abs(wr - 1.20) <= 0.0005

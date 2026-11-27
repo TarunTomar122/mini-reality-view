@@ -1,10 +1,43 @@
 {
  "comparator": "runs/troll/indep_dec_*.json",
+ "comparator_roll": "runs/troll/indep_dec",
  "scorer_sha": "764dd3ec95db",
  "k": 3,
  "seeds_pooled": [
   "0",
   "1"
+ ],
+ "drives": [
+  "scene-0003",
+  "scene-0012",
+  "scene-0013",
+  "scene-0014",
+  "scene-0015",
+  "scene-0016",
+  "scene-0017",
+  "scene-0018",
+  "scene-0035",
+  "scene-0036",
+  "scene-0038",
+  "scene-0039",
+  "scene-0092",
+  "scene-0093",
+  "scene-0094",
+  "scene-0096",
+  "scene-0097",
+  "scene-0098",
+  "scene-0099",
+  "scene-0101",
+  "scene-0102",
+  "scene-0103",
+  "scene-0104",
+  "scene-0105",
+  "scene-0106",
+  "scene-0107",
+  "scene-0108",
+  "scene-0109",
+  "scene-0110",
+  "scene-0221"
  ],
  "ID": {
   "counting": [
@@ -100,6 +133,308 @@
    "scene-0109": 280,
    "scene-0110": 548,
    "scene-0221": 272
+  },
+  "per_seed": {
+   "scene-0003": {
+    "0": {
+     "eligible": 24,
+     "matched": 7
+    },
+    "1": {
+     "eligible": 24,
+     "matched": 8
+    }
+   },
+   "scene-0012": {
+    "0": {
+     "eligible": 40,
+     "matched": 10
+    },
+    "1": {
+     "eligible": 40,
+     "matched": 13
+    }
+   },
+   "scene-0013": {
+    "0": {
+     "eligible": 141,
+     "matched": 18
+    },
+    "1": {
+     "eligible": 141,
+     "matched": 13
+    }
+   },
+   "scene-0014": {
+    "0": {
+     "eligible": 0,
+     "matched": 0
+    },
+    "1": {
+     "eligible": 0,
+     "matched": 0
+    }
+   },
+   "scene-0015": {
+    "0": {
+     "eligible": 101,
+     "matched": 7
+    },
+    "1": {
+     "eligible": 101,
+     "matched": 7
+    }
+   },
+   "scene-0016": {
+    "0": {
+     "eligible": 17,
+     "matched": 5
+    },
+    "1": {
+     "eligible": 17,
+     "matched": 3
+    }
+   },
+   "scene-0017": {
+    "0": {
+     "eligible": 190,
+     "matched": 43
+    },
+    "1": {
+     "eligible": 190,
+     "matched": 60
+    }
+   },
+   "scene-0018": {
+    "0": {
+     "eligible": 83,
+     "matched": 32
+    },
+    "1": {
+     "eligible": 83,
+     "matched": 39
+    }
+   },
+   "scene-0035": {
+    "0": {
+     "eligible": 140,
+     "matched": 33
+    },
+    "1": {
+     "eligible": 140,
+     "matched": 7
+    }
+   },
+   "scene-0036": {
+    "0": {
+     "eligible": 23,
+     "matched": 0
+    },
+    "1": {
+     "eligible": 23,
+     "matched": 0
+    }
+   },
+   "scene-0038": {
+    "0": {
+     "eligible": 85,
+     "matched": 29
+    },
+    "1": {
+     "eligible": 85,
+     "matched": 48
+    }
+   },
+   "scene-0039": {
+    "0": {
+     "eligible": 108,
+     "matched": 51
+    },
+    "1": {
+     "eligible": 108,
+     "matched": 50
+    }
+   },
+   "scene-0092": {
+    "0": {
+     "eligible": 175,
+     "matched": 50
+    },
+    "1": {
+     "eligible": 175,
+     "matched": 55
+    }
+   },
+   "scene-0093": {
+    "0": {
+     "eligible": 201,
+     "matched": 75
+    },
+    "1": {
+     "eligible": 201,
+     "matched": 48
+    }
+   },
+   "scene-0094": {
+    "0": {
+     "eligible": 65,
+     "matched": 6
+    },
+    "1": {
+     "eligible": 65,
+     "matched": 5
+    }
+   },
+   "scene-0096": {
+    "0": {
+     "eligible": 128,
+     "matched": 29
+    },
+    "1": {
+     "eligible": 128,
+     "matched": 15
+    }
+   },
+   "scene-0097": {
+    "0": {
+     "eligible": 247,
+     "matched": 192
+    },
+    "1": {
+     "eligible": 247,
+     "matched": 189
+    }
+   },
+   "scene-0098": {
+    "0": {
+     "eligible": 223,
+     "matched": 142
+    },
+    "1": {
+     "eligible": 223,
+     "matched": 127
+    }
+   },
+   "scene-0099": {
+    "0": {
+     "eligible": 440,
+     "matched": 77
+    },
+    "1": {
+     "eligible": 440,
+     "matched": 98
+    }
+   },
+   "scene-0101": {
+    "0": {
+     "eligible": 175,
+     "matched": 36
+    },
+    "1": {
+     "eligible": 175,
+     "matched": 33
+    }
+   },
+   "scene-0102": {
+    "0": {
+     "eligible": 45,
+     "matched": 23
+    },
+    "1": {
+     "eligible": 45,
+     "matched": 15
+    }
+   },
+   "scene-0103": {
+    "0": {
+     "eligible": 406,
+     "matched": 179
+    },
+    "1": {
+     "eligible": 406,
+     "matched": 150
+    }
+   },
+   "scene-0104": {
+    "0": {
+     "eligible": 218,
+     "matched": 156
+    },
+    "1": {
+     "eligible": 218,
+     "matched": 137
+    }
+   },
+   "scene-0105": {
+    "0": {
+     "eligible": 759,
+     "matched": 270
+    },
+    "1": {
+     "eligible": 759,
+     "matched": 324
+    }
+   },
+   "scene-0106": {
+    "0": {
+     "eligible": 102,
+     "matched": 33
+    },
+    "1": {
+     "eligible": 102,
+     "matched": 59
+    }
+   },
+   "scene-0107": {
+    "0": {
+     "eligible": 201,
+     "matched": 106
+    },
+    "1": {
+     "eligible": 201,
+     "matched": 68
+    }
+   },
+   "scene-0108": {
+    "0": {
+     "eligible": 203,
+     "matched": 90
+    },
+    "1": {
+     "eligible": 203,
+     "matched": 90
+    }
+   },
+   "scene-0109": {
+    "0": {
+     "eligible": 140,
+     "matched": 10
+    },
+    "1": {
+     "eligible": 140,
+     "matched": 14
+    }
+   },
+   "scene-0110": {
+    "0": {
+     "eligible": 274,
+     "matched": 94
+    },
+    "1": {
+     "eligible": 274,
+     "matched": 88
+    }
+   },
+   "scene-0221": {
+    "0": {
+     "eligible": 136,
+     "matched": 42
+    },
+    "1": {
+     "eligible": 136,
+     "matched": 46
+    }
+   }
   }
  },
  "W": {
@@ -196,6 +531,308 @@
    "scene-0109": 280,
    "scene-0110": 548,
    "scene-0221": 272
+  },
+  "per_seed": {
+   "scene-0003": {
+    "0": {
+     "eligible": 24,
+     "matched": 2
+    },
+    "1": {
+     "eligible": 24,
+     "matched": 3
+    }
+   },
+   "scene-0012": {
+    "0": {
+     "eligible": 40,
+     "matched": 8
+    },
+    "1": {
+     "eligible": 40,
+     "matched": 12
+    }
+   },
+   "scene-0013": {
+    "0": {
+     "eligible": 141,
+     "matched": 18
+    },
+    "1": {
+     "eligible": 141,
+     "matched": 13
+    }
+   },
+   "scene-0014": {
+    "0": {
+     "eligible": 0,
+     "matched": 0
+    },
+    "1": {
+     "eligible": 0,
+     "matched": 0
+    }
+   },
+   "scene-0015": {
+    "0": {
+     "eligible": 101,
+     "matched": 7
+    },
+    "1": {
+     "eligible": 101,
+     "matched": 7
+    }
+   },
+   "scene-0016": {
+    "0": {
+     "eligible": 17,
+     "matched": 5
+    },
+    "1": {
+     "eligible": 17,
+     "matched": 3
+    }
+   },
+   "scene-0017": {
+    "0": {
+     "eligible": 190,
+     "matched": 30
+    },
+    "1": {
+     "eligible": 190,
+     "matched": 37
+    }
+   },
+   "scene-0018": {
+    "0": {
+     "eligible": 83,
+     "matched": 29
+    },
+    "1": {
+     "eligible": 83,
+     "matched": 35
+    }
+   },
+   "scene-0035": {
+    "0": {
+     "eligible": 140,
+     "matched": 25
+    },
+    "1": {
+     "eligible": 140,
+     "matched": 7
+    }
+   },
+   "scene-0036": {
+    "0": {
+     "eligible": 23,
+     "matched": 0
+    },
+    "1": {
+     "eligible": 23,
+     "matched": 0
+    }
+   },
+   "scene-0038": {
+    "0": {
+     "eligible": 85,
+     "matched": 24
+    },
+    "1": {
+     "eligible": 85,
+     "matched": 40
+    }
+   },
+   "scene-0039": {
+    "0": {
+     "eligible": 108,
+     "matched": 39
+    },
+    "1": {
+     "eligible": 108,
+     "matched": 40
+    }
+   },
+   "scene-0092": {
+    "0": {
+     "eligible": 175,
+     "matched": 26
+    },
+    "1": {
+     "eligible": 175,
+     "matched": 29
+    }
+   },
+   "scene-0093": {
+    "0": {
+     "eligible": 201,
+     "matched": 63
+    },
+    "1": {
+     "eligible": 201,
+     "matched": 42
+    }
+   },
+   "scene-0094": {
+    "0": {
+     "eligible": 65,
+     "matched": 6
+    },
+    "1": {
+     "eligible": 65,
+     "matched": 4
+    }
+   },
+   "scene-0096": {
+    "0": {
+     "eligible": 128,
+     "matched": 24
+    },
+    "1": {
+     "eligible": 128,
+     "matched": 15
+    }
+   },
+   "scene-0097": {
+    "0": {
+     "eligible": 247,
+     "matched": 110
+    },
+    "1": {
+     "eligible": 247,
+     "matched": 105
+    }
+   },
+   "scene-0098": {
+    "0": {
+     "eligible": 223,
+     "matched": 102
+    },
+    "1": {
+     "eligible": 223,
+     "matched": 90
+    }
+   },
+   "scene-0099": {
+    "0": {
+     "eligible": 440,
+     "matched": 61
+    },
+    "1": {
+     "eligible": 440,
+     "matched": 74
+    }
+   },
+   "scene-0101": {
+    "0": {
+     "eligible": 175,
+     "matched": 30
+    },
+    "1": {
+     "eligible": 175,
+     "matched": 31
+    }
+   },
+   "scene-0102": {
+    "0": {
+     "eligible": 45,
+     "matched": 22
+    },
+    "1": {
+     "eligible": 45,
+     "matched": 13
+    }
+   },
+   "scene-0103": {
+    "0": {
+     "eligible": 406,
+     "matched": 124
+    },
+    "1": {
+     "eligible": 406,
+     "matched": 105
+    }
+   },
+   "scene-0104": {
+    "0": {
+     "eligible": 218,
+     "matched": 119
+    },
+    "1": {
+     "eligible": 218,
+     "matched": 109
+    }
+   },
+   "scene-0105": {
+    "0": {
+     "eligible": 759,
+     "matched": 213
+    },
+    "1": {
+     "eligible": 759,
+     "matched": 283
+    }
+   },
+   "scene-0106": {
+    "0": {
+     "eligible": 102,
+     "matched": 27
+    },
+    "1": {
+     "eligible": 102,
+     "matched": 43
+    }
+   },
+   "scene-0107": {
+    "0": {
+     "eligible": 201,
+     "matched": 66
+    },
+    "1": {
+     "eligible": 201,
+     "matched": 53
+    }
+   },
+   "scene-0108": {
+    "0": {
+     "eligible": 203,
+     "matched": 62
+    },
+    "1": {
+     "eligible": 203,
+     "matched": 61
+    }
+   },
+   "scene-0109": {
+    "0": {
+     "eligible": 140,
+     "matched": 10
+    },
+    "1": {
+     "eligible": 140,
+     "matched": 13
+    }
+   },
+   "scene-0110": {
+    "0": {
+     "eligible": 274,
+     "matched": 75
+    },
+    "1": {
+     "eligible": 274,
+     "matched": 65
+    }
+   },
+   "scene-0221": {
+    "0": {
+     "eligible": 136,
+     "matched": 24
+    },
+    "1": {
+     "eligible": 136,
+     "matched": 26
+    }
+   }
   }
  }
 }

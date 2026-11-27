@@ -20,6 +20,8 @@ p.add_argument("--k", type=int, default=3)
 p.add_argument("--count_list", default="")
 p.add_argument("--floor", type=int, default=0)
 p.add_argument("--out", default="")
+p.add_argument("--cold_ref", default="none", choices=["A", "B", "none"],
+               help="which side of --compare IS the cold reference (its late gaps are 0 by definition); every other missing late gap on a contiguous run is a hard failure")
 a = p.parse_args()
 
 def load_merged(pat):  # a json, or a glob of shard jsons
@@ -33,15 +35,18 @@ if a.make_count_list:
     C_ = load_merged(a.make_count_list); shas = {q.get("scorer_sha") for q in C_["drives"].values()}
     assert len(shas) == 1, shas
     scs = sorted({r.rsplit("_s", 1)[0] for r in C_["drives"]})
-    res = {"comparator": a.make_count_list, "scorer_sha": shas.pop(), "k": a.k, "seeds_pooled": ["0", "1"]}
+    res = {"comparator": a.make_count_list, "comparator_roll": C_["roll"], "scorer_sha": shas.pop(), "k": a.k, "seeds_pooled": ["0", "1"],
+           "drives": scs}
+    fin = lambda x: isinstance(x, (int, float)) and np.isfinite(x)
     for name in ("ID", "W"):
-        cnt, elig = {}, {}
+        cnt, elig, per_seed = {}, {}, {}
         for s_ in scs:
             rs = [f"{s_}_s{q}" for q in ("0", "1")]
             assert all(r in C_["drives"] for r in rs), f"comparator lacks a seed for {s_}"
-            cnt[s_] = sum(1 for r in rs for t in C_["drives"][r]["trans_" + name] if t[5] and t[4] == t[4])
-            elig[s_] = sum(len(C_["drives"][r]["trans_" + name]) for r in rs)
-        res[name] = {"counting": [s_ for s_ in scs if cnt[s_] >= a.k], "comparator_matched": cnt, "eligible": elig}
+            per_seed[s_] = {r[-1]: {"eligible": len(C_["drives"][r]["trans_" + name]),
+                                    "matched": sum(1 for t in C_["drives"][r]["trans_" + name] if t[5] and fin(t[4]))} for r in rs}
+            cnt[s_] = sum(v["matched"] for v in per_seed[s_].values()); elig[s_] = sum(v["eligible"] for v in per_seed[s_].values())
+        res[name] = {"counting": [s_ for s_ in scs if cnt[s_] >= a.k], "comparator_matched": cnt, "eligible": elig, "per_seed": per_seed}
     json.dump(res, open(a.out, "w"), indent=1)
     print("COUNTLIST", {n: len(res[n]["counting"]) for n in ("ID", "W")}, "of", len(scs), "drives, k =", a.k); raise SystemExit
 
@@ -67,6 +72,8 @@ if a.compare:
     all_sc = sorted({r.rsplit("_s", 1)[0] for r in set(A["drives"]) | set(B["drives"])})
     scenes = [s_ for s_ in all_sc if seeds_of(A, s_) == SEEDS and seeds_of(B, s_) == SEEDS]
     unpaired = [s_ for s_ in all_sc if s_ not in scenes]
+    if unpaired:
+        raise SystemExit(f"incomplete panel: drives without seeds 0 and 1 in both methods: {unpaired} (no drive may silently drop out of any gate)")
     by_scene = {s_: [r for r in runs if r.rsplit("_s", 1)[0] == s_] for s_ in scenes}
     PER = ("recall", "flips", "car_f1", "road_iou", "late_lpips_gap", "late_f1_gap", "early_lpips_gap", "ghosts", "ghost_growth", "ghost_ge5")
 
@@ -76,8 +83,8 @@ if a.compare:
         for name in ("ID", "W"):
             ea, eb, elig = [], [], 0
             for d in rs:
-                ta = {tuple(t[:4]): t[4] for t in A["drives"][d]["trans_" + name] if t[5] and t[4] == t[4]}
-                tb = {tuple(t[:4]): t[4] for t in B["drives"][d]["trans_" + name] if t[5] and t[4] == t[4]}
+                ta = {tuple(t[:4]): t[4] for t in A["drives"][d]["trans_" + name] if t[5] and np.isfinite(t[4])}
+                tb = {tuple(t[:4]): t[4] for t in B["drives"][d]["trans_" + name] if t[5] and np.isfinite(t[4])}
                 elig += len({tuple(t[:4]) for t in A["drives"][d]["trans_" + name]} | {tuple(t[:4]) for t in B["drives"][d]["trans_" + name]})
                 for k in ta.keys() & tb.keys():
                     ea.append(ta[k]); eb.append(tb[k])
@@ -91,8 +98,8 @@ if a.compare:
                     return v_
                 if not D["drives"][d].get("contiguous_170"):
                     return None  # no late window for this run
-                if not D.get("cold"):
-                    return 0.0  # scored without --cold: this rollout is its own cold reference (independent)
+                if (a.cold_ref == "A" and D is A) or (a.cold_ref == "B" and D is B):
+                    return 0.0  # declared cold reference: gap 0 by definition
                 raise SystemExit(f"{d}: late gap missing although the run is contiguous (cold = {D.get('cold')}) - hard fail")
             va = [ga(A, B, d) for d in rs if ga(A, B, d) is not None]
             vb = [ga(B, A, d) for d in rs if ga(B, A, d) is not None]
@@ -104,6 +111,9 @@ if a.compare:
     COUNT = {}
     if CL is not None:
         assert CL["scorer_sha"] == vb_[0], f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}"
+        assert CL["comparator_roll"] and os.path.normpath(CL["comparator_roll"]) == os.path.normpath(B["roll"] or ""), \
+            f"count list belongs to comparator {CL['comparator_roll']}, not {B['roll']}"
+        assert set(CL["drives"]) == set(scenes), "count list drive panel differs from the compared panel"
         for name in ("ID", "W"):
             cnt_ = CL[name]["counting"]
             missing_ = [s_ for s_ in cnt_ if s_ not in scenes]  # candidate (or comparator) lacks a seed on a counting drive
@@ -157,6 +167,12 @@ if a.compare:
                   "ci95": np.percentile(bb, [2.5, 97.5]).round(4).tolist() if len(bb) else None,
                   "rel": round(float((x - y) / y), 3) if y and np.isfinite(y) and y > 0 else None,
                   "can_pass": (COUNT[k]["can_pass"] if k in COUNT else (not no_shared.get(k))) if k in ("ID", "W") else None}
+    out["shared_per_drive_seed"] = {name: {s_: {d[-1]: len({tuple(t[:4]) for t in A["drives"][d]["trans_" + name] if t[5] and np.isfinite(t[4])}
+                                                        & {tuple(t[:4]) for t in B["drives"][d]["trans_" + name] if t[5] and np.isfinite(t[4])})
+                                                   for d in by_scene[s_]} for s_ in scenes} for name in ("ID", "W")}
+    if CL is not None:
+        out["comparator_counts_per_seed"] = {name: CL[name]["per_seed"] for name in ("ID", "W")}
+    out["cold_ref"] = a.cold_ref
     out["counting"] = COUNT if COUNT else "NO COUNT LIST GIVEN (amendment 3 requires one for decision / final comparisons)"
     print("TCOMPARE", json.dumps(out)); raise SystemExit
 

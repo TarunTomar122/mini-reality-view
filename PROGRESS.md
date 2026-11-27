@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 00:50 — dev controls on the candidate scorer (764dd3ec95db); signatures requested
+- runs/troll/v4_*_dev.json vs independent (6 dev drives, seeds 0/1): ordering holds (key video ID 0 / W 11.4; VAE ID 0.064 vs 0.110 / W 13.7 vs 29.4; fresh noise ID 0.157 vs 0.102 / W 41.1 vs 30.1).
+- With placement now on manifest ticks % 5: warm 0.7 car F1 0.423 vs 0.485 (-0.062 [-0.113, -0.014]) and road 0.797 vs 0.854 -> fails the placement gates on dev; it also leaves lingering ghosts: >= 5-tick ghost tracks 10.3 per run vs 2.4 (independent), ghosts / tick 2.25 vs 1.61. warm 0.5: 30.1 lingering ghosts per run.
+- Signature request council/scorer-sign-764dd3ec95db.md sent to both. On two signatures: release tmet-indep_dec0-2 / tmet-w07_dec0-2.
+- C cache from B@1k at 63 / ~85 drives. Car map timing + R (1k) waiting for an A6000.
+
 ## 2026-11-27 00:20 — car map R preconditions met (timing pending); R staged to 1k queued
 - Branch-off = E3 on the same noise: zero-weight map conv vs E3, 2 dev drives x 4 keyframes x 2 seeds = 16 renders: max |pixel difference| = 0 on all 16 (exact).
 - P3 hull F1 complete (fixed-calibration boxes, yaw fixed, Mask2Former key masks, score >= 0.3): train30 = 29 keyed drives x 4 = 116 frames: GT 0.313, detector raw 0.325, detector degraded 0.283; val84 = 303 frames (73 drives x 4 + 11 drives that have a single keyed frame; nothing skipped): GT 0.411, detector 0.380. Raw detector train - val gap -0.055 vs GT gap -0.098 -> exceeds by +0.043 (< 0.05: no hull trigger); degraded gap -0.097 vs GT -0.098 (matched). Recall / precision / centre triggers already fired -> degradation in place (tmp/bevF_boxes_trainD.json).

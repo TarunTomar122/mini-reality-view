@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 19:30 — causal (live) video model: council AGREED, code written, tests running
+- Council converged in 3 rounds (council/causal-video-*.md) -> council/AGREED-causal-r1.md (design, tests, pre-registered rho rule and gate). Frozen A@20k + 16 causal temporal blocks (K = 4 past ticks + self, age bias, zero-init out, exact-zero delta without a past), one diffusion level per clip, noise eps = sqrt(rho) eps_clip + sqrt(1-rho) eps_tick (rho in {0.5, 0.8} chosen BEFORE training from `--off` renders vs signed A@20k: ID and W <= 1.20x), loss ticks 1..15, per-DDIM-step K/V rings at inference (0 extra UNet passes vs A).
+- Code: mrv/causal_video.py, scripts/train_causal.py (frozen asserts, first-update bit-identity check, code_sha / batch_sha / step_s / data_s / peak GB logging, args.json, copy probe every 500 updates), scripts/causal_rollout.py (tick loop, rho noise, --reset_at / --start_tick / --swap_at / --salt_from for tests), scripts/causal_tests.py + slurm/causal_tests.sh (T1-T7). Old held mrv/video.py / train_video.py / video_rollout.py left untouched.
+- First test job ctests (3754770, T1 T3 T4 T7) running; the cluster's Lustre home hangs on reads of live log files since ~18:10 (squeue / login fine). Next: rho renders, full test script, Astra code review vs AGREED, then a 100-update timing run and training.
+- Owner asked about the A@12k vs M12k comparison: tmet-A12k still scoring (record only).
+
 ## 2026-11-27 18:35 — guard against silent plan-vs-code drift adopted
 - Owner shared x.com/RealAstropulse (27 Nov): a Claude agent coded something other than its stated plan (starved high-res data, froze a part against instructions, needless recomputation). The walking-RL session shared ~/Documents/neurellum/GUARD-ml-research.md. Adopted for the causal video model: (1) two reviewers from different model families converge on council/AGREED-causal-r1.md with pre-registered bars before training; (2) Astra reviews the code against AGREED before it trains, and a claims-vs-code audit (council/hourly/AUDIT-brief.md) after each big change; (3) trainer logs code_sha, batch_sha, step_s, data_s, peak memory, args.json; (4) "temporal off == A@20k" parity and "future cameras do not change past frames" tests before training; (5) owner sees videos at every check.
 

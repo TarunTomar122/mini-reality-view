@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 18:55 — A6000 drained; tests + timing moved to an H200 3g.71gb slice; GPU coordination with live-VSR
+- Astra code review r4 (council/codereview-causal-r4-astra.md): SIGN-IF 061b3f9 with T1-T7 passing, a valid rho decision with finite decisive ratios (non-finite now inadmissible, rho_decision.py), and a 100-update timing / peak GB record before production. Everything else = follow-ups.
+- landonia11 (the only A6000 node) has been DRAINED since 18:19 ("Kill task failed", most likely the Lustre OST 2 hang). Our A6000 jobs could never start. saxa had 3 of 4 h200_3g.71gb slices free and none queued: ctests-h200 (3755086) and vtiming-h200 (3755087, 600 updates, --timing) started there at once (each <= 1 h).
+- Owner: coordinate GPU use with the live-VSR (neurellum) session. Agreed: MRV <= 16 jobs running + pending; live-VSR peaks at ~7-8 jobs; MRV leaves their two h200_1g jobs alone and runs only short jobs on free slices; asked before any long MRV job on a 3g slice. Live timing of A (2080 Ti, livetime 3755046) and T2 (ct2) running.
+
 ## 2026-11-27 18:40 — hourly council review 18:30 (both seats: continue the causal pilot; measure live latency now)
 - Astra (council/review-20261127-1830-astra.md): continue the frozen A@20k causal pilot; the 2k signed check (smooth motion, cars disappearing on exit) is the milestone; measure 2080 Ti camera-to-display latency early; few-step sampler later if quality passes; more car-exit clips if ghosts persist.
 - Fable (council/review-20261127-1830-fable.md): sound; review rounds pay off; but two PROGRESS headers were future-dated (fixed: 19:30 -> 18:15, 18:45 -> 18:25, 18:35 -> 18:05, 18:00 -> 17:50; the builder's clock estimates ran ahead) and "live" is ahead of the evidence (~2.8 s/frame est. on a 2080 Ti vs 0.1 s per tick). Ideas: (1) no-training few-step test of frozen A (DDIM 8 / 4, with / without CFG, public LCM-LoRA); (2) past camera frames as input (can raise accuracy, cannot drift); (3) temporal strength as an inference knob.

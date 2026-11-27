@@ -52,6 +52,26 @@
     "A": 0.448,
     "C": 0.441
    }
+  },
+  {
+   "step": 10000,
+   "label": "at 10k steps (6 practice drives)",
+   "jumps": {
+    "A": 0.0955,
+    "C": 0.0849
+   },
+   "wobble": {
+    "A": 28.84,
+    "C": 26.87
+   },
+   "fake": {
+    "A": 4.67,
+    "C": 15.25
+   },
+   "car": {
+    "A": 0.454,
+    "C": 0.383
+   }
   }
  ],
  "timeline": [
@@ -73,7 +93,7 @@
   [
    "now",
    "Checks at 5k, 10k, 15k, 20k",
-   "5k done (C ahead, but less than at 4k); 10k being drawn on 12 GPUs"
+   "10k: smoother than A, but cars less accurate late in long drives (1st warning). 15k decides"
   ],
   [
    "next",

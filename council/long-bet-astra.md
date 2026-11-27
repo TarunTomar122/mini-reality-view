@@ -1,0 +1,7 @@
+**Pick C with deeper own-rollout history.** At the locked s=0.3, C reduced edge-car appearance change (ID) by 19% and warp error (W) by 9.4% against A at 4k. Its late LPIPS gap was +0.0074, versus B’s +0.0568. C still produced 4.42 extra ghosts lasting at least five ticks per run. This supports keeping the one-frame causal model and training it on errors that accumulate through a drive.
+
+Resume C and independent A from their 4k checkpoints, including optimizer state, to **20k total updates each**. At 4k, 10k and 15k, freeze C and cache six rotating, seeded train drives end to end with the deployment sampler (DDIM 25, CFG 2, s=0.3, reset at hard breaks). Replace the fixed eight-tick clip sampler. Per batch, draw six cached predecessors, six real predecessors and four history-free singles. Keep 10% dense-history dropout and sample training noise levels uniformly from 0 to 0.7. Give A identical targets and noise draws.
+
+Every 5k, score six fixed dev drives, seeds 0/1, against equal-step A. Show the **smaller percentage reduction in ID and W** on paired transitions (4k baseline **9.4%**), both components, car F1, edge recall, late drift and excess five-tick ghosts. Replay the same A/C side-by-side clip at native speed.
+
+Stop early after two consecutive checks with zero or negative headline gain, or two consecutive car-F1 deficits greater than 0.02. Ghost counts alone never stop training. At 20k, run one paired 30-drive exam with drive-bootstrap intervals and one council review.

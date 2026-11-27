@@ -72,6 +72,26 @@
     "A": 0.454,
     "C": 0.383
    }
+  },
+  {
+   "step": 15000,
+   "label": "old recipe at 15k (stopped: drift)",
+   "jumps": {
+    "A": 0.1386,
+    "C": 0.0822
+   },
+   "wobble": {
+    "A": 31.71,
+    "C": 30.08
+   },
+   "fake": {
+    "A": 5.08,
+    "C": 24.5
+   },
+   "car": {
+    "A": 0.43,
+    "C": 0.332
+   }
   }
  ],
  "timeline": [
@@ -88,7 +108,7 @@
   [
    "now",
    "Fix: C trains on fresh practice drives",
-   "restart from C at 8k; redraw its practice drives every 2k steps from its current self"
+   "restarted from C at 8k (healthy: no drift); practice drives redrawn every 2k steps"
   ],
   [
    "next",

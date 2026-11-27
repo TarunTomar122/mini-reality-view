@@ -7,6 +7,9 @@
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1
 CT=$1; T2=$2
+# never two training runs: skip if a vlive job is queued / running or the run already exists
+if [ -n "$(squeue -u $USER -h -n vlive -o %i)" ] || [ -e runs/vlive/args.json ] || [ -e runs/vlive/ckpt.pt ]; then
+  echo "vlive already submitted / running: nothing to do"; exit 0; fi
 grep -q "CAUSAL_TESTS_SH FAILS=0" $CT || { echo "GATE FAIL: test suite not clean ($CT)"; tail -5 $CT; exit 1; }
 grep -q "CAUSAL_T2 FAILS=0" $T2 || { echo "GATE FAIL: T2 not clean ($T2)"; exit 1; }
 # the suite must have tested the code that will train / render now

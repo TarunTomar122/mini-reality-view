@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 01:00 — temporal scorer SIGNED (764dd3ec95db, both); decision scoring released; C queued
+- Astra and Fable both signed scorer content hash 764dd3ec95db (git fded34e) for non-swap rollouts (council/scorer-sign-764dd3ec95db-*.md). Fable's reading conditions: "ghosts not growing" = paired difference vs independent on BOTH ghost growth and >= 5-tick ghosts (growth alone does not separate warm 0.5); state the drive count beside every late gap / ghost growth (decision set should be 22); flips descriptive only. Lag reported under the interim rule (signed for reporting). Report 65.6% dev link coverage beside ID / W.
+- Released the six decision metric jobs (independent and warm 0.7, 30 drives x seeds 0/1, 60 rollouts each, on 764dd3ec95db).
+- Arm C queued: fork of B@1k with data/rollcache_1000 (cache 69/85 drives done), to 2.5k (tmpC-a, afterok on the cache job); then cache from C@2.5k and resume to 4k.
+
 ## 2026-11-27 00:50 — dev controls on the candidate scorer (764dd3ec95db); signatures requested
 - runs/troll/v4_*_dev.json vs independent (6 dev drives, seeds 0/1): ordering holds (key video ID 0 / W 11.4; VAE ID 0.064 vs 0.110 / W 13.7 vs 29.4; fresh noise ID 0.157 vs 0.102 / W 41.1 vs 30.1).
 - With placement now on manifest ticks % 5: warm 0.7 car F1 0.423 vs 0.485 (-0.062 [-0.113, -0.014]) and road 0.797 vs 0.854 -> fails the placement gates on dev; it also leaves lingering ghosts: >= 5-tick ghost tracks 10.3 per run vs 2.4 (independent), ghosts / tick 2.25 vs 1.61. warm 0.5: 30.1 lingering ghosts per run.

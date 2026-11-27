@@ -113,6 +113,7 @@ unet.requires_grad_(False); unet.to(dev, AMP)
 LORA_REF = {n: q for n, q in unet.named_parameters() if "lora" in n}  # references survive wrapping (names gain ".inner.")
 LORA_PRE = {n: q.detach().clone() for n, q in LORA_REF.items()}
 TW = add_causal_temporal(unet, a.K)
+INIT_SHA = hashlib.sha256(b"".join(q.detach().float().cpu().numpy().tobytes() for w in TW for q in w.temporal.parameters())).hexdigest()[:16]  # default-seed init (vpriv matched-init check)
 BLOCK_NAMES = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]
 assert len(BLOCK_NAMES) == 16
 assert len(TW) == 16, len(TW)
@@ -147,7 +148,7 @@ if os.path.exists(ck):
     for w, sd_ in zip(TW, s_["temporal"]):
         w.temporal.load_state_dict(sd_, strict=True)
     opt.load_state_dict(s_["opt"]); start = s_["step"]; print("resumed at", start, flush=True)
-json.dump({**vars(a), "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "clip_starts": len(starts),
+json.dump({**vars(a), "code_sha": CODE_SHA, "init_sha": INIT_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "clip_starts": len(starts),
            "drives_with_clips": sum(1 for v in COVER.values() if v), "drives_without_clips": [k for k, v in COVER.items() if not v],
            "clips_per_drive": COVER}, open(f"{a.out}/args.json", "w"), indent=1)
 
@@ -211,6 +212,7 @@ log = open(f"{a.out}/log.jsonl", "a")
 style = torch.full((a.clips * Fn,), 2, dtype=torch.long, device=dev)
 w_loss = torch.zeros(a.clips, Fn, 1, 1, 1, device=dev); w_loss[:, 1:] = 1.0  # loss on ticks 1..Fn-1
 end = a.steps if not a.max_steps_this_job else min(a.steps, start + a.max_steps_this_job)
+PICK_H = hashlib.sha1()
 T_WIN, N_WIN = time.time(), 0  # end-to-end window timing (data + compute + logging + saving + probes)
 t_data = t_gpu = 0.0; n_acc = 0
 for step in range(start, end):
@@ -222,6 +224,7 @@ for step in range(start, end):
     eps = build_eps(eps_clip, eps_own, a.rho, a.private_clips, step)  # mrv/noise.py (CPU-tested; private 0 == AGREED r1)
     drop = (torch.rand(a.clips, generator=g) < 0.1).repeat_interleave(Fn)
     batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[:, 0, 0, 0].numpy().tobytes() + drop.numpy().tobytes()).hexdigest()[:10]
+    PICK_H.update(str(pick).encode() + t.numpy().tobytes() + drop.numpy().tobytes())  # cumulative: data / t / dropout draws only (mode-independent)
     tok, lat, ray = [], [], []
     for sc, i in (starts[k] for k in pick):
         e = E[sc]
@@ -255,7 +258,7 @@ for step in range(start, end):
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),
                "step_s": round(t_gpu / n_acc, 3), "data_s": round(t_data / n_acc, 3),
-               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "code_sha": CODE_SHA}
+               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "pick_sha_cum": PICK_H.hexdigest()[:10], "private_clips": a.private_clips, "code_sha": CODE_SHA}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush(); t_data = t_gpu = 0.0; n_acc = 0
         T_WIN, N_WIN = time.time(), step + 1 - start
     if (step + 1) % 500 == 0 or step + 1 == end:

@@ -9,6 +9,13 @@ C, F, rho = 2, 16, 0.95
 ec = torch.randn(C, 1, 4, 32, 64, generator=g); eo = torch.randn(C, F, 4, 32, 64, generator=g)
 old = (rho ** 0.5 * ec + (1 - rho) ** 0.5 * eo).reshape(C * F, 4, 32, 64)
 check("private 0 == AGREED-r1 formula (bit-identical)", torch.equal(build_eps(ec, eo, rho, 0, 7), old))
+oldc = old.reshape(C, F, 4, 32, 64)
+for step in (0, 1):  # Astra vpriv item 3: exact eps for BOTH slots at BOTH parities
+    e1 = build_eps(ec, eo, rho, 1, step).reshape(C, F, 4, 32, 64); p_, s_ = step % C, 1 - step % C
+    check(f"private 1, step {step}: shared slot bit-identical to r1, private slot == e_tick exactly",
+          torch.equal(e1[s_], oldc[s_]) and torch.equal(e1[p_], eo[p_]))
+e2x = build_eps(ec, eo, rho, 2, 5).reshape(C, F, 4, 32, 64)
+check("private 2: every clip == e_tick exactly", torch.equal(e2x, eo))
 def tick_corr(e):  # mean correlation between consecutive ticks of one clip
     e = e.reshape(F, -1); return torch.stack([torch.corrcoef(torch.stack([e[i], e[i + 1]]))[0, 1] for i in range(F - 1)]).mean().item()
 e2 = build_eps(ec, eo, rho, 2, 0).reshape(C, F, 4, 32, 64)

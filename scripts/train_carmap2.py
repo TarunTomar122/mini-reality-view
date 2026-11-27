@@ -72,7 +72,7 @@ if __name__ == "__main__":
     # maps are deterministic (fixed degradation, no box dropout): rasterise every training frame once (z-buffered faces
     # cost ~0.13 s / frame), in parallel, and cache them
     from concurrent.futures import ProcessPoolExecutor
-    with ProcessPoolExecutor(max_workers=max(1, (os.cpu_count() or 4) - 1)) as ex:
+    with ProcessPoolExecutor(max_workers=max(1, len(os.sched_getaffinity(0)))) as ex:  # the job's CPUs, not the node's
         MAPS = dict(zip([r[1] for r in rows], ex.map(map_planes, [BOX[r[1]] for r in rows], chunksize=16)))
     print(f"rasterised {len(MAPS)} maps", flush=True)
     print(f"rows {len(rows)} from {len({r[0] for r in rows})} drives; skipped {miss} (no boxes / no key mask); "

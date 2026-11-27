@@ -56,9 +56,10 @@ def segment(img):  # = judge_pair.py segment() for --judge m2f
 items = []
 for sc in open(a.scenes_file).read().split():
     kk = sorted(glob.glob(f"{a.keys}/{sc}/*.png"))
-    if len(kk) < a.frames:
-        print("skip (too few keys)", sc); continue
-    for i in np.linspace(0, len(kk) - 1, a.frames).round().astype(int):
+    if not kk:
+        print("skip (no keys)", sc); continue
+    nf = min(a.frames, len(kk))  # short drives (3 keyed frames) use all of them
+    for i in np.linspace(0, len(kk) - 1, nf).round().astype(int):
         kp = kk[i]; b = os.path.basename(kp)[:-4]; k, tok = int(b[:3]), b[4:]
         c = f"{CACHE}/{sc}_{b}.npz"
         if not os.path.exists(c):

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 22:48 UTC — 4k informational: still jumpier, but improving from 2k; 12k check queued
+- V4k (signed): vs A@20k ID 0.1400 vs 0.1059 (+32.2%), W 34.24 vs 29.77 (+15.0%), car F1 0.4263 vs 0.4456 (-0.019), recall 0.454 vs 0.446, late gap +0.0003, lingering ghosts 0.42 vs 4.33. vs own cold (off at 0.95): ID +16.8%, W +8.2%, F1 -0.019, ghosts 0.42 vs 3.42. 2k -> 4k: ID vs A +61.5% -> +32.2%, W +30.7% -> +15.0%. docs/figs/vlive_2k_4k.png.
+- CORRECTION: the previous entry stamped vlive's 10,300 updates at "22:52"; that entry was written before 22:48 UTC (future-dated header again). vlive at 10,800 at 22:48; ckpt_10000 saved.
+- 8k check rendering (5 / 6 shards running 25 min); 12k check queued (3755584-90, waits for ckpt_12000 ~23:07).
+
 ## 2026-11-27 22:45 UTC — A3 CONVERGED ("vpriv"); gradient-cosine probe
 - A3 (council/AGREED-causal-r1.md, supersedes the draft): if vlive has no joint pass at 8k / 12k / 16k and both safety bars are met at 16k, train ONE fresh arm from frozen A@20k with plain MSE where BOTH clips of every update use fully private per-tick noise (ONE alternating clip if vlive's 16k ID and W are both strictly better than its own cold); rollouts stay at rho 0.95; tests + fixtures + Astra signature first. Draft code (--private_clips, alternating slot, train_noise recorded) in the local tree only, NOT deployed.
 - Gradient-cosine probe (pulled/gradcos_*.json): cos(grad MSE, grad difference) at t 900 / 700 / 300 = 0.45 / 0.49 / 0.22 (2k), 0.47 / 0.54 / 0.28 (8k); difference-term gradient norm 0.52-0.71 x MSE's: the difference loss is not redundant (informational; arm already chosen).

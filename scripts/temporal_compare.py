@@ -42,10 +42,12 @@ def load_merged(pat):  # a json, or a glob of shard jsons OF ONE ROLLOUT (one ro
 
 if a.make_count_list:
     C_ = load_merged(a.make_count_list); shas = {q.get("scorer_sha") for q in C_["drives"].values()}
-    assert len(shas) == 1, shas
+    if len(shas) != 1:
+        raise SystemExit(f"comparator files mix scorer versions: {shas}")
     scs = sorted({r.rsplit("_s", 1)[0] for r in C_["drives"]})
     links = {q.get("link") for q in C_["drives"].values()}
-    assert len(links) == 1, links
+    if len(links) != 1:
+        raise SystemExit(f"comparator files mix link modes: {links}")
     import hashlib
     fsha = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(a.make_count_list)))).hexdigest()[:12]
     res = {"comparator": a.make_count_list, "comparator_roll": C_["roll"], "comparator_files_sha": fsha, "scorer_sha": shas.pop(),
@@ -55,7 +57,8 @@ if a.make_count_list:
         cnt, elig, per_seed = {}, {}, {}
         for s_ in scs:
             rs = [f"{s_}_s{q}" for q in ("0", "1")]
-            assert all(r in C_["drives"] for r in rs), f"comparator lacks a seed for {s_}"
+            if not (all(r in C_["drives"] for r in rs)):
+                raise SystemExit(f"comparator lacks a seed for {s_}")
             per_seed[s_] = {r[-1]: {"eligible": len(C_["drives"][r]["trans_" + name]),
                                     "matched": sum(1 for t in C_["drives"][r]["trans_" + name] if t[5] and fin(t[4]))} for r in rs}
             cnt[s_] = sum(v["matched"] for v in per_seed[s_].values()); elig[s_] = sum(v["eligible"] for v in per_seed[s_].values())
@@ -120,7 +123,9 @@ if a.compare:
         return v
     PD = {s_: per_drive(s_) for s_ in scenes}
     no_shared = {name: [s_ for s_ in scenes if PD[s_][name][2] == 0 and PD[s_][name][3] > 0] for name in ("ID", "W")}
-    CL = json.load(open(a.count_list)) if a.count_list else None
+    if not a.count_list:
+        raise SystemExit("--count_list is required for every comparison (amendment 3; dev uses a list with --floor 0)")
+    CL = json.load(open(a.count_list))
     if CL is not None:
         if a.floor is None:
             raise SystemExit("--floor is required with --count_list (20 decision / 12 final / 0 dev)")
@@ -128,14 +133,18 @@ if a.compare:
             raise SystemExit(f"count list made with k = {CL['k']}; amendment 3 (as settled) uses k = 3")
     COUNT = {}
     if CL is not None:
-        assert CL["scorer_sha"] == vb_[0], f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}"
+        if not (CL["scorer_sha"] == vb_[0]):
+            raise SystemExit(f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}")
         import hashlib
         fsha_b = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(a.compare[1])))).hexdigest()[:12]
-        assert CL.get("comparator_files_sha") == fsha_b, f"count list made from comparator files {CL.get('comparator_files_sha')}, compared files are {fsha_b}"
-        assert CL.get("link") == vb_[1], f"count list link mode {CL.get('link')} != comparator link mode {vb_[1]}"
-        assert CL["comparator_roll"] and os.path.normpath(CL["comparator_roll"]) == os.path.normpath(B["roll"] or ""), \
-            f"count list belongs to comparator {CL['comparator_roll']}, not {B['roll']}"
-        assert set(CL["drives"]) == set(scenes), "count list drive panel differs from the compared panel"
+        if not (CL.get("comparator_files_sha") == fsha_b):
+            raise SystemExit(f"count list made from comparator files {CL.get('comparator_files_sha')}, compared files are {fsha_b}")
+        if not (CL.get("link") == vb_[1]):
+            raise SystemExit(f"count list link mode {CL.get('link')} != comparator link mode {vb_[1]}")
+        if not (CL["comparator_roll"] and os.path.normpath(CL["comparator_roll"]) == os.path.normpath(B["roll"] or "")):
+            raise SystemExit(f"count list belongs to comparator {CL['comparator_roll']}, not {B['roll']}")
+        if not (set(CL["drives"]) == set(scenes)):
+            raise SystemExit("count list drive panel differs from the compared panel")
         for name in ("ID", "W"):
             cnt_ = CL[name]["counting"]
             missing_ = [s_ for s_ in cnt_ if s_ not in scenes]  # candidate (or comparator) lacks a seed on a counting drive

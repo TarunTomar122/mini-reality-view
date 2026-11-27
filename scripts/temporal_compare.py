@@ -18,7 +18,7 @@ p.add_argument("--compare", nargs=2, default=None)
 p.add_argument("--make_count_list", default="")
 p.add_argument("--k", type=int, default=3)
 p.add_argument("--count_list", default="")
-p.add_argument("--floor", type=int, default=0)
+p.add_argument("--floor", type=int, default=None, help="REQUIRED with --count_list: 20 decision, 12 final, 0 dev (amendment 3)")
 p.add_argument("--out", default="")
 p.add_argument("--cold_ref", default="none", choices=["A", "B", "none"],
                help="which side of --compare IS the cold reference (its late gaps are 0 by definition); every other missing late gap on a contiguous run is a hard failure")
@@ -108,6 +108,11 @@ if a.compare:
     PD = {s_: per_drive(s_) for s_ in scenes}
     no_shared = {name: [s_ for s_ in scenes if PD[s_][name][2] == 0 and PD[s_][name][3] > 0] for name in ("ID", "W")}
     CL = json.load(open(a.count_list)) if a.count_list else None
+    if CL is not None:
+        if a.floor is None:
+            raise SystemExit("--floor is required with --count_list (20 decision / 12 final / 0 dev)")
+        if CL["k"] != 3:
+            raise SystemExit(f"count list made with k = {CL['k']}; amendment 3 (as settled) uses k = 3")
     COUNT = {}
     if CL is not None:
         assert CL["scorer_sha"] == vb_[0], f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}"
@@ -120,7 +125,7 @@ if a.compare:
             zero_ = [s_ for s_ in cnt_ if s_ in scenes and PD[s_][name][2] == 0]
             COUNT[name] = {"counting": [s_ for s_ in cnt_ if s_ in scenes], "missing_counting": missing_, "zero_shared_counting": zero_,
                            "floor": a.floor, "k": CL["k"],
-                           "can_pass": (not missing_) and (not zero_) and len(cnt_) >= a.floor}
+                           "can_pass": (not missing_) and (not zero_) and len(cnt_) >= (a.floor or 0)}
 
     def stats(pick_scenes):  # equal drive weights; ID / W over counting drives only when a count list is given
         res = {}

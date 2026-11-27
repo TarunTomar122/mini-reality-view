@@ -36,6 +36,7 @@ p.add_argument("--drop_hi", type=float, default=0.5)
 p.add_argument("--drop_switch", type=int, default=1000)
 p.add_argument("--drop_lo", type=float, default=0.25)
 p.add_argument("--seed", type=int, default=0)
+p.add_argument("--tmax", type=int, default=1000, help="t = floor((1 - u^3) * tmax), clamped to tmax - 1 (F: 962 -> max 961 = highest DDIM-25 timestep)")
 p.add_argument("--arch", default="conv", choices=["conv", "branch4"], help="conv = arm R (map conv after conv_in); branch4 = fallback F (bias-free 4-scale branch)")
 p.add_argument("--budget_min", type=float, default=0, help="timing run: exit 3 if the projected 4k run (map prep + 4,000 updates + checkpoints) exceeds this many minutes")
 p.add_argument("--resume", action="store_true", help="continue <out>/ckpt.pt (staged 1k / 2k gates)")
@@ -130,7 +131,7 @@ if __name__ == "__main__":
             torch.cuda.synchronize(); t10 = time.time()
         g = torch.Generator().manual_seed(a.seed * 100003 + step)
         idx = torch.randint(0, len(rows), (16,), generator=g)
-        u = torch.rand(16, generator=g); t = ((1 - u ** 3) * 1000).floor().clamp(0, 999).long()
+        u = torch.rand(16, generator=g); t = ((1 - u ** 3) * a.tmax).floor().clamp(0, a.tmax - 1).long()
         eps = torch.randn(16, 4, 32, 64, generator=g)
         pdrop = a.drop_hi if step < a.drop_switch else a.drop_lo
         drop = torch.rand(16, generator=g) < pdrop

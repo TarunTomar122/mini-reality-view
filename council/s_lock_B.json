@@ -1,0 +1,118 @@
+{
+ "arm": "B",
+ "lock_s": 0.3,
+ "label": "failed dev screen",
+ "table": [
+  {
+   "s": 0.0,
+   "eligible": false,
+   "fails": [
+    "car_f1.diff",
+    "recall.diff",
+    "late_lpips_gap.A",
+    "late_f1_gap.A",
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9087,
+   "ID": [
+    0.0811,
+    0.1054
+   ],
+   "W": [
+    28.2947,
+    31.1377
+   ],
+   "car_f1_diff": -0.0603,
+   "road_diff": -0.0081,
+   "recall_diff": -0.0548,
+   "late_lpips": 0.0725,
+   "late_f1": -0.053,
+   "ghost_growth_diff": 0.5233,
+   "ghost_ge5_diff": 14.1667
+  },
+  {
+   "s": 0.1,
+   "eligible": false,
+   "fails": [
+    "car_f1.diff",
+    "recall.diff",
+    "late_lpips_gap.A",
+    "late_f1_gap.A",
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9572,
+   "ID": [
+    0.0855,
+    0.1056
+   ],
+   "W": [
+    29.6464,
+    30.9714
+   ],
+   "car_f1_diff": -0.0688,
+   "road_diff": -0.0062,
+   "recall_diff": -0.0454,
+   "late_lpips": 0.067,
+   "late_f1": -0.0625,
+   "ghost_growth_diff": 0.8223,
+   "ghost_ge5_diff": 13.5833
+  },
+  {
+   "s": 0.3,
+   "eligible": false,
+   "fails": [
+    "car_f1.diff",
+    "recall.diff",
+    "late_lpips_gap.A",
+    "late_f1_gap.A",
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9358,
+   "ID": [
+    0.0917,
+    0.1071
+   ],
+   "W": [
+    29.9415,
+    31.997
+   ],
+   "car_f1_diff": -0.0543,
+   "road_diff": -0.0029,
+   "recall_diff": -0.0312,
+   "late_lpips": 0.0568,
+   "late_f1": -0.0704,
+   "ghost_growth_diff": 0.6714,
+   "ghost_ge5_diff": 9.0833
+  },
+  {
+   "s": 0.5,
+   "eligible": false,
+   "fails": [
+    "car_f1.diff",
+    "late_lpips_gap.A",
+    "late_f1_gap.A",
+    "ghost_growth.diff",
+    "ghost_ge5.diff"
+   ],
+   "score": 0.9408,
+   "ID": [
+    0.0901,
+    0.099
+   ],
+   "W": [
+    29.7479,
+    31.62
+   ],
+   "car_f1_diff": -0.0341,
+   "road_diff": 0.0001,
+   "recall_diff": -0.0174,
+   "late_lpips": 0.0435,
+   "late_f1": -0.0387,
+   "ghost_growth_diff": 0.2215,
+   "ghost_ge5_diff": 7.5833
+  }
+ ]
+}

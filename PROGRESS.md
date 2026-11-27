@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 06:25 — OWNER PRIORITY + B dev screen: B fails at every s (lingering ghost cars)
+- Owner (side chat, 06:20): "i need the jumps to go away and video to become safe and then further training to make the video smooth". -> top priority = the A / B / C verdict on the 30 decision drives (aim midday); no more rule polishing unless a reviewer finds an error that would change a result; keep the safety gates; car map stays closed; plan a longer training of the winner; one short council round on the next video step.
+- B 4k s-lock (scripts/s_lock.py, mechanical; council/s_lock_B.json; panels and late windows OK): vs A 4k on 6 dev drives, ID 0.081-0.092 vs 0.099-0.107 (-9 to -23%), W 28.3-30.0 vs 31.0-32.0 (-5 to -9%), BUT car F1 -0.034 to -0.069, recall -0.017 to -0.055, own late LPIPS drift +0.044 to +0.073, late F1 -0.039 to -0.070, >= 5-tick ghosts +7.6 to +14.2 per run vs A. No s eligible -> s = 0.3 "failed dev screen" (rule). Same pattern as warm start: fewer jumps but lingering fake cars and drift.
+- B decision rollouts at s = 0.3 started (3 shards) - scored for the record (failing allowed). C scoring running; A 4k decision scoring running.
+
 ## 2026-11-27 06:05 — drift check 10 outcome: s-lock made mechanical before any sweep score exists
 - Both confirm the late-gap reading: the gate is the candidate's own drift (arm at s minus the same arm's cold rollout, ticks 150-169, 5 contiguous dev drives, <= +0.02 / F1 >= -0.03 as point estimates on dev); A's 0 is bookkeeping (--cold_ref B, A second). Against A + warm 0.7 later: --cold_ref none, the late gate read only from the comparison against A independent (Fable).
 - scripts/s_lock.py (committed while 0 sweep score files existed) names the exact output field and threshold of every clause and picks s mechanically (score = max(ID.A/ID.B, W.A/W.B); ties within 0.01 -> largest s; none eligible -> 0.3 "failed dev screen").

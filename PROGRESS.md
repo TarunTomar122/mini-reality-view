@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 01:25 — wrapper exit-code bug; P3 on all 30; R and C resubmitted
+- BUG (all our py.sbatch jobs so far): the wrapper printed "rc=$?" after $(date), so it logged and RETURNED the exit code of date (0), not of python. Failed jobs looked COMPLETED and afterok chains went ahead regardless. Fixed (rc captured right after python, exit $rc). Known affected tonight: cmR-timing2 / timing3 crashed (BrokenProcessPool) but showed COMPLETED; cmR was held, so nothing ran on them. Earlier chains were checked by log lines (TMETRICS_DONE / ROLLOUT_DONE etc.) before use.
+- Map cache: the parallel rasteriser kept crashing (BrokenProcessPool, most likely memory in forked workers); now single-process with an on-disk cache keyed by the box file (tmp/carmap_maps_<crc>.pt). Timing re-run cmR-timing4 3753691 (--budget_min 180, exits 3 if over); cmR 3753661 released, afterok on it.
+- P3 hull F1 on all 30 seeded train drives (scene-0705 has one keyed frame: 117 frames, runs/judge/keyidx_train30): GT 0.317, detector raw 0.331, degraded 0.290; val84 GT 0.411, detector 0.380. Raw detector gap -0.049 vs GT gap -0.094 -> exceeds by +0.045 (< 0.05); degraded -0.090 vs -0.094 (matched).
+- Arm C: rollcache_1000 complete (85 drives, 128 clips); files stamped with snapshot runs/tmpB/ckpt_1000.pt / step 1000 from the job record (made before the stamp existed); tmpC-a 3753692 with --cache_step 1000 (to 2,500).
+
 ## 2026-11-27 01:20 — drift check 5 outcome (both)
 - Correction to the 00:00 entry: the 11 short calibration drives have ONE keyed frame each (not 3), so val84 = 73 x 4 + 11 = 303 frames is complete (Fable counted on the cluster).
 - Both: R may start only after (Fable) the pooled-18 frame list is fixed and committed and the timing gate is mechanical, and (Astra) P3 hull coverage is documented for all 30 train drives and the measured 4k budget fits. Done / running:

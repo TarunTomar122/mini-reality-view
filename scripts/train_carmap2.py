@@ -71,11 +71,19 @@ if __name__ == "__main__":
     assert drives_ok == TRAIN, f"missing train drives: {sorted(TRAIN - drives_ok)[:5]} ({len(TRAIN - drives_ok)})"
     assert miss == 0, f"{miss} keyframes without boxes or key masks (coverage must be complete)"
     # maps are deterministic (fixed degradation, no box dropout): rasterise every training frame once (z-buffered faces
-    # cost ~0.13 s / frame), in parallel, and cache them
-    from concurrent.futures import ProcessPoolExecutor
+    # ~0.13 s / frame) in this process and cache them on disk next to the box file (keyed by its size + mtime)
     t_prep0 = time.time()
-    with ProcessPoolExecutor(max_workers=max(1, len(os.sched_getaffinity(0)))) as ex:  # the job's CPUs, not the node's
-        MAPS = dict(zip([r[1] for r in rows], ex.map(map_planes, [BOX[r[1]] for r in rows], chunksize=16)))
+    bf = [x for pat in a.boxes.split(",") for x in sorted(glob.glob(pat))]
+    tag = "_".join(f"{os.path.basename(f)}-{os.path.getsize(f)}-{int(os.path.getmtime(f))}" for f in bf)
+    mc = f"tmp/carmap_maps_{zlib.crc32(tag.encode()):08x}.pt"
+    MAPS = torch.load(mc) if os.path.exists(mc) else {}
+    todo = [r[1] for r in rows if r[1] not in MAPS]
+    for n_, tk in enumerate(todo):
+        MAPS[tk] = map_planes(BOX[tk]).half()
+        if n_ % 500 == 0:
+            print(f"maps {n_} / {len(todo)}", flush=True)
+    if todo:
+        torch.save(MAPS, mc + ".tmp"); os.replace(mc + ".tmp", mc)
     T_PREP = time.time() - t_prep0
     print(f"rasterised {len(MAPS)} maps in {T_PREP / 60:.1f} min", flush=True)
     print(f"rows {len(rows)} from {len({r[0] for r in rows})} drives; skipped {miss} (no boxes / no key mask); "
@@ -120,7 +128,7 @@ if __name__ == "__main__":
         M, tok, lat, ray, W = [], [], [], [], []
         for i in idx.tolist():
             sc, tk, tk_tok, lt, w = rows[i]
-            M.append(MAPS[tk]); tok.append(tk_tok.float()); lat.append(lt.float()); ray.append(RAYS[sc]); W.append(w)
+            M.append(MAPS[tk].float()); tok.append(tk_tok.float()); lat.append(lt.float()); ray.append(RAYS[sc]); W.append(w)
         M = torch.stack(M).to(dev); tok = torch.stack(tok).to(dev); x0 = torch.stack(lat).to(dev); ray = torch.stack(ray).to(dev).float()
         W = torch.stack(W).to(dev)[:, None]
         t = t.to(dev); eps = eps.to(dev); ab = acp[t].view(-1, 1, 1, 1); xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps

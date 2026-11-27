@@ -11,4 +11,6 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MALLOC_ARENA_MAX=2
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 echo "start $(date) on $(hostname)"
 .venv/bin/python "$@"
-echo "end $(date) rc=$?"
+rc=$?  # capture before anything else runs (the old line reported the exit code of $(date))
+echo "end $(date) rc=$rc"
+exit $rc

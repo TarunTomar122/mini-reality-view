@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 12:00 — C 10k check: smoother, but first stop-rule strike (car F1, late drift)
+- C 10k (s 0.3) vs A 10k (signed compare, count list A10k k3, floor 0, cold_ref B): ID 0.0849 vs 0.0955 (-11.1%, CI -0.021..-0.001); W 26.87 vs 28.84 (-6.8%, CI -4.28..+0.92); headline 6.8% (< 9.4% at 4k). car F1 0.383 vs 0.454 (-0.071, CI -0.128..-0.027) -> past the -0.03 stop line; late LPIPS gap +0.059 (CI 0.039..0.076) -> past +0.03; recall -0.045; flips -0.037; ghost_ge5 15.25 vs 4.67 per run.
+- Where it comes from: C memory vs C cold (count list from C cold, cold_ref B): 5k F1 0.441 vs 0.429, late gap +0.006; 10k F1 0.383 vs 0.421, late gap +0.059, ghost_ge5 15.25 vs 4.9. So the memory rollout itself started to drift late in drives between 5k and 10k (late gap x10). C cold vs A cold could not be run with the signed script (it hard-fails on cold-vs-cold late gaps); the C cold F1 (0.421) is slightly below A 10k (0.454).
+- Likely cause to check: stages s1-s3 trained on own_4k (history frames drawn by C@4k); by 10k the model's own outputs differ from those. The plan's refresh fixes exactly this: longC-s4 starts on the newest complete cache (own_12k if 48/48, else own_8k).
+- Rule: stop if a stop line is crossed at two checks running -> the 15k check decides (queued 12 shards now, metrics 3754151/52). Videos vid10k queued.
+
 ## 2026-11-27 11:35 — C keeps training past 20k
 - Owner: "so now we focus on teaching this memory on for longer?" -> yes. C chained to 30k: longC-s4 (3754121, -> 20k), s5 (3754122, -> 25k), s6 (3754123, -> 30k) via slurm/longC_stage.sh, which picks the newest complete 48-drive own cache at start (own_8k done; own_12k redraw 3754124-31 running). A stays at 20k (the control for the 20k exam). longC-s3 at 14,400.
 

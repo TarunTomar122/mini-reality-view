@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 18:00 — memory approach stopped at 20k; owner: go to a LIVE (causal) video model
+- longC3@20k (signed, Astra audit council/review-20261127-1735-astra.md): late gap +0.071 [0.037, 0.105], F1 0.387 vs A 0.446 (-0.059); memory OFF on the same weights F1 0.452 -> strike two, lever 2 stopped. Smallest ID/W reduction vs A 13.0%; lingering ghosts 15.8 vs 4.3. Astra: comparisons valid (report some % as descriptive), lever-2 code correct, cache provenance correct on this run but checks should bind DONE to the expected checkpoint; claims "s 0.7 switches memory off" and the 20k smoothness headline were too strong (memory still helps a little at s 0.7; 20k is worse than own cold on ID/W).
+- Running: A@12k dev rollout with M12k's layout (3754750-52) for the missing equal-step 12k comparison.
+- Owner: "this shouldnt be this hard ... we are training an image model rn right?" / "i want the ability to get live view and us saying that a video model cant do it is stupid". Agreed: causal video diffusion (Diffusion Forcing / CausVid / Self Forcing; GameNGen / DIAMOND history) runs live. Council round on a causal video model: council/causal-video-brief.md.
+
 ## 2026-11-27 16:50 — lever 2 at 15k: smoother than A past the bar, but drift creeps back (strike one)
 - longC3@15k (s 0.3) vs A@15k (signed): ID 0.0831 vs 0.1074 (-22.5%), W 28.2 vs 32.3 (-12.6%, CI -5.28..-3.01) -> smaller reduction 12.6% > 9.4% (first time the smoothness bar is met); car F1 0.394 vs 0.430 (-0.036, CI -0.062..-0.011) -> just past the A - 0.03 line; late gap +0.039 [0.015, 0.064] -> past +0.03; recall 0.419 vs 0.432; ghost_ge5 13.1 vs 5.1.
 - vs own cold: ID -11.5%, W -9.4%, F1 0.394 vs 0.427, late gap +0.039 (10k: +0.014).

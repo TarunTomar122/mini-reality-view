@@ -107,13 +107,13 @@
   ],
   [
    "now",
-   "Fix: C trains on fresh practice drives",
-   "restarted from C at 8k (healthy: no drift); practice drives redrawn every 2k steps"
+   "Fix 2: stop the model learning to copy",
+   "fresh practice drives alone did not stop the drift; now C also gets a noisier / hidden previous frame when it is shown the true one (restart from C at 8k)"
   ],
   [
    "next",
-   "10k check of the fix",
-   "does late-drive drift drop by 0.02 or more? (~14:40)"
+   "10k check of fix 2",
+   "late-drive drift at most +0.03 and cars as accurate as with memory off (~15:30)"
   ],
   [
    "next",

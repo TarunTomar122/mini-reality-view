@@ -57,6 +57,8 @@ else:
         raise SystemExit("rho 0.8 chosen although 0.5 meets the rule")
     _sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()[:16]
     for rho_, row2_ in dec["rows"].items():  # the evidence must still be the files the decision was made on
+        if row2_.get("metrics_sha") is None:
+            continue  # row never scored (not reached by the ordered rule)
         if _sha(row2_["metrics_file"]) != row2_["metrics_sha"]:
             raise SystemExit(f"rho decision evidence changed: {row2_['metrics_file']}")
     if _sha(dec["comparator"]) != dec["comparator_sha"]:

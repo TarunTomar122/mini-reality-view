@@ -24,6 +24,10 @@ subprocess.run([PY, "scripts/temporal_compare.py", "--make_count_list", "runs/tr
 rows = {}
 for rho in ("0.5", "0.8"):
     roll = f"runs/troll/Aoff_rho{rho}_dev"; met = f"runs/troll/m_Aoff_rho{rho}_dev.json"
+    if not os.path.exists(met):  # missing evidence: inadmissible row (the ordered rule then stops or never reaches it)
+        rows[rho] = {"admissible": False, "meets": False, "missing_metrics": met, "metrics_file": met, "metrics_sha": None,
+                     "eligible": {"ID": False, "W": False}, "panel_ok": False}
+        continue
     files = {os.path.basename(f)[:-3]: f for f in glob.glob(f"{roll}/*.pt")}
     def ok_render(name, f):
         r_ = torch.load(f); sc_ = name.rsplit("_s", 1)[0]
@@ -58,6 +62,8 @@ for rho in ("0.5", "0.8"):  # ordered rule
     if rows[rho]["meets"]:
         chosen, valid = float(rho), True
         break
+for rho in ("0.5", "0.8"):
+    rows[rho]["metrics_sha"] = rows[rho]["metrics_sha"] if rows[rho].get("metrics_sha") or not os.path.exists(rows[rho]["metrics_file"]) else sha(rows[rho]["metrics_file"])
 json.dump({"rule": "first of (0.5, 0.8) with ID and W each <= 1.20 x signed A@20k on admissible evidence; else back to council",
            "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json"),
            "rows": rows, "chosen": chosen, "valid": valid, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)

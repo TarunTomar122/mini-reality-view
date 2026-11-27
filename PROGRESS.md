@@ -1,6 +1,7 @@
 # Mini Reality View: progress (newest at top)
 
 ## 2026-11-27 14:25 — lever 2 launched (longC3); longC2 stopped
+- Fable round 3 (council/drift-r3-fable.md) agrees (stop longC2, lever 2 with a NEW empty cache root -> data/live3 used; decision s stays 0.3; re-lock later on the surviving checkpoint only). MERGED 10k GATE for longC3 (s 0.3, signed): CONTINUE if late gap <= +0.03 AND F1 >= own cold - 0.03 AND ID below own cold (memory still smooths) AND late gap >= 0.02 below longC2@10k (+0.050) with CI excluding 0; STOP if late gap > +0.04 or the fall vs longC2@10k < 0.01 or F1 < own cold - 0.03; otherwise decide at 12k. 15k / 20k: late gap <= +0.03 and F1 >= A - 0.03; 9.4% smoothness rule unchanged.
 - Astra round 3 (council/drift-r3-astra.md): agree stop longC2; agree lever 2 from C@8k; probe inference s 0.5 / 0.7 on frozen longC2@10k but keep decision s 0.3 (a new s lock needs a prospective rule + an independent checkpoint). Lever-2 gate at 10k: late gap <= +0.03 and car F1 >= own cold - 0.03 (s 0.3), else stop; 15k / 20k: same drift limit and F1 >= A - 0.03; 9.4% smoothness rule unchanged -> else second history frame. Fable's round-2 plan already named this step (step 6); Fable round 3 pending.
 - Cancelled longC2 at 14.9k (ckpt_10000 / 12000 / 14000 kept; it was on own_12000) and its own_12000 / own_14000 refresh jobs.
 - longC3 (3754417): --init runs/longC/ckpt_8000.pt, own_8k, live cache data/live3, refresh every 2k, --true_s_min 0.3 --true_drop 0.4, to 20k. 10k check queued (M10k, 2+2 shards + metrics).

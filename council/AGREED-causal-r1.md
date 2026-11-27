@@ -59,3 +59,15 @@ Owner: "just make sure we dont think something is bad after a short training run
   any "no pass" verdict; only a clearly broken run (NaN, crash, frozen-check failure, copy alarm with rising late gap at 8k+)
   stops earlier.
 - The council is informed at the next hourly review; changing these bars again needs the owner or a council round.
+
+## Amendment A2 (rho fallback, signed by Astra and Fable 27 Nov ~20:25 UTC BEFORE the rho 0.8 scores were known)
+Sources: council/causal-video-r4-fallback.md, causal-video-r4-{astra,fable}.md, causal-video-r4-swap{,-astra,-fable}.md.
+1. rho 0.8 meets the 1.20 rule on admissible evidence -> train at 0.8, nothing else changes.
+2. rho 0.8 fails on admissible evidence -> use the rho 0.9 and 0.95 off renders (made the same way, reviewed code, verified)
+   and train at the LOWEST of them meeting both ratios <= 1.20. Hard cap 0.95 (never higher; never 1.0). Bug guard: if a higher
+   rung scores worse than a lower one on both measures, stop (suspected render / scoring bug) and back to council.
+3. Neither 0.9 nor 0.95 meets (or their evidence is not ready 90 min after the 0.8 failure) -> train at rho 0.8 under a
+   RECORDED OVERRIDE, bars and comparator unchanged, only if: 0.8 evidence admissible; off@0.8 car F1 >= A@20k - 0.03; 0.8 not
+   worse than 0.5 on both ID and W. Otherwise back to council.
+4. The fallback code path (decision modes rule / fallback / override; trainer accepts them) needs the test suite re-passed and
+   Astra's code signature before any fallback launch. Every check also reports reductions vs the model's own cold baseline.

@@ -112,8 +112,9 @@ assert lora_names == set(ck0["lora"]) and len(lora_names) > 0, "every LoRA tenso
 unet.requires_grad_(False); unet.to(dev, AMP)
 LORA_REF = {n: q for n, q in unet.named_parameters() if "lora" in n}  # references survive wrapping (names gain ".inner.")
 LORA_PRE = {n: q.detach().clone() for n, q in LORA_REF.items()}
+torch.manual_seed(a.seed)  # explicit, reproducible temporal-block init (vlive's own init was unseeded and cannot be recovered)
 TW = add_causal_temporal(unet, a.K)
-INIT_SHA = hashlib.sha256(b"".join(q.detach().float().cpu().numpy().tobytes() for w in TW for q in w.temporal.parameters())).hexdigest()[:16]  # default-seed init (vpriv matched-init check)
+INIT_SHA = hashlib.sha256(b"".join(q.detach().float().cpu().numpy().tobytes() for w in TW for q in w.temporal.parameters())).hexdigest()[:16]  # seeded init (recorded)
 BLOCK_NAMES = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]
 assert len(BLOCK_NAMES) == 16
 assert len(TW) == 16, len(TW)
@@ -253,7 +254,7 @@ for step in range(start, end):
         print(f"frozen check after first update: {len(LORA_REF)} LoRA + {len(AD_PRE)} adapter tensors bit-identical; 16/16 temporal out weights moved", flush=True)
     torch.cuda.synchronize(); t2 = time.time()
     t_data += t1 - t0; t_gpu += t2 - t1; n_acc += 1
-    if (step + 1) % 100 == 0 or step == end - 1 or step == start:
+    if (step + 1) % 100 == 0 or step == end - 1 or step == start or a.timing:  # timing / test runs log every update
         rec = {"update": step + 1, "e2e_window_s": round((time.time() - T_WIN) / max(1, step + 1 - start - N_WIN), 3), "loss": round(loss.item(), 4), "gn": round(gn.item(), 4),
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),

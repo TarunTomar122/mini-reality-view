@@ -88,7 +88,7 @@ ckpt_2000 (the blocks use the 95%-shared past noise, not past content; pulled/no
   file's sha256 in the launch note / config; log both terms at every log step.
 - Before launch: T1-T7 + new fixtures for the difference loss, Astra's code signature. Bars and A1 timing unchanged.
 
-## Amendment A3 (CONVERGED, supersedes the DRAFT above; Astra + Fable, 27 Nov ~22:55 UTC, before vlive's 8k / 16k panels)
+## Amendment A3 (CONVERGED, supersedes the DRAFT above; Astra + Fable, written 27 Nov ~22:45 UTC (earlier header said ~22:55: future-dated, Neon), before vlive's 8k / 16k panels)
 Sources: council/causal-video-a3r2.md, causal-video-a3r2-{astra,fable}.md, causal-video-a3r2-swap{,-astra,-fable}.md.
 Evidence at the time: V2k jumpier than A and own cold; offline noise probes @2k / @8k (blocks rely on shared past noise, more
 so at 8k); gradient-cosine probe (pulled/gradcos_*.json) informational.

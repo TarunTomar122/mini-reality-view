@@ -150,6 +150,10 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <h3>Steps</h3>
     <div class="steps" id="steps"></div>
 
+    <h3>Live model checks so far (noise mix 0.95)</h3>
+    <img src="figs/vlive_2k_8k.png" alt="Live video model vs A at 2k, 4k and 8k: still jumpier than A; 8k worse than 4k; car accuracy and drift fine" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
+    <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k are look-only; 8k is the first that counts: no pass on smoothness, cars accurate, no drift, so training continued to 16k.</p>
+
     <h3>Watch it</h3>
     <div class="vids">
       <figure><video src="videos/scene-0234_fix15k.mp4" controls muted loop playsinline preload="metadata"></video>

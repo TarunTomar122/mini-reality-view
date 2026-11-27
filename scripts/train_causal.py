@@ -34,13 +34,14 @@ p.add_argument("--seed", type=int, default=0)
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
 p.add_argument("--rho_decision", default="", help="JSON written by scripts/rho_decision.py; required unless --timing (AGREED: rho fixed before update 1)")
+p.add_argument("--rho_override", default="", help="AGREED A2 step 3: guarded recorded override file (rho 0.8 only)")
 p.add_argument("--timing", action="store_true", help="timing / test run: output dir must contain 'timing' or 'ctest'; weights are throwaway")
 a = p.parse_args()
 # ---------- AGREED-causal-r1 configuration (reject anything else) ----------
 if a.K != 4 or a.frames != 16 or a.clips != 2:
     raise SystemExit(f"AGREED r1 fixes K=4, 16-tick clips, 2 clips/update (got K={a.K}, frames={a.frames}, clips={a.clips})")
-if a.rho not in (0.5, 0.8):
-    raise SystemExit(f"AGREED r1: rho must be 0.5 or 0.8 (got {a.rho}); never 1.0")
+if a.rho not in (0.5, 0.8, 0.9, 0.95):
+    raise SystemExit(f"AGREED r1 + A2: rho must be 0.5 / 0.8 / 0.9 / 0.95 (got {a.rho}); never 1.0")
 if a.timing:
     if not any(s in a.out for s in ("timing", "ctest")):
         raise SystemExit("--timing runs must write to a *timing* / *ctest* directory")
@@ -48,6 +49,12 @@ else:
     if not a.rho_decision:
         raise SystemExit("training needs --rho_decision (the recorded off-sweep decision, AGREED r1)")
     dec = json.load(open(a.rho_decision))
+    if a.rho_override:  # A2 step 3: guarded override, rho 0.8 only; the decision itself stays invalid
+        ovr = json.load(open(a.rho_override))
+        if not (ovr.get("override") and ovr.get("rho") == 0.8 == a.rho and all(ovr["guards"].values()) and not dec.get("valid")):
+            raise SystemExit(f"invalid override {a.rho_override}: {ovr.get('guards')}")
+        dec = {**dec, "chosen": 0.8, "valid": True, "rows": ovr["rows"], "mode": "override"}
+        dec["rows"]["0.8"] = {**dec["rows"]["0.8"], "meets": True}  # bypass only the 1.20 ratio test, nothing else
     if dec.get("chosen") != a.rho or not dec.get("valid"):
         raise SystemExit(f"--rho {a.rho} vs recorded decision {dec.get('chosen')} valid={dec.get('valid')} ({a.rho_decision})")
     row_ = dec["rows"][str(a.rho)]
@@ -55,6 +62,8 @@ else:
         raise SystemExit(f"decision row for rho {a.rho} is not eligible full-panel evidence: {row_}")
     if a.rho == 0.8 and dec["rows"]["0.5"]["meets"]:
         raise SystemExit("rho 0.8 chosen although 0.5 meets the rule")
+    if a.rho in (0.9, 0.95) and (dec.get("mode") != "fallback" or dec["rows"]["0.5"]["meets"] or dec["rows"]["0.8"]["meets"]):
+        raise SystemExit("rho 0.9 / 0.95 only via the A2 fallback after 0.5 and 0.8 fail")
     _sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()[:16]
     for rho_, row2_ in dec["rows"].items():  # the evidence must still be the files the decision was made on
         if row2_.get("metrics_sha") is None:
@@ -127,7 +136,7 @@ if os.path.exists(ck):
     if s_.get("timing") and not a.timing:
         raise SystemExit("refusing to resume production training from a timing / test checkpoint")
     rec_ = s_.get("args", {}).get("causal", {})
-    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_decision", a.rho_decision)):
+    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_decision", a.rho_decision), ("rho_override", a.rho_override)):
         if rec_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: recipe {key_} {rec_.get(key_)} != {want_}")
     for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho), ("base_sha", BASE_SHA), ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA)):

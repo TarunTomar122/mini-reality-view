@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 18:35 — guard against silent plan-vs-code drift adopted
+- Owner shared x.com/RealAstropulse (27 Nov): a Claude agent coded something other than its stated plan (starved high-res data, froze a part against instructions, needless recomputation). The walking-RL session shared ~/Documents/neurellum/GUARD-ml-research.md. Adopted for the causal video model: (1) two reviewers from different model families converge on council/AGREED-causal-r1.md with pre-registered bars before training; (2) Astra reviews the code against AGREED before it trains, and a claims-vs-code audit (council/hourly/AUDIT-brief.md) after each big change; (3) trainer logs code_sha, batch_sha, step_s, data_s, peak memory, args.json; (4) "temporal off == A@20k" parity and "future cameras do not change past frames" tests before training; (5) owner sees videos at every check.
+
 ## 2026-11-27 18:00 — memory approach stopped at 20k; owner: go to a LIVE (causal) video model
 - longC3@20k (signed, Astra audit council/review-20261127-1735-astra.md): late gap +0.071 [0.037, 0.105], F1 0.387 vs A 0.446 (-0.059); memory OFF on the same weights F1 0.452 -> strike two, lever 2 stopped. Smallest ID/W reduction vs A 13.0%; lingering ghosts 15.8 vs 4.3. Astra: comparisons valid (report some % as descriptive), lever-2 code correct, cache provenance correct on this run but checks should bind DONE to the expected checkpoint; claims "s 0.7 switches memory off" and the 20k smoothness headline were too strong (memory still helps a little at s 0.7; 20k is worse than own cold on ID/W).
 - Running: A@12k dev rollout with M12k's layout (3754750-52) for the missing equal-step 12k comparison.

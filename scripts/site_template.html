@@ -136,14 +136,15 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
 <!--NOW-->
   <section class="now" id="now">
     <h2>Right now</h2>
-    <p class="goal">Goal: a smooth video. No cars jumping from frame to frame.</p>
+    <p class="goal">Goal: a smooth video that can run LIVE (frame by frame, never looking ahead), with cars in the right place.</p>
+    <p>Tonight: the live video model = A frozen + small time layers that look back 4 frames. Final tests and the noise-mix decision run first, then it trains on its own (checks at 2k / 4k are look-only; the bars apply from 8k). The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
 
-    <h3>The one bet: train long, with and without memory</h3>
+    <h3>Closed: the memory version (one past frame) vs A</h3>
     <div class="race" id="race"></div>
     <div class="axis" id="axis"></div>
     <div class="legend2"><span><i></i>check + new video here</span><span><i class="r"></i>C re-draws its own practice drives</span></div>
 
-    <h3 id="cmpTitle">How C compares with no memory</h3>
+    <h3 id="cmpTitle">Memory version vs no memory (closed)</h3>
     <div class="cmp" id="cmp"></div>
 
     <h3>Steps</h3>
@@ -166,29 +167,30 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <div class="card stage"><span class="n">2</span><span>Start from Stable Diffusion: photo-like but messy</span><span class="chip">done</span></div>
     <div class="card stage"><span class="n">3</span><span>Practise in a simulator first: a head start only</span><span class="chip">done</span></div>
     <div class="card stage"><span class="n">4</span><span>Real cameras in, game-style chase view out (base model E3)</span><span class="chip">done</span></div>
-    <div class="card stage now"><span class="n">5</span><span><b>Smooth video: one memory version trained long</b></span><span class="chip run">now</span></div>
+    <div class="card stage"><span class="n">5</span><span>Smooth video with a one-frame memory: smoother, but drifted (closed)</span><span class="chip">done</span></div>
+    <div class="card stage now"><span class="n">6</span><span><b>Live video model: A frozen + time layers looking back 4 frames</b></span><span class="chip run">now</span></div>
   </div>
 
   <!--PLAN-->
   <h2>The plan from here</h2>
-  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 150" role="img" aria-label="Plan: train memory version C and the no-memory version A to 20k steps, check every 5k steps, one full exam, then remove lingering fake cars">
+  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 150" role="img" aria-label="Plan: final tests and noise mix, train the live video model to 16k, checks from 8k decide, then make it fast enough to run live">
   <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs>
   <rect x="10" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-  <text x="105" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Train C and A long</text>
-  <text x="105" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">to 20k steps · now</text>
+  <text x="105" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Final tests + noise mix</text>
+  <text x="105" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">code signed by Astra · now</text>
   <path d="M200 65 H228" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="232" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
-  <text x="327" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Check every 5k</text>
-  <text x="327" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">6 drives + a video</text>
+  <text x="327" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Train live model</text>
+  <text x="327" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">to 16k steps · overnight</text>
   <path d="M422 65 H450" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="454" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
-  <text x="549" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">One full exam</text>
-  <text x="549" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">30 test drives · afternoon</text>
+  <text x="549" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Checks + videos</text>
+  <text x="549" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">2k / 4k look · 8k+ decide</text>
   <path d="M644 65 H672" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="676" y="30" width="194" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/>
-  <text x="773" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Remove fake cars</text>
-  <text x="773" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">then train longer</text>
-  <text x="327" y="125" text-anchor="middle" font-size="12" fill="var(--ink-3)">stop early if car placement or drift gets worse twice in a row</text>
+  <text x="773" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Make it fast</text>
+  <text x="773" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">now 3.4 s/frame · goal 0.1 s</text>
+  <text x="440" y="125" text-anchor="middle" font-size="12" fill="var(--ink-3)">bars from 8k: &gt;9.4% smoother than A, cars within 0.03 of A, drift &lt;= +0.03 · two misses in a row stop</text>
   </svg></div>
 <!--/PLAN-->
   <h2>Latest news</h2>

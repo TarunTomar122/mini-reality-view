@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 03:10 — compare script signature rounds; R running
+- temporal_compare.py signature rounds: ffaffe4425a1 (both NO: count list not bound to its comparator; implicit zero late gap), c5369399a97c (both NO: list accepted for a differently-linked comparator), cb720c354157 (Fable SIGN; Astra NO: python -O strips the binding asserts; --floor without --count_list passed), now 8a190caa6de2 (git b0ca91e): explicit failures only, count list required for every comparison, list bound to the comparator's exact metric files + link mode + drive panel, one rollout per glob, provenance echoed. Signatures requested. No B / C decision score has been opened.
+- R (arm R, 1k) running on an A6000 since ~03:00 (degraded fixed-calibration boxes, depth-tested faces, map cache keyed by the rasteriser hash). Queued (held for the cap, afterok on cmR): single-step checks at 500 / 1k on the 6 dev drives (gate at 1k), rendered pooled-18 at 1k with right map and map-only swap, E3 on the same 69 frames.
+- C: cache from C@2.5k done; tmpC-b (resume to 4k, snapshot + tick asserts) waiting for an A6000. Rollouts (A, A + warm, B sweep) ~50 min in; B cold rollouts queued.
+
 ## 2026-11-27 03:20 — drift check 7: amendment 3 settled (k = 3 + floor), comparisons split into temporal_compare.py
 - Final votes: floor 20 decision / 12 final per comparator, ID and W separately (both). k: Astra 1, Fable 3 after one swap -> stricter pair per my brief: k = 3 + floor (owner may revise).
 - To keep the SIGNED scorer byte-identical (scripts/temporal_metrics.py = 764dd3ec95db, restored from fded34e), all comparison rules moved to the new scripts/temporal_compare.py (hash ffaffe4425a1, git 5c0d234): --make_count_list (comparator file alone, both seeds required), --compare with counting drives, --floor, missing-seed / zero-shared failures, hard fail on a missing late gap of a contiguous run (a rollout scored without --cold = its own cold reference). Signature requested from both.

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 06:05 — drift check 10 outcome: s-lock made mechanical before any sweep score exists
+- Both confirm the late-gap reading: the gate is the candidate's own drift (arm at s minus the same arm's cold rollout, ticks 150-169, 5 contiguous dev drives, <= +0.02 / F1 >= -0.03 as point estimates on dev); A's 0 is bookkeeping (--cold_ref B, A second). Against A + warm 0.7 later: --cold_ref none, the late gate read only from the comparison against A independent (Fable).
+- scripts/s_lock.py (committed while 0 sweep score files existed) names the exact output field and threshold of every clause and picks s mechanically (score = max(ID.A/ID.B, W.A/W.B); ties within 0.01 -> largest s; none eligible -> 0.3 "failed dev screen").
+- scripts/panel_check.py --late_cold (Astra): every contiguous dev drive must have finite late LPIPS and late car-F1 gaps on BOTH seeds against the arm's own cold folder; run ids printed; any gap blocks the lock.
+- council/temporal-s-lock-rule.md updated (k = 3 settled; commands).
+
 ## 2026-11-27 05:50 — temporal dev sweeps rendered; scoring queued
 - Rollouts done: B 4k s = 0 / 0.1 / 0.3 / 0.5 (dev, 12 runs each), C 4k s sweep (dev, 12 each), A 4k dev (12; scored, panel OK). Count list for the s-lock frozen from A 4k dev before any sweep is scored (council/count_A4k_dev_k3.json: 6 / 6 drives count).
 - Scoring queued on scorer 764dd3ec95db: B cold + B sweep (afterok on B cold dev, 3753785-89); C cold + C sweep (3753790-94, held for the cap).

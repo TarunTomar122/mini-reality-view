@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 06:55",
+  "text": "Change of plan: we were spending most GPU time on drawing and grading test videos and too little on training (training was about 13%). Now: ONE memory version trained long (about 20k steps) next to a no-memory version of the same length, quick checks every 5k steps with a side-by-side video, and one full exam at the end. The two AI reviewers pick which version. The car map is parked, not dead: it only ever got 1-2k steps."
+ },
+ {
   "when": "27 Nov, 06:30",
   "text": "Plan for today: the jumpy video comes first. The memory versions are being judged on 30 test drives (verdict aimed for midday). Version B cuts jumps by about 10-20% but leaves fake cars lingering, so it fails the safety checks; version C is being scored. The car map is closed. The two AI reviewers are planning the next video step (e.g. a model that draws several frames together) in case B and C are not enough."
  },

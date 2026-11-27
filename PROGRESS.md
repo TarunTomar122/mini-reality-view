@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:19 UTC — TRAINING STARTED: live video model runs/vlive at rho 0.95 (A2 fallback)
+- Gates (launch-vlive3 3755423): suite on e537ffc CAUSAL_TESTS_SH FAILS=0 (ctests-h200 3755421), T2 FAILS=0 (ct2 3755422), tested-code sha256 -c OK; decision (complete panel, signed scorer vs A@20k, off renders from reviewed code): 0.5 ID / W ratio 1.496 / 1.270, 0.8 1.325 / 1.143, 0.9 1.259 / 1.087, 0.95 1.119 / 1.061 -> mode fallback, rho 0.95 (lowest rung meeting <= 1.20; Fable's prediction "0.9 narrowly misses, 0.95 meets" held). Deadline launcher cancelled.
+- vlive (3755462) on ONE saxa h200_3g.71gb slice (agreed with live-VSR): frozen check after update 1: 384 LoRA + 37 adapter tensors bit-identical, 16/16 temporal out weights moved; update 100: loss 0.0065, 0.438 s / update, 29.0 GB, code_sha a61bb6a58553. 16k at ~23:20 UTC.
+- Checks queued (6 dev drives x 2 seeds, stream at rho 0.95, cold = runs/troll/Aoff_rho0.95_dev, signed metrics): 2k (begin 21:30) and 4k (21:46) informational; 8k / 12k / 16k HELD (owner cap 16: 15 active) until their time. Watch (Fable): rho 0.95 is close to shared noise -> report the copy probe's noise share (off - past_other) / (off - on) and reductions vs own cold at every check.
+
 ## 2026-11-27 20:50 UTC — Astra SIGN-IF on A2 (37d24f9 + e537ffc); launchers armed
 - council/codereview-causal-a2r2-astra.md: rung order, both F1 floors, trainer rebuild and fixture failure handling verified; Astra's 90-min assent recorded at 20:45:12 UTC (after the 0.8 failure at 20:40:42; deadline 22:10:42 UTC). Condition: F1 admission finite + EXACT 4-decimal agreement with the signed values (fixed in e537ffc, fixtures for one-unit mismatch / NaN / inf), corrected suite + T2 + decision gates pass.
 - Dry run on real evidence: off car F1 unrounded 0.4597 (0.5), 0.4581 (0.8), A 0.4456 -> exact agreement; decision "waiting for the complete 0.9 / 0.95 panel (9.1 of 90 min)".

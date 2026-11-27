@@ -146,14 +146,14 @@
    "frozen A + small time layers that look back 4 frames and never ahead (Astra + Fable agreed; Neon guards)"
   ],
   [
-   "now",
-   "Final checks before training",
-   "code reviewed and signed (with conditions) by Astra; tests re-running; noise mix being decided"
+   "done",
+   "Final checks + noise mix",
+   "all tests passed; noise mix 0.95 chosen by the pre-agreed rule (0.5 / 0.8 / 0.9 made A too jumpy)"
   ],
   [
-   "next",
-   "Train the live model overnight",
-   "checks at 2k / 4k (look-only), then 8k / 12k / 16k with videos; bars: >9.4% smoother than A, cars within 0.03, drift <= +0.03"
+   "now",
+   "Training the live model",
+   "started ~21:14 UTC, 16k steps ~23:20; checks at 2k / 4k (look only), 8k / 12k / 16k (decide), with videos"
   ],
   [
    "later",

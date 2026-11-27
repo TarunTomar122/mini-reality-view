@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 07:25 — long run: A at 6.2k, C's practice drives 30/48
+- longA (3753863): A6000, ~100 updates/min, at 6,200 at 07:16 (loss ~0.06); 20k expected ~09:35. ckpt_5000 saved.
+- own4k (3753855-62): 30 of 48 own drives rendered. Two drives (scene-0059, scene-0715) have only 1 usable tick, so they add almost nothing to the pool; harmless.
+- Queued the A 5k dev check early: troll-A5k-dev (3753875) -> tmet-A5k_dev (3753876), so the 5k comparison is ready when C reaches 5k.
+
 ## 2026-11-27 07:00 — long bet started (council converged in one swap)
 - Council (council/long-bet-*.md, -swap-*.md): C (one history frame), forked from C 4k with optimiser state, to 20k; A to 20k on identical row / noise draws; own-history rows from WHOLE-DRIVE own rollouts of 48 seeded train drives (12 each at s = 0 / 0.1 / 0.3 / 0.5; tmp/longC_pool48.txt); 6 own + 6 true + 4 singles; refresh caches from C@8k / 12k / 16k, training never waits (keeps the previous cache); 5k checks on 6 dev drives (s = 0.3) vs equal-step A, headline = the smaller of the ID / W % reductions (4k: 9.4%), plus car F1, recall, late drift, lingering ghosts and one side-by-side video; stop if car F1 < -0.03 or late drift > +0.03 twice running, or if neither 10k nor 15k beats 9.4% (next: a second history frame); ghosts never stop the run (owner); one 30-drive exam + one council review at 20k.
 - Running: own rollouts of C@4k (data/own_4k, own4k-* 3753855-62, 2080 Tis); longA (3753863, A6000, 4k -> 20k); longC stage 1 (3753864, 4k -> 8k on own_4k, afterok on the rollouts). train_temporal.py --pool_list; rollouts stamp snapshot / s / method.

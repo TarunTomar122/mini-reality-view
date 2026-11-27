@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 19:05 — Neon (Gemini 4 Neon, high) added as council GUARD / VERIFIER
+- Owner directive (relayed from a side chat): add Gemini 4 Neon (High) to check the builder's work, verify claims and flag misses / slowness. council/ROSTER.md (Astra + Fable design / review; Neon = antigravity gemini-4-neon, thought_level high, guard), hourly review task updated to three seats (Neon answers claims-vs-evidence, missed issues, slowness, waste), memory council-roster saved. First guard check running (council/review-20261127-1900-neon.md). Told the Neurullum thread as the owner asked (the live-VSR session's socket had gone stale, so via its T3 thread, queued, not interrupting).
+
 ## 2026-11-27 18:55 — owner: no early verdicts; AGREED amendment A1
 - Owner (going to bed ~20:00): "make sure we dont think something is bad after a short training run these things might need more runs ... dont wait for me". council/AGREED-causal-r1.md amendment A1: 2k / 4k checks informational only; bars first applied at 8k; two consecutive safety misses from 8k on stop; extend to 12k / 16k when trending; only clearly broken runs stop earlier. Memory: no-early-verdicts.
 - T2 PASS (ct2 3755044): --off at rho 1.0 reproduces signed A@20k scene-0043 seed 0 exactly (max |diff| 0, 109 ticks, ticks / src / flags / amp equal).

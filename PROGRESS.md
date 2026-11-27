@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 01:55 — temporal frozen methods, DECISION SET: warm start fails; independent stays
+- Scorer 764dd3ec95db (signed), 30 decision drives x seeds 0/1 (60 runs each), late gaps on 22 contiguous drives; warm 0.7 vs independent (paired drive bootstrap):
+  ID 0.105 vs 0.136 (-22.5%, [-0.043, -0.019], 27 drives with shared transitions; scene-0016 and scene-0036 have eligible but no shared transitions -> the comparison cannot pass on that alone); W 35.3 vs 34.2 (+3%, [-0.6, +2.8]); recall 0.307 vs 0.357 (-0.050 [-0.080, -0.025]); car F1 0.258 vs 0.317 (-0.059 [-0.082, -0.041]); road 0.830 vs 0.853 (-0.023 [-0.031, -0.015]); late LPIPS gap +0.058 [+0.043, +0.073] (22 drives); late car-F1 gap -0.014 [-0.039, +0.010]; ghosts / tick 2.33 vs 1.90; >= 5-tick ghosts per run 13.7 vs 5.1 (+8.6 [+6.1, +11.6]); flips 0.171 vs 0.197 (descriptive). Link coverage 63.0% of 16,150 edge cars; W valid share 0.908.
+- Rule: warm adopted only if ID AND W fall >= 15% (intervals excluding zero) and all gates pass -> W fails, car F1 / road / recall / late LPIPS / lingering ghosts all fail -> warm start NOT adopted. Best qualifying frozen method = independent. Picture: pulled/warm_dec_sheet.jpg (warm 0.7 adds lingering cars and degrades the own car on scene-0105).
+- C: at 2,400 (own_share 0.5). Cache from C@2.5k (tmpC-cache2500) and resume to 4k (tmpC-b, --cache_step 2500) chained with afterok (exit codes now real).
+
 ## 2026-11-27 01:25 — wrapper exit-code bug; P3 on all 30; R and C resubmitted
 - BUG (all our py.sbatch jobs so far): the wrapper printed "rc=$?" after $(date), so it logged and RETURNED the exit code of date (0), not of python. Failed jobs looked COMPLETED and afterok chains went ahead regardless. Fixed (rc captured right after python, exit $rc). Known affected tonight: cmR-timing2 / timing3 crashed (BrokenProcessPool) but showed COMPLETED; cmR was held, so nothing ran on them. Earlier chains were checked by log lines (TMETRICS_DONE / ROLLOUT_DONE etc.) before use.
 - Map cache: the parallel rasteriser kept crashing (BrokenProcessPool, most likely memory in forked workers); now single-process with an on-disk cache keyed by the box file (tmp/carmap_maps_<crc>.pt). Timing re-run cmR-timing4 3753691 (--budget_min 180, exits 3 if over); cmR 3753661 released, afterok on it.

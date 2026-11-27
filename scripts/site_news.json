@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 01:55",
+  "text": "Steady video, first verdict on 30 test drives: the no-training trick (start each frame from the last one) cuts car flicker by 23% but places cars worse (0.26 vs 0.32), drifts over 15 s and leaves lingering phantom cars (13.7 vs 5.1 per drive). It fails the plan's checks, so it is not used. Next: the three trained memory versions."
+ },
+ {
   "when": "26 Nov, 22:45",
   "text": "Car map redesign signed by both AI reviewers: feed the car boxes straight into the model's first layer, reward getting the car pixels right, and hide the cameras half the time early on so the model has to use the map. Two bugs fixed first: detector car angles were mirrored, and the detector used lidar-based car positions (now camera calibration only)."
  },

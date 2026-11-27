@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 23:23 UTC — vpriv code per Astra review (SIGN-IF); fixtures running; 12k / 16k checks in flight
+- council/codereview-vpriv-astra.md: SIGN-IF (1) matched initialization verified, (2) resume fixture, (3) shared slot bit-identical to vlive (my build_eps rounded rho to fp32: max diff 4.77e-7), (4) more fixtures (matched batches, picks across modes, rollout rho from a private checkpoint, T7 with two private clips); plus suite T1-T7 + T2 on the deployed hashes and signed 8k / 12k / 16k panels satisfying A3.
+- f6e7738: mrv/noise.build_eps now computes the exact r1 expression and REPLACES private slot(s) with e_tick (CPU fixtures: shared slot bit-identical to r1 at both parities, private slots == e_tick exactly; 12 / 12 pass); trainer logs a cumulative pick hash (data / t / dropout draws) and records the temporal-block init hash; slurm/vpriv_tests.sh part a (init hash identical across 3 processes; private 0 reproduces vlive's update-100 batch_sha exactly and its loss within 2e-4; modes 0 / 1 / 2 share the cumulative pick hash at 100 and pass the frozen guard) and part b (resume split after an odd update; changed private count refused; rollout from a private-2 checkpoint reads rho 0.95). 14 files sha-verified on the cluster.
+- Jobs: vprivA 3755711 running; suite 3755710 and vprivB 3755712 held (owner cap 16) until vlive ends (~23:32). vlive 15,100 (23:23); 12k rendering; 16k queued.
+- Note (init): PyTorch's default generator is seeded identically at process start and the construction path is unchanged, so vpriv's temporal init should equal vlive's; vlive did not record an init hash, so part a proves determinism across processes, and the update-100 match with vlive is the end-to-end check.
+
 ## 2026-11-27 23:19 UTC — 8k GATED CHECK: no pass (smoothness), both safety bars met -> continue (A1)
 - V8k (signed, 6 dev drives x 2 seeds): vs A@20k: ID 0.1559 vs 0.1032 (+51.1%, CI of diff 0.036..0.075), W 36.15 vs 29.73 (+21.6%, CI 3.29..9.49), both eligible; car F1 0.448 vs 0.4456 (+0.0024, CI -0.032..0.032) OK; late LPIPS gap +0.004 (CI -0.005..0.011) OK; recall 0.442 vs 0.446; lingering ghosts 0.42 vs 4.33.
   vs own cold (off at 0.95): ID +34.1%, W +12.8%, F1 +0.003, ghosts 0.42 vs 3.42.

@@ -35,7 +35,9 @@ else
   $TR --out $T/timing_full --private_clips 1 --max_steps_this_job 3 > $T/full.log 2>&1; chk $? full
   $TR --out $T/timing_split --private_clips 1 --max_steps_this_job 1 > $T/split1.log 2>&1; chk $? split1
   $TR --out $T/timing_split --private_clips 1 --max_steps_this_job 2 --resume > $T/split2.log 2>&1; chk $? split2
+  nb=$(grep -c '^{"update"' $T/timing_split/log.jsonl); sb=$(sha256sum $T/timing_split/ckpt.pt | cut -c1-16)
   $TR --out $T/timing_split --private_clips 2 --max_steps_this_job 1 --resume > $T/bad.log 2>&1; rb=$?
+  na=$(grep -c '^{"update"' $T/timing_split/log.jsonl); sa=$(sha256sum $T/timing_split/ckpt.pt | cut -c1-16)
   $TR --out $T/timing_p2 --private_clips 2 --max_steps_this_job 1 > $T/p2.log 2>&1; chk $? p2
   echo scene-0043 > $T/one.txt
   $PY scripts/causal_rollout.py --ckpt $T/timing_p2/ckpt.pt --split dev --drive_list $T/one.txt --seeds 0 --max_ticks 3 --out $T/roll_p2 > $T/roll.log 2>&1; chk $? rollout
@@ -44,11 +46,11 @@ import json, sys, torch
 L = lambda d: [json.loads(l) for l in open(f"$T/{d}/log.jsonl") if l.startswith('{"update"')]
 f3 = [x for x in L("timing_full") if x["update"] == 3][0]; s3 = [x for x in L("timing_split") if x["update"] == 3][0]
 ok4 = f3["batch_sha"] == s3["batch_sha"] and abs(f3["loss"] - s3["loss"]) <= 1e-3 * max(abs(f3["loss"]), 1e-6) + 1e-4
-bad = open("$T/bad.log").read(); ok4b = $rb != 0 and "incompatible resume" in bad and len(L("timing_split")) == len([1 for l in open("$T/timing_split/log.jsonl") if l.startswith('{"update"')])
+bad = open("$T/bad.log").read(); ok4b = $rb != 0 and "incompatible resume" in bad and $nb == $na and "$sb" == "$sa"  # no update logged, checkpoint untouched
 ck = torch.load("$T/timing_p2/ckpt.pt", map_location="cpu"); ro = torch.load("$T/roll_p2/scene-0043_s0.pt")
 ok5 = ck.get("rho") == 0.95 and ck.get("train_noise", {}).get("private_clips") == 2 and ro.get("rho") == 0.95
 print(("PASS" if ok4 else "FAIL"), "resume (private 1, split after odd update 1): update-3 batch_sha", f3["batch_sha"], s3["batch_sha"], "loss", f3["loss"], s3["loss"])
-print(("PASS" if ok4b else "FAIL"), "resume with a changed private count fails before an update (exit $rb)")
+print(("PASS" if ok4b else "FAIL"), "resume with a changed private count fails before an update (exit $rb; log lines $nb -> $na; ckpt sha $sb -> $sa)")
 print(("PASS" if ok5 else "FAIL"), "private-2 checkpoint: rollout rho", ro.get("rho"), "train_noise", ck.get("train_noise"))
 sys.exit(0 if ok4 and ok4b and ok5 else 1)
 P

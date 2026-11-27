@@ -2,8 +2,8 @@
 
 Only the 16 new causal temporal blocks (mrv/causal_video.py) train; the SD 1.5 UNet, A's LoRA and A's CameraAdapter are frozen
 (asserted). Each update: 2 clips of 16 consecutive usable ticks (same sequence, no hard break) from the 144 train drives
-(data/enc_tpv10); ONE diffusion timestep per clip (uniform 0..999) shared by its ticks; ONE Gaussian noise tensor per clip
-broadcast over its ticks (matches the signed A rollouts, which reuse one noise tensor per drive and seed); epsilon MSE in fp32
+(data/enc_tpv10); ONE diffusion timestep per clip (uniform 0..999) shared by its ticks; noise eps = sqrt(rho) eps_clip +
+sqrt(1-rho) eps_tick (rho fixed before training from the off sweep; the rollout uses the same rho); epsilon MSE in fp32
 over ticks 1..15 (tick 0 is context only; its temporal delta is exactly zero by construction); whole-clip camera dropout 10%;
 style 2; AdamW 1e-4, no weight decay, 500-update warm-up, grad clip 1.0, bf16 autocast, fp32 temporal parameters.
 Logged every 100 updates: loss, grad norm, temporal out-norm, step_s (GPU), data_s (batch assembly), peak memory, batch_sha;
@@ -29,7 +29,7 @@ p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--frames", type=int, default=16)
 p.add_argument("--clips", type=int, default=2)
 p.add_argument("--steps", type=int, default=8000)
-p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000")
+p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,16000,20000")
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")

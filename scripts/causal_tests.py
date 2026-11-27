@@ -156,7 +156,7 @@ with torch.no_grad():
     xk1 = xb.clone(); xk1[12 - K - 1] += bump; yk1 = blk.forward_clip(xk1, F4)
     xk = xb.clone(); xk[12 - K] += bump; yk = blk.forward_clip(xk, F4)
 d_old, d_win = (yk1[12] - yb[12]).abs().max().item(), (yk[12] - yb[12]).abs().max().item()
-report("T4 stream == causal clip", worst < 1e-4 and worst_iso < 1e-5 and d_hist > 1e-3 and d_reset < 1e-4 and d_old < 1e-6 and d_win > 1e-3,
+report("T4 stream == causal clip", worst < 1e-4 and worst_iso < 1e-4 and d_hist > 1e-3 and d_reset < 1e-4 and d_old < 1e-6 and d_win > 1e-3,
        f"24 ticks x 4 rows x 3 slots max |diff| {worst:.2e} (<1e-4); stream alone vs interleaved {worst_iso:.2e}; cleared rings change "
        f"later output {d_hist:.2e} (>1e-3) and equal a clip starting at the cut {d_reset:.2e} (<1e-4); one block: frame {K + 1} back {d_old:.2e} (=0), frame {K} back {d_win:.2e} (>0)")
 

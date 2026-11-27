@@ -7,6 +7,7 @@ PY=.venv/bin/python; A=runs/longA/ckpt_20000.pt; T=runs/ctest_${SLURM_JOB_ID:-ma
 sha256sum scripts/train_causal.py scripts/causal_rollout.py scripts/causal_tests.py mrv/causal_video.py slurm/causal_tests.sh | tee $T/code_sha256.txt
 chk() { if [ "$1" != 0 ]; then echo "FAIL $2 (exit $1)"; FAILS=$((FAILS+1)); fi; }
 echo "== causal_tests.py (T1 T3a T3b T4)"; $PY scripts/causal_tests.py --init $A --K 4; chk $? causal_tests.py
+[ $FAILS = 0 ] || { echo "fail-fast: causal_tests.py failed, skipping the rest"; echo "CAUSAL_TESTS_SH FAILS=$FAILS dir=$T"; exit $FAILS; }
 DRV=$($PY -c "import json;print(json.load(open('data/temporal_lists.json'))['dev'][0])"); echo $DRV > $T/one.txt
 echo "== T2 runs separately on a 2080 Ti (slurm/causal_t2.sh: same GPU type / fp16 as the signed A render)"
 echo "== random-weight causal checkpoint (T5 / T6 only)"

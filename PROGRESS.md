@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 02:20 — drift check 6 swap results; trained-arm rollouts started (not read yet)
+- Converged (both): option (b) for drive counting; rank s by max(ID / ID_A, W / W_A); ties -> the LARGEST s (s = noise on the history, so larger = weaker history; my brief had the direction backwards). council/temporal-s-lock-rule.md rewritten with the agreed rule. OPEN for the next hourly check: counting threshold k (Astra 1, Fable 3; identical on known data) and Fable's floor (< 20 counting decision drives / < 12 final -> that comparison cannot pass). The counting rule then goes into --compare (non-swap edit -> both re-sign) before any B / C decision file is read.
+- Rollouts on the 2080 Tis (A6000 queue busy; nothing read until the rule is signed): A 4k independent dev (3753705); B 4k history s = 0 / 0.1 / 0.3 / 0.5 dev (3753706-09); A 4k independent decision (3 shards) and A 4k + warm 0.7 decision (3 shards) (3753710-15; two held for the cap).
+- cmR (arm R, 1k) waiting for an A6000; C cache from C@2.5k at 26 / 85 drives.
+
 ## 2026-11-27 02:10 — drift check 6 outcome; R timing passes; scene-0036 problem
 - Both: warm 0.7 rejection upheld (third drive missing from ID = scene-0014, which has no eligible edge-car transitions). s-lock rule amended where they agree (recall >= -0.02, late F1, ghost growth and lingering ghosts in eligibility; an s with an eligible-but-no-shared dev drive is ineligible; both seeds on all 6 dev drives; lag not used; same s for 2k, 4k and every comparator; full sweep table committed with the lock). Swap running on ranking (worse-of vs mean) and tie direction.
 - Applied: C resume asserts the cache snapshot path and every tick of all 128 clips (tmpC-b re-queued 3753702 with --cache_snapshot runs/tmpC/ckpt_2500.pt); R map cache key includes the rasteriser code hash.

@@ -41,6 +41,8 @@ p.add_argument("--cache_snapshot", default="", help="arm C: the snapshot checkpo
 p.add_argument("--cache_root", default="", help="live own cache (council/drift-s2): folder of own_<N>/ subfolders, each complete when own_<N>/DONE exists; every 200 updates the newest complete one with N <= step is validated and swapped in; training waits if the cache in use is more than --max_stale updates old")
 p.add_argument("--max_stale", type=int, default=4000)
 p.add_argument("--refresh_every", type=int, default=0, help="live cache: after saving ckpt_<N> at multiples of this, submit the refresh rollouts for own_<N> (slurm/own_refresh.sh)")
+p.add_argument("--true_s_min", type=float, default=0.0, help="drift lever 2 (council/drift-r3): arm C rows 6-11 (true previous key) use s' = true_s_min + s * (0.7 - true_s_min) / 0.7 from the same draw")
+p.add_argument("--true_drop", type=float, default=0.0, help="drift lever 2: extra history dropout on arm C rows 6-11, from a separate seeded stream (A / B draws unchanged)")
 p.add_argument("--steps", type=int, default=6000)
 p.add_argument("--save_at", default="1000,2000,2500,4000,6000")
 p.add_argument("--clips", default="data/temporal_cclips.json", help="the 128 preselected eight-tick train clips (arm C's own-rollout rows); made once, seeded")
@@ -204,10 +206,17 @@ def draw(step):
 
 
 N_OWN = [0, 0]
+N_L2 = [0]  # lever 2: true-key rows with history dropped
 
 
 def batch(step):
     rows, si, t, eps, drop, s, heps, nohist = draw(step)
+    if a.arm == "C" and (a.true_s_min > 0 or a.true_drop > 0):  # lever 2: harder history on the true-key rows only
+        s = s.clone(); nohist = nohist.clone()
+        s[6:12] = a.true_s_min + s[6:12] * (0.7 - a.true_s_min) / 0.7
+        g2 = torch.Generator().manual_seed(a.seed * 7919 + step + 10 ** 9)
+        nohist[6:12] = nohist[6:12] | (torch.rand(6, generator=g2) < a.true_drop)
+        N_L2[0] += int(nohist[6:12].sum())
     tok, lat, ray, H = [], [], [], []
     for j, (sc, i) in enumerate(rows):
         e = E[sc]
@@ -301,7 +310,8 @@ for step in range(start, a.steps):
     opt.step()
     if step % 100 == 0:
         rec = {"step": step, "loss": round(loss.item(), 4), "gn": round(gn.item(), 3), "min": round((time.time() - t0) / 60, 1),
-               "own_share": round(N_OWN[0] / max(1, N_OWN[1]), 3), "cache_step": CACHE_STEP, "stale": step - CACHE_STEP if CACHE_STEP >= 0 else None}
+               "own_share": round(N_OWN[0] / max(1, N_OWN[1]), 3), "cache_step": CACHE_STEP, "stale": step - CACHE_STEP if CACHE_STEP >= 0 else None,
+               "true_drop_share": round(N_L2[0] / max(1, 6 * (step - start + 1)), 3)}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
     if (step + 1) % 1000 == 0 or step + 1 == a.steps:
         save(step + 1, ck)

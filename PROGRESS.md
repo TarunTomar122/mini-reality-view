@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 14:15 — 10k gate FAILED: fresh cache alone does not stop the drift
+- First live refresh worked end to end (own_10000: 48 files, DONE, swapped in at 12.2k after a ~5 min wait at the 4k age limit; refresh waves take ~30 min with 8 jobs). own_12000 rendering.
+- Gate (signed): longC2@10k (8k -> 10k on own_8k, cache 0-2k old) late gap +0.050 [0.032, 0.068] vs stale C@10k +0.0585 -> fall 0.0084 [-0.0165, -0.0019] < 0.01 -> stop rule. longC2@10k vs own cold: F1 0.379 vs 0.415, ghost_ge5 14.75 vs 3.9; vs A@10k: ID -26%, F1 0.379 vs 0.454.
+- Reading: the drift is produced by training past 8k itself (C@8k +0.002 -> +0.050 in 2k fresh updates), not mainly by cache age. Matches Fable's copy-shortcut: the true-previous-key rows reward copying.
+- Next (council round 3 for sign-off, council/drift-r3.md): stop longC2; lever 2 = true-key rows s' in [0.3, 0.7] + 40% extra history dropout (train_temporal.py --true_s_min / --true_drop, written), forked from C@8k with the live cache; plus whether to re-lock inference s higher. Probe running: longC2@10k at s 0.5 / 0.7 (metrics 3754405 / 3754408).
+
 ## 2026-11-27 13:10 — old recipe stopped at 15k (strike two); probes back the fix; fixed run longC2 training
 - C 15k (s 0.3) vs A 15k (signed): ID 0.082 vs 0.139, W 30.1 vs 31.7, car F1 0.332 vs 0.430 (CI -0.161..-0.046), recall 0.359 vs 0.432, late LPIPS gap +0.119 (CI 0.066..0.161), early gap +0.059, ghost_ge5 24.5 vs 5.1. Second check running past both stop lines -> the stale-cache run is stopped (s4 finished 20k as the stale control; no further stages).
 - Probes, memory on vs same-weights cold (signed; count list from the cold run): C@8k s 0.3: late gap +0.002 (CI -0.013..0.015), F1 0.423 vs 0.416 -> healthy fork point. C@10k: s 0.3 +0.059, s 0.5 +0.027 (F1 0.405 vs 0.421), s 0.7 +0.008 (F1 0.401; ID -13%, W -5% vs cold, ghost_ge5 7.1). C@15k: s 0.3 +0.119, s 0.5 +0.095. History noise is a trust dial (supports Fable's second lever), but by 15k the stale-trained weights are too far gone for noise alone. Figure docs/figs/drift_probes.png.

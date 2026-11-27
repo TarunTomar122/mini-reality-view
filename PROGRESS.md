@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 05:10 — drift check 9 outcome (both)
+- Car-map closure confirmed by both. Write-up wording (both): F reached about two thirds right-map wins, FLAT from 500 to 1k (63.4 -> 65.6%, 64.5 -> 66.7%; reductions flat), uneven across drives (t700: 18/19 on scene-0234, 2/7 on scene-0043); F also changed tmax (not architecture alone); X1 / X2 stopped at a 2k rendered-F1 rule on mirrored-yaw, pose-using boxes; R / F stopped at the 1k single-step rule; the planned F@1k pooled-18 renders were not run and R / F were never scored on renders, so no placement claim is made.
+- Temporal (both): arms are compared at EQUAL updates - B / C 2k only against A 2k and A 2k + warm 0.7 (with count lists made from those) using B / C 2k cold; 4k against A 4k. Order (Fable): 4k to completion first, then 4k lag (--swap rollouts for every method; none exist yet, so nothing can pass until then), then 2k. Each sweep scored with --cold = the arm's own cold folder; compared with --cold_ref B, --floor 0, count list from A 4k dev.
+- Added scripts/panel_check.py (exact drive x seed panel from data/temporal_lists.json before every comparison; Astra) and sweep tables will carry each rollout's sacct submit line (provenance; Fable).
+- Queued (held for the cap): A 2k independent and A 2k + warm 0.7 decision rollouts (3753770-75).
+
 ## 2026-11-27 04:56 — car map F FAILS its 1k gate -> car-map track CLOSED (per the signed stop rule)
 - F (bias-free 4-scale branch, tmax 962), single-step check on 6 dev drives / 93 car-bearing keyframes (degraded boxes):
   500: t700 right beats map-only-swapped on 63.4%, mean car-cell error reduction +4.3%; t900 64.5%, +3.9%.

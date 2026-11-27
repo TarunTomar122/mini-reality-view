@@ -35,8 +35,12 @@ if a.make_count_list:
     C_ = load_merged(a.make_count_list); shas = {q.get("scorer_sha") for q in C_["drives"].values()}
     assert len(shas) == 1, shas
     scs = sorted({r.rsplit("_s", 1)[0] for r in C_["drives"]})
-    res = {"comparator": a.make_count_list, "comparator_roll": C_["roll"], "scorer_sha": shas.pop(), "k": a.k, "seeds_pooled": ["0", "1"],
-           "drives": scs}
+    links = {q.get("link") for q in C_["drives"].values()}
+    assert len(links) == 1, links
+    import hashlib
+    fsha = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(a.make_count_list)))).hexdigest()[:12]
+    res = {"comparator": a.make_count_list, "comparator_roll": C_["roll"], "comparator_files_sha": fsha, "scorer_sha": shas.pop(),
+           "link": links.pop(), "k": a.k, "seeds_pooled": ["0", "1"], "drives": scs}
     fin = lambda x: isinstance(x, (int, float)) and np.isfinite(x)
     for name in ("ID", "W"):
         cnt, elig, per_seed = {}, {}, {}
@@ -116,6 +120,10 @@ if a.compare:
     COUNT = {}
     if CL is not None:
         assert CL["scorer_sha"] == vb_[0], f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}"
+        import hashlib
+        fsha_b = hashlib.sha1(b"".join(open(f, "rb").read() for f in sorted(glob.glob(a.compare[1])))).hexdigest()[:12]
+        assert CL.get("comparator_files_sha") == fsha_b, f"count list made from comparator files {CL.get('comparator_files_sha')}, compared files are {fsha_b}"
+        assert CL.get("link") == vb_[1], f"count list link mode {CL.get('link')} != comparator link mode {vb_[1]}"
         assert CL["comparator_roll"] and os.path.normpath(CL["comparator_roll"]) == os.path.normpath(B["roll"] or ""), \
             f"count list belongs to comparator {CL['comparator_roll']}, not {B['roll']}"
         assert set(CL["drives"]) == set(scenes), "count list drive panel differs from the compared panel"

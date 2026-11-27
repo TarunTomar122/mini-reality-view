@@ -1,7 +1,9 @@
 {
  "comparator": "runs/troll/indep_dec_*.json",
  "comparator_roll": "runs/troll/indep_dec",
+ "comparator_files_sha": "e628569bfe9c",
  "scorer_sha": "764dd3ec95db",
+ "link": "iou",
  "k": 3,
  "seeds_pooled": [
   "0",

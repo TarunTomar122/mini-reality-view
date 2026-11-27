@@ -24,10 +24,19 @@ p.add_argument("--cold_ref", default="none", choices=["A", "B", "none"],
                help="which side of --compare IS the cold reference (its late gaps are 0 by definition); every other missing late gap on a contiguous run is a hard failure")
 a = p.parse_args()
 
-def load_merged(pat):  # a json, or a glob of shard jsons
-    out = {"drives": {}, "roll": None, "cold": None}
-    for f in sorted(glob.glob(pat)):
-        j_ = json.load(open(f)); out["drives"].update(j_["drives"]); out["roll"] = j_.get("roll"); out["cold"] = j_.get("cold")
+def load_merged(pat):  # a json, or a glob of shard jsons OF ONE ROLLOUT (one roll path, one cold path)
+    out = {"drives": {}, "roll": None, "cold": None}; rolls, colds = set(), set()
+    fs = sorted(glob.glob(pat))
+    if not fs:
+        raise SystemExit(f"no files match {pat}")
+    for f in fs:
+        j_ = json.load(open(f)); dup = set(out["drives"]) & set(j_["drives"])
+        if dup:
+            raise SystemExit(f"{f}: runs already loaded from another file: {sorted(dup)[:3]}")
+        out["drives"].update(j_["drives"]); rolls.add(j_.get("roll")); colds.add(j_.get("cold"))
+    if len(rolls) != 1 or len(colds) != 1:
+        raise SystemExit(f"{pat} mixes rollouts: roll paths {rolls}, cold paths {colds}")
+    out["roll"], out["cold"] = rolls.pop(), colds.pop()
     return out
 
 
@@ -186,6 +195,10 @@ if a.compare:
     if CL is not None:
         out["comparator_counts_per_seed"] = {name: CL[name]["per_seed"] for name in ("ID", "W")}
     out["cold_ref"] = a.cold_ref
+    out["count_list"] = a.count_list or None
+    out["cold_paths"] = {"A": A.get("cold"), "B": B.get("cold")}
+    if CL is not None:
+        out["non_counting_drives"] = {name: [s_ for s_ in scenes if s_ not in set(CL[name]["counting"])] for name in ("ID", "W")}
     out["counting"] = COUNT if COUNT else "NO COUNT LIST GIVEN (amendment 3 requires one for decision / final comparisons)"
     print("TCOMPARE", json.dumps(out)); raise SystemExit
 

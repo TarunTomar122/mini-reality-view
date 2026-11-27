@@ -36,6 +36,7 @@ p.add_argument("--tokens", default="data/enc_full")
 p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--cache", default="", help="arm C: folder of cached own rollouts (<scene>.pt {ticks, lat})")
 p.add_argument("--cache_step", type=int, default=-1, help="arm C: the snapshot step the cache must come from (asserted)")
+p.add_argument("--pool_list", default="", help="long bet: file of drives whose WHOLE-DRIVE own rollouts form the own-history pool; the 6 'own' rows per batch are drawn from ALL dense rows of these drives (for every arm, so targets stay identical); replaces the 128-clip pool")
 p.add_argument("--cache_snapshot", default="", help="arm C: the snapshot checkpoint path the cache must come from (asserted)")
 p.add_argument("--steps", type=int, default=6000)
 p.add_argument("--save_at", default="1000,2000,2500,4000,6000")
@@ -76,6 +77,13 @@ if not os.path.exists(a.clips):
 CLIPS = [(c[0], c[1]) for c in json.load(open(a.clips))["clips"]]
 clip_rows = [(sc, st + k) for sc, st in CLIPS for k in range(1, 8)]
 assert all(r_ in DSET for r_ in clip_rows), "clip rows must be dense rows"
+POOL = None
+if a.pool_list:  # long bet: whole-drive pool
+    POOL = sorted(set(open(a.pool_list).read().split()))
+    if not set(POOL) <= set(E):
+        raise SystemExit(f"pool drives not in the train set: {sorted(set(POOL) - set(E))}")
+    clip_rows = [(sc, i) for (sc, i) in dense if sc in set(POOL)]
+    print(f"own-history pool: {len(POOL)} drives, {len(clip_rows)} dense rows (whole drives)", flush=True)
 singles = []  # keyframe rows: (tokens, lat, scene)
 from nuscenes.utils.splits import train as NTRAIN
 for f in sorted(glob.glob(f"{a.singles}/*.pt")):
@@ -89,20 +97,32 @@ for f in sorted(glob.glob(f"{a.singles}/*.pt")):
 CACHE = {}
 if a.arm == "C":
     cf = glob.glob(f"{a.cache}/*.pt"); steps_ = set()
-    clip_sc = {c_[0] for c_ in json.load(open(a.clips))["clips"]}
-    assert {os.path.basename(f)[:-3] for f in cf} == clip_sc, f"cache {a.cache} does not cover all clip drives"
+    if POOL is not None:  # whole-drive rollout files are named <scene>_s<seed>.pt
+        cf = [f for f in cf if os.path.basename(f).rsplit("_s", 1)[0] in set(POOL)]
+        got_ = {os.path.basename(f).rsplit("_s", 1)[0] for f in cf}
+        if got_ != set(POOL):
+            raise SystemExit(f"cache {a.cache} misses pool drives: {sorted(set(POOL) - got_)}")
+    else:
+        clip_sc = {c_[0] for c_ in json.load(open(a.clips))["clips"]}
+        assert {os.path.basename(f)[:-3] for f in cf} == clip_sc, f"cache {a.cache} does not cover all clip drives"
     for f in cf:
-        c = torch.load(f); sc = os.path.basename(f)[:-3]; steps_.add(c.get("snapshot_step", -1))
+        c = torch.load(f); sc = os.path.basename(f)[:-3] if POOL is None else os.path.basename(f).rsplit("_s", 1)[0]
+        steps_.add(c.get("snapshot_step", -1))
         CACHE[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
     assert steps_ == {a.cache_step}, f"cache {a.cache} made from snapshot steps {steps_}, expected {a.cache_step}"
     snaps_ = set()
     for f in cf:  # every cache file, not a sample
         snaps_.add(torch.load(f).get("snapshot"))
     assert a.cache_snapshot and snaps_ == {a.cache_snapshot}, f"cache snapshot {snaps_} != expected {a.cache_snapshot}"
-    for sc_, st_, t0_ in json.load(open(a.clips))["clips"]:  # every tick of every clip must have an own frame
-        for q_ in range(8):
-            tk_ = int(E[sc_]["ticks"][st_ + q_])
-            assert tk_ in CACHE[sc_], f"cache misses {sc_} tick {tk_}"
+    if POOL is not None:  # every pool row's predecessor must have an own frame (non-hard ticks are rendered)
+        for sc_, i_ in clip_rows:
+            if int(E[sc_]["ticks"][i_ - 1]) not in CACHE[sc_]:
+                raise SystemExit(f"cache misses {sc_} tick {int(E[sc_]['ticks'][i_ - 1])}")
+    else:
+        for sc_, st_, t0_ in json.load(open(a.clips))["clips"]:  # every tick of every clip must have an own frame
+            for q_ in range(8):
+                tk_ = int(E[sc_]["ticks"][st_ + q_])
+                assert tk_ in CACHE[sc_], f"cache misses {sc_} tick {tk_}"
 print(f"arm {a.arm}: dense rows {len(dense)} from {len(E)} drives, singles {len(singles)}, cached own frames {sum(len(v) for v in CACHE.values())}", flush=True)
 
 # ---------- model ----------

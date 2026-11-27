@@ -29,6 +29,7 @@ p.add_argument("--enc", default="data/enc_tpv10")
 p.add_argument("--lists", default="data/temporal_lists.json")
 p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--seeds", default="0,1")
+p.add_argument("--drive_list", default="", help="file with drive names: only these (e.g. the long-bet own-rollout pool)")
 p.add_argument("--swap", action="store_true", help="lag test: from tick 50 on, feed another drive's cameras")
 p.add_argument("--max_ticks", type=int, default=0)
 p.add_argument("--shard", default="0/1")
@@ -64,6 +65,9 @@ ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler"); ddim.set_timest
 TS = ddim.timesteps; acp = ddim.alphas_cumprod.to(dev)
 RAYS = torch.load(a.rays)
 drives = json.load(open(a.lists))[a.split]
+if a.drive_list:
+    want_ = open(a.drive_list).read().split()
+    drives = [d_ for d_ in drives if d_ in set(want_)]
 st = torch.full((1,), 2, dtype=torch.long, device=dev)
 NOHIST = torch.cat([torch.zeros(1, 4, 32, 64), torch.ones(1, 1, 32, 64)], 1).to(dev)
 
@@ -125,6 +129,6 @@ for di, sc in enumerate(drives):
             out.append(z[0].half().cpu())
         n_out = len(out)
         torch.save({"ticks": E["ticks"][:n_out], "src_ticks": torch.tensor(srct), "lat": torch.stack(out), "ok": torch.tensor(oks), "hard": torch.tensor(hards),
-                    "restart": torch.tensor(restart), "amp": str(AMP), "swap_from": 50 if E2 is not None else -1, "other": other if E2 is not None else ""}, fo)
+                    "restart": torch.tensor(restart), "amp": str(AMP), "snapshot": a.ckpt, "snapshot_step": int(ck.get("step", -1)), "s": a.s, "method": a.method, "swap_from": 50 if E2 is not None else -1, "other": other if E2 is not None else ""}, fo)
         print(sc, "seed", seed, n, "ticks", flush=True)
 print("ROLLOUT_DONE", a.method, a.s, a.split)

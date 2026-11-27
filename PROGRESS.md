@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 04:56 — car map F FAILS its 1k gate -> car-map track CLOSED (per the signed stop rule)
+- F (bias-free 4-scale branch, tmax 962), single-step check on 6 dev drives / 93 car-bearing keyframes (degraded boxes):
+  500: t700 right beats map-only-swapped on 63.4%, mean car-cell error reduction +4.3%; t900 64.5%, +3.9%.
+  1k (gate): t700 65.6%, +4.5%; t900 66.7%, +3.2%. Gate needs >= 75% AND >= 2% at each t -> FAIL on the share (reductions pass).
+  Unlike R, F does use the map (RMS(eps_right - eps_swapped) 0.016 / 0.0068; projection norms 0.60 / 0.90 / 1.51 / 1.27 at 900, grown from 0 steadily), but on only about two thirds of keyframes does the right map beat a wrong one.
+- Stop rule (drift check 8, both): a 1k failure closes the car-map track - no third form, no retuned thresholds / LR. So: no X3; final = E3 + the memory winner (if any arm passes). Written up as: "the map signal was learned only partly in 1k updates (4% error cut, 2/3 of keyframes); the gate required 3/4".
+- Remaining car-map jobs are records only (R dev18 renders, held); F dev18 renders not run.
+
 ## 2026-11-27 04:20 — F preconditions pass; F training released
 - Branch-off: zero-projection F checkpoint vs E3, 2 dev drives x 4 keyframes x 2 seeds: max |pixel difference| 0 on all 16 renders (exact).
 - F timing: 0.423 s / update, map prep 1.7 min -> projected 4k 32 min (budget 180). F (3753757) released: 1,000 updates, --arch branch4 --tmax 962.

@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 04:56",
+  "text": "Car map, last try (map fed in at four depths): it now does use the map (car-area error 3-4% lower with the right map), but the right map beats a wrong one on only 2/3 of frames; the plan needed 3/4. Per the rule both reviewers signed beforehand, the car-map track is closed. The final model will be E3 plus the best memory version."
+ },
+ {
   "when": "27 Nov, 03:55",
   "text": "Car map, second design: still not using the map enough. With the right map vs a wrong map, the model's guess at car areas is better only 54-59% of the time (needed 75%). Early stop per plan; the reviewers decide whether to try the last named fallback."
  },

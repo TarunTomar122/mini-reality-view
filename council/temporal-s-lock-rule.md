@@ -16,7 +16,7 @@ Per arm (B and C separately), 4k checkpoint only, 6 dev drives x seeds 0/1 (both
 5. Lag is not used. The locked s scores 2k, 4k and every comparator; "A + warm" = warm 0.7. The full sweep table is
    committed together with the lock.
 
-# Amendment 3 (drive counting for ID / W) - agreed: option (b); OPEN: threshold k (Astra 1, Fable 3) and Fable's floor
+# Amendment 3 (drive counting for ID / W) - SETTLED (drift check 7): k = 3 (stricter of the two after one swap), floor 20 decision / 12 final / 0 dev
 For each comparison, and for ID and W separately, a drive counts only if the comparator alone matches at least k of its
 eligible transitions at both ticks with a finite value (seeds 0 and 1 pooled); the list is fixed from the comparator's
 scores before the candidate's are opened. A comparison with no same-seed shared transition on a counting drive cannot
@@ -24,3 +24,9 @@ pass. Non-counting drives are named with eligible / comparator-matched / shared 
 ID / W only, and kept in recall and every other gate. [Fable, open: fewer than 20 counting decision drives (12 final) ->
 that comparison cannot pass.] Known data: against independent, scene-0036 (0 matched) is out, scene-0016 (8) in, for
 any k in 1..8.
+
+# Mechanical form (drift check 10, Fable): scripts/s_lock.py names the exact output field and threshold of every clause
+# and is committed before any sweep score exists. Comparisons for the lock: temporal_compare.py --compare
+# m_<arm>4k_s<s>_dev.json m_A4k_indep_dev.json --count_list council/count_A4k_dev_k3.json --floor 0 --cold_ref B; the late
+# gate reads the candidate's own gap (field late_lpips_gap.A). Against A + warm 0.7 later, use --cold_ref none. Before
+# locking: scripts/panel_check.py --split dev --late_cold runs/troll/<arm>4k_indep_dev on every sweep file (Astra).

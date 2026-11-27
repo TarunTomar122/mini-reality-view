@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 16:50 — lever 2 at 15k: smoother than A past the bar, but drift creeps back (strike one)
+- longC3@15k (s 0.3) vs A@15k (signed): ID 0.0831 vs 0.1074 (-22.5%), W 28.2 vs 32.3 (-12.6%, CI -5.28..-3.01) -> smaller reduction 12.6% > 9.4% (first time the smoothness bar is met); car F1 0.394 vs 0.430 (-0.036, CI -0.062..-0.011) -> just past the A - 0.03 line; late gap +0.039 [0.015, 0.064] -> past +0.03; recall 0.419 vs 0.432; ghost_ge5 13.1 vs 5.1.
+- vs own cold: ID -11.5%, W -9.4%, F1 0.394 vs 0.427, late gap +0.039 (10k: +0.014).
+- Strike one at 15k (10k passed) -> 20k decides (two consecutive breaches = stop). Drift is slowed by lever 2 but still grows with training (10k +0.014 -> 15k +0.039).
+- longC3 at 19.6k; own_18000 refresh cancelled (training ends at 20k). Queued signed dev checks at 20k and 12k (12k to locate where drift returns).
+
 ## 2026-11-27 15:40 — lever 2 (longC3) PASSES the 10k gate
 - longC3@10k (s 0.3) vs own cold (signed): late gap +0.014 [0.008, 0.022] (<= 0.03 OK); F1 0.416 vs 0.439 (-0.023, >= -0.03 OK); ID 0.098 vs 0.099 (below, CI incl. 0), W 29.0 vs 31.8 [-4.18, -1.51]; recall 0.409 vs 0.421; ghost_ge5 11.9 vs 4.3.
 - vs longC2@10k (fresh cache only): late gap 0.014 vs 0.050, fall 0.036 [0.018, 0.049] (>= 0.02, CI excl. 0 OK); F1 +0.037 [0.014, 0.061]; recall +0.037; early gap 0.0055 vs 0.0146; ghost_ge5 11.9 vs 14.75; ID higher (0.081 vs 0.069), W 27.1 vs 28.1.

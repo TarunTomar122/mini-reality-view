@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 22:18 UTC — vlive at 7,300; 2k scoring; 8k check + 8k noise probe queued
+- vlive 7,300 updates (22:18), 0.459 s/update; ckpts 1k / 2k / 4k / 6k. Trainer probe @7000: past_other still < on (t300 .0352 vs .0420, t700 .0084 vs .0101); noise share t300 1.14, t700 1.34 (from 1.17 / 1.52 at 2k): the shared-noise shortcut persists, slightly weaker.
+- 2k check: rollouts done, scoring (tmet-V2k running). 4k check: 9 / 12 rollouts. 8k check queued (vchk8k x6 + tmet-V8k 3755556, wait for ckpt_8000 ~22:23) + offline noise probe @8k (3755557). 14 active jobs.
+
 ## 2026-11-27 21:43 UTC — amendment A3 pre-registered (Astra + Fable, before any 8k number)
 - council/AGREED-causal-r1.md A3: if vlive ends 16k with no pass and both safety bars met, train ONE fresh arm from frozen A@20k at rho 0.95 with MSE + 1.0 x adjacent-tick difference loss (pairs 2..15), no Min-SNR, launch check ratio in [0.5, 2]; T1-T7 + fixtures + Astra code signature first; same H200-3g slice. Lambda: seats crossed over (Astra -> computed 0.928, Fable -> fixed 1.0); written as 1.0 with Astra to confirm at code signing. Fable's caution: at 2k the blocks cut the difference term about as much as the plain one, so it may not punish the noise shortcut as hoped.
 

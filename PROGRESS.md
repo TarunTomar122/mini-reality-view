@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:30 UTC — copy probe: possible NOISE shortcut at rho 0.95; hourly review 21:30 started
+- runs/vlive probe (8 fixed dev clips, loss on the last tick): at steps 500 and 1000, replacing the past with ANOTHER drive's past (same noise draws) gives a LOWER loss than the true past at t 700 and 300 (step 1000: t300 on .0505 / past_other .0424 / off .0910; t700 .0117 / .0098 / .0149). copy_flag stays False (it only compares with swapped cameras). Fable's noise share (off - past_other) / (off - on) = 1.20 (t300), 1.12 (t700) -> the blocks seem to read the 95%-shared noise of the past ticks rather than their content. Whether this transfers to inference (where past latents at the same DDIM step follow their own trajectories) is open. Loss noisy at 1300-1400 (.032, .158 vs ~.007).
+- Training at 1,400 updates (21:29). Hourly review 21:30 asks Astra / Fable for the cheapest decisive test before 8k and whether to change anything (needs an amendment), Neon to verify the last hour's claims.
+
 ## 2026-11-27 21:19 UTC — TRAINING STARTED: live video model runs/vlive at rho 0.95 (A2 fallback)
 - Gates (launch-vlive3 3755423): suite on e537ffc CAUSAL_TESTS_SH FAILS=0 (ctests-h200 3755421), T2 FAILS=0 (ct2 3755422), tested-code sha256 -c OK; decision (complete panel, signed scorer vs A@20k, off renders from reviewed code): 0.5 ID / W ratio 1.496 / 1.270, 0.8 1.325 / 1.143, 0.9 1.259 / 1.087, 0.95 1.119 / 1.061 -> mode fallback, rho 0.95 (lowest rung meeting <= 1.20; Fable's prediction "0.9 narrowly misses, 0.95 meets" held). Deadline launcher cancelled.
 - vlive (3755462) on ONE saxa h200_3g.71gb slice (agreed with live-VSR): frozen check after update 1: 384 LoRA + 37 adapter tensors bit-identical, 16/16 temporal out weights moved; update 100: loss 0.0065, 0.438 s / update, 29.0 GB, code_sha a61bb6a58553. 16k at ~23:20 UTC.

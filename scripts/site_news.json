@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 06:30",
+  "text": "Plan for today: the jumpy video comes first. The memory versions are being judged on 30 test drives (verdict aimed for midday). Version B cuts jumps by about 10-20% but leaves fake cars lingering, so it fails the safety checks; version C is being scored. The car map is closed. The two AI reviewers are planning the next video step (e.g. a model that draws several frames together) in case B and C are not enough."
+ },
+ {
   "when": "27 Nov, 04:56",
   "text": "Car map, last try (map fed in at four depths): it now does use the map (car-area error 3-4% lower with the right map), but the right map beats a wrong one on only 2/3 of frames; the plan needed 3/4. Per the rule both reviewers signed beforehand, the car-map track is closed. The final model will be E3 plus the best memory version."
  },

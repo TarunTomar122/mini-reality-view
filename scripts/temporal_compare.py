@@ -126,13 +126,17 @@ if a.compare:
     if not a.count_list:
         raise SystemExit("--count_list is required for every comparison (amendment 3; dev uses a list with --floor 0)")
     CL = json.load(open(a.count_list))
-    if CL is not None:
+    REQ_ = {"comparator", "comparator_roll", "comparator_files_sha", "scorer_sha", "link", "k", "drives", "ID", "W"}
+    if not isinstance(CL, dict) or not REQ_ <= set(CL) or not all(isinstance(CL[n], dict) and isinstance(CL[n].get("counting"), list)
+                                                                  and isinstance(CL[n].get("per_seed"), dict) for n in ("ID", "W")):
+        raise SystemExit(f"{a.count_list} is not a valid count list (made by --make_count_list); keys needed: {sorted(REQ_)}")
+    if True:
         if a.floor is None:
             raise SystemExit("--floor is required with --count_list (20 decision / 12 final / 0 dev)")
         if CL["k"] != 3:
             raise SystemExit(f"count list made with k = {CL['k']}; amendment 3 (as settled) uses k = 3")
     COUNT = {}
-    if CL is not None:
+    if True:
         if not (CL["scorer_sha"] == vb_[0]):
             raise SystemExit(f"count list made with scorer {CL['scorer_sha']}, comparator scored with {vb_[0]}")
         import hashlib
@@ -145,6 +149,13 @@ if a.compare:
             raise SystemExit(f"count list belongs to comparator {CL['comparator_roll']}, not {B['roll']}")
         if not (set(CL["drives"]) == set(scenes)):
             raise SystemExit("count list drive panel differs from the compared panel")
+        if not (isinstance(a.floor, int) and a.floor >= 0):
+            raise SystemExit("--floor must be a non-negative integer")
+        for name in ("ID", "W"):  # recompute the counting drives from the comparator's own files; must equal the list
+            re_ = sorted(s_ for s_ in scenes if sum(1 for r in by_scene[s_] for t in B["drives"][r]["trans_" + name]
+                                                    if t[5] and isinstance(t[4], (int, float)) and np.isfinite(t[4])) >= CL["k"])
+            if re_ != sorted(CL[name]["counting"]):
+                raise SystemExit(f"{name}: counting drives in the list differ from the comparator files (list {len(CL[name]['counting'])}, recomputed {len(re_)})")
         for name in ("ID", "W"):
             cnt_ = CL[name]["counting"]
             missing_ = [s_ for s_ in cnt_ if s_ not in scenes]  # candidate (or comparator) lacks a seed on a counting drive

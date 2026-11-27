@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 23:42 UTC — Fable 23:30: trend over-read corrected; 8k leave-one-drive-out; fixtures re-running
+- CORRECTION (Fable): "the 4k improvement reversed at 8k" is NOT established: confidence intervals overlap and two thin drives (13 + 13 transitions) carry about a third of the ID headline. The 8k entry also omitted leave-one-drive-out, copy warnings and flips (+12.9% vs A).
+- 8k leave-one-drive-out (scripts/lodo.py, signed compare per subset, runs/s_lock/lodo_V8k_vs_A20k.json): ID +41.0..+59.4% vs A, W +15.6..+27.8%, car F1 -0.007..+0.019, late gap +0.002..+0.008, flips +7.8..+17.8% -> the 8k smoothness failure is robust to any single drive; safety bars hold in every subset.
+- Fable: keep vpriv as signed; before update 1 add the two-noise probe (shared vs private noise) from update 500 and run LODO on the 16k panel; ideas: roll vpriv at rho 1.0 as an informational twin, a training-free feature bank on A's self-attention, flow-warped shared noise; hold the cleaner-past round while vpriv trains. (Fable's "part a FAILED" referred to the flawed first run 3755711; the fixed fixtures are re-running.)
+- Suite on ad1b0aa: noise fixtures + T1 / T3a / T4 PASS so far; vprivA / vprivB / T2 running; 12k scoring; 16k rendering.
+
 ## 2026-11-27 23:39 UTC — vpriv seeded init accepted by both seats
 - Astra + Fable accept the seeded, unmatched vpriv init for the gates; vpriv-vs-vlive comparisons are "policy + init"; a pure policy claim needs a matched-init control (vlive's noise policy from vpriv's seed). Recorded in AGREED A3.
 

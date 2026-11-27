@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 20:33 UTC — amendment A2 signed; correction; hourly review 20:30 started
+- AGREED amendment A2 (rho fallback) signed by Astra and Fable before the 0.8 scores existed (council/causal-video-r4-*.md). A2 code committed locally only (not deployed, so the tested c0ed865 launch path stays valid).
+- CORRECTION: at 20:31 I told the owner the 0.9 / 0.95 renders "are drawn"; they were still rendering (started 20:22, 10 / 10 jobs running at 20:32). 0.8 scoring (tmet2-Aoff-0.8) still running at 20:32 (20 min).
+- VPN dropped ~20:28; reconnected 20:31. Hourly review 20:30 started (three seats; Astra also pre-reviews the A2 diff).
+
 ## 2026-11-27 20:19 UTC — ALL tests T1-T7 PASS on final code; rho 0.5 fails the rule; fallback being pre-registered
 - ctests-h200 3755243 (final code, c0ed865): T1, T3a, T4, T3b, T5 (cams / salt / both, per-tick provenance all True), T6 (reset == fresh start; unreset control differs), T7 (real trainer: 384 LoRA + 37 adapter tensors bit-identical after update 1; 16/16 temporal out weights moved): CAUSAL_TESTS_SH FAILS=0. T2 (ct2 3755181, current rollout code): FAILS=0.
 - rho decision (council/rho_decision.json on the cluster): rho 0.5 off vs signed A@20k: ID 0.1572 vs 0.1051 (ratio 1.496), W 37.54 vs 29.55 (ratio 1.270), admissible, does NOT meet <= 1.20. rho 0.8 scoring (tmet2-Aoff-0.8 3755242) still running -> launcher 1 exited (no valid choice yet; summary print crashed on the missing row: fixed, JSON was written correctly); backup launcher launch-vlive2 3755285 re-runs the ordered rule after the 0.8 scores.

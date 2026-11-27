@@ -141,9 +141,12 @@ for si, sc in enumerate(judge):
                     G2 = grid_channels(gg["bev"][gi])[None].to(dev)
                     with torch.no_grad():
                         M = torch.cat([M, RED(G2[:, :512]), G2[:, 512:]], 1)
-                if BR is not None:
+                if BR is not None and BF:  # fallback F: branch in fp32 outside autocast (as in training)
+                    with torch.no_grad():
+                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M[:, :N_MAP].float())]
+                elif BR is not None:
                     with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
-                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M[:, :N_MAP] if BF else M)]
+                        RES = [torch.cat([r_, r_]).to(AMP) for r_ in BR(M)]
             ddim.set_timesteps(a.steps)
             with torch.no_grad():
                 for t in ddim.timesteps:

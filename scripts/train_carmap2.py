@@ -162,7 +162,8 @@ if __name__ == "__main__":
         CLIP[0] += 1; CLIP[1] += int(gn.item() > 1.0)  # amendment 3: clip 1.0 kept (as E3 / X1), share of clipped updates reported
         if step % 100 == 0:
             rec = {"step": step, "loss": round(loss.item(), 4), "whole": round(whole.item(), 4), "car": round(car.item(), 4),
-                   "gn": round(gn.item(), 4), "wnorm": round(sum(p_.norm().item() ** 2 for p_ in params) ** 0.5, 4), "cam_drop": pdrop, "clipped_share": round(CLIP[1] / max(1, CLIP[0]), 4),
+                   "gn": round(gn.item(), 4), "wnorm": round(sum(p_.norm().item() ** 2 for p_ in params) ** 0.5, 4),
+                   "proj_norms": [round(p_.weight.norm().item(), 4) for p_ in BR.proj] if BR is not None else None, "cam_drop": pdrop, "clipped_share": round(CLIP[1] / max(1, CLIP[0]), 4),
                    "min": round((time.time() - t0) / 60, 1)}
             print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
         if (step + 1) % 500 == 0 or step + 1 == a.steps:

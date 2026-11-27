@@ -71,12 +71,13 @@ for di, sc in enumerate(drives):
             xt = ab.sqrt() * lat[None].float().to(dev) + (1 - ab).sqrt() * eps; tt = torch.full((1,), T, device=dev)
             out = {}
             for name, M in (("right", Mr), ("swap", Ms), ("off", None)):
+                with torch.no_grad():  # the branch runs in fp32 (as in training), outside autocast
+                    res_ = None if (BR4 is None or M is None) else [r_.to(AMP) for r_ in BR4(M.float())]
                 with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
                     if BR4 is None:
                         unet.conv_in.m = M
                         out[name] = unet(xt, tt, encoder_hidden_states=c).sample.float()
                     else:
-                        res_ = None if M is None else [r_.to(AMP) for r_ in BR4(M)]
                         out[name] = unet(xt, tt, encoder_hidden_states=c, down_intrablock_additional_residuals=res_).sample.float()
             if BR4 is None:
                 unet.conv_in.m = None

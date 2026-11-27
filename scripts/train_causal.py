@@ -48,8 +48,13 @@ else:
     if not a.rho_decision:
         raise SystemExit("training needs --rho_decision (the recorded off-sweep decision, AGREED r1)")
     dec = json.load(open(a.rho_decision))
-    if dec.get("chosen") != a.rho:
-        raise SystemExit(f"--rho {a.rho} != recorded decision {dec.get('chosen')} ({a.rho_decision})")
+    if dec.get("chosen") != a.rho or not dec.get("valid"):
+        raise SystemExit(f"--rho {a.rho} vs recorded decision {dec.get('chosen')} valid={dec.get('valid')} ({a.rho_decision})")
+    row_ = dec["rows"][str(a.rho)]
+    if not (row_["meets"] and row_["eligible"]["ID"] and row_["eligible"]["W"] and row_["panel_ok"]):
+        raise SystemExit(f"decision row for rho {a.rho} is not eligible full-panel evidence: {row_}")
+    if a.rho == 0.8 and dec["rows"]["0.5"]["meets"]:
+        raise SystemExit("rho 0.8 chosen although 0.5 meets the rule")
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"
@@ -111,6 +116,12 @@ if os.path.exists(ck):
     if not a.resume:
         raise SystemExit(f"{ck} exists: pass --resume or use a fresh --out")
     s_ = torch.load(ck, map_location="cpu")
+    if s_.get("timing") and not a.timing:
+        raise SystemExit("refusing to resume production training from a timing / test checkpoint")
+    rec_ = s_.get("args", {}).get("causal", {})
+    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_decision", a.rho_decision)):
+        if rec_.get(key_) != want_:
+            raise SystemExit(f"incompatible resume: recipe {key_} {rec_.get(key_)} != {want_}")
     for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho), ("base_sha", BASE_SHA), ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA)):
         if s_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: {key_} {s_.get(key_)} != {want_}")
@@ -183,6 +194,7 @@ log = open(f"{a.out}/log.jsonl", "a")
 style = torch.full((a.clips * Fn,), 2, dtype=torch.long, device=dev)
 w_loss = torch.zeros(a.clips, Fn, 1, 1, 1, device=dev); w_loss[:, 1:] = 1.0  # loss on ticks 1..Fn-1
 end = a.steps if not a.max_steps_this_job else min(a.steps, start + a.max_steps_this_job)
+T_WIN, N_WIN = time.time(), 0  # end-to-end window timing (data + compute + logging + saving + probes)
 t_data = t_gpu = 0.0; n_acc = 0
 for step in range(start, end):
     t0 = time.time()
@@ -210,22 +222,25 @@ for step in range(start, end):
         pred = unet(xt, tt, encoder_hidden_states=ctx).sample
     err = ((pred.float() - eps) ** 2).view(a.clips, Fn, 4, 32, 64)
     loss = (err * w_loss).sum() / (w_loss.sum() * 4 * 32 * 64)
+    if step == start:
+        OUT_PRE = [w.temporal.out.weight.detach().clone() for w in TW]
     opt.zero_grad(set_to_none=True); loss.backward(); gn = torch.nn.utils.clip_grad_norm_(params, 1.0); opt.step()
     if step == start:  # guard: the frozen renderer must be bit-identical after a real optimizer step; temporal params must move
         assert all(torch.equal(LORA_REF[n], LORA_PRE[n]) for n in LORA_REF), "LoRA changed!"
         assert all(torch.equal(q, AD_PRE[n]) for n, q in adapter.state_dict().items()), "adapter changed!"
-        moved = sum(int(not torch.equal(w.temporal.out.weight, torch.zeros_like(w.temporal.out.weight))) for w in TW)
+        moved = sum(int(not torch.equal(w.temporal.out.weight, o_)) for w, o_ in zip(TW, OUT_PRE))
         assert moved == 16, f"temporal output weights moved in {moved}/16 blocks"
         print(f"frozen check after first update: {len(LORA_REF)} LoRA + {len(AD_PRE)} adapter tensors bit-identical; 16/16 temporal out weights moved", flush=True)
     torch.cuda.synchronize(); t2 = time.time()
     t_data += t1 - t0; t_gpu += t2 - t1; n_acc += 1
     if (step + 1) % 100 == 0 or step == end - 1 or step == start:
-        rec = {"update": step + 1, "e2e_s": round(time.time() - t0, 3), "loss": round(loss.item(), 4), "gn": round(gn.item(), 4),
+        rec = {"update": step + 1, "e2e_window_s": round((time.time() - T_WIN) / max(1, step + 1 - start - N_WIN), 3), "loss": round(loss.item(), 4), "gn": round(gn.item(), 4),
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),
                "step_s": round(t_gpu / n_acc, 3), "data_s": round(t_data / n_acc, 3),
                "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "code_sha": CODE_SHA}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush(); t_data = t_gpu = 0.0; n_acc = 0
+        T_WIN, N_WIN = time.time(), step + 1 - start
     if (step + 1) % 500 == 0 or step + 1 == end:
         save(step + 1, ck); probe(step + 1)
     if step + 1 in SAVE:

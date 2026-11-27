@@ -6,7 +6,7 @@ them. Output = the signed temporal_rollout format (<out>/<scene>_s<seed>.pt) so 
 
   python scripts/causal_rollout.py --ckpt runs/vlive/ckpt_2000.pt --split dev --out runs/troll/V2k_dev [--mode off]
 """
-import argparse, json, os, zlib
+import argparse, hashlib, json, os, zlib
 import torch
 from diffusers import UNet2DConditionModel, DDIMScheduler
 from peft import LoraConfig
@@ -37,6 +37,12 @@ dev = "cuda"
 AMP = torch.float32 if a.fp32 else (torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16)
 SD = "sd-legacy/stable-diffusion-v1-5"
 os.makedirs(a.out, exist_ok=True)
+_hc = hashlib.sha256()
+with open(a.ckpt, "rb") as f_:
+    for blk_ in iter(lambda: f_.read(1 << 24), b""):
+        _hc.update(blk_)
+CKPT_SHA = _hc.hexdigest()[:16]  # binds reuse to checkpoint CONTENT, not its path
+ROLL_CODE = hashlib.sha256(b"".join(open(f, "rb").read() for f in [__file__, "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
 ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); res_ = unet.load_state_dict(ck["lora"], strict=False)
@@ -47,8 +53,8 @@ if "temporal" in ck:
     TW = add_causal_temporal(unet, ck["K"])
     names_ = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]
     assert len(TW) == 16 and len(ck["temporal"]) == 16, "need 16 temporal blocks"
-    if "block_names" in ck and ck["block_names"] != names_:
-        raise SystemExit("temporal block names differ from the checkpoint's")
+    if ck.get("block_names") != names_:
+        raise SystemExit("temporal block names missing from / different to the checkpoint's")
     for w, sd_ in zip(TW, ck["temporal"]):
         w.temporal.load_state_dict(sd_, strict=True)
     for w in TW:
@@ -56,6 +62,14 @@ if "temporal" in ck:
 elif a.mode == "stream":
     raise SystemExit("--mode stream needs a causal checkpoint")
 adapter = CameraAdapter(n_styles=ck["args"].get("n_styles", 3)).to(dev).eval(); adapter.load_state_dict(ck["adapter"])
+if "base_sha" in ck:
+    _h = hashlib.sha256()
+    for k_ in sorted(ck["lora"]):
+        _h.update(k_.encode()); _h.update(ck["lora"][k_].float().numpy().tobytes())
+    for k_ in sorted(ck["adapter"]):
+        _h.update(k_.encode()); _h.update(ck["adapter"][k_].float().numpy().tobytes())
+    if _h.hexdigest()[:16] != ck["base_sha"]:
+        raise SystemExit("frozen base in the checkpoint does not match its recorded base_sha")
 ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler"); ddim.set_timesteps(25); TS = ddim.timesteps
 RAYS = torch.load(a.rays)
 drives = json.load(open(a.lists))[a.split]
@@ -68,8 +82,9 @@ if a.drive_list:
 missing_ = [d_ for d_ in drives if not os.path.exists(f"{a.enc}/{d_}.pt")]
 if missing_:
     raise SystemExit(f"missing encodings: {missing_}")
-SETTINGS = {"snapshot": a.ckpt, "method": f"causal_{a.mode}", "rho": None, "swap": a.swap, "swap_at": a.swap_at,
-            "salt_from": a.salt_from, "start_tick": a.start_tick, "reset_at": a.reset_at, "max_ticks": a.max_ticks}
+SETTINGS = {"snapshot": a.ckpt, "ckpt_sha": CKPT_SHA, "roll_code": ROLL_CODE, "amp": str(AMP), "method": f"causal_{a.mode}", "rho": None,
+            "swap": a.swap, "swap_at": a.swap_at, "salt_from": a.salt_from, "start_tick": a.start_tick, "reset_at": a.reset_at,
+            "max_ticks": a.max_ticks}
 st = torch.full((1,), 2, dtype=torch.long, device=dev)
 RHO = a.rho if a.rho is not None else ck.get("rho")
 if RHO is None:
@@ -90,6 +105,7 @@ def denoise(z, c, u):
 
 
 si_, sn_ = map(int, a.shard.split("/"))
+RY, U_NULL = {}, [None]
 for di, sc in enumerate(drives):
     if di % sn_ != si_:
         continue
@@ -119,13 +135,20 @@ for di, sc in enumerate(drives):
             if bool(src["hard"][j]):
                 out.append(torch.zeros(4, 32, 64, dtype=torch.float16)); restart.append(True); reset(TW); fresh = True
                 continue
-            tok = src["tokens"][j:j + 1].to(dev).float(); ry = RAYS[sc_r][None].to(dev).float()
+            tok = src["tokens"][j:j + 1].to(dev).float()
+            if sc_r not in RY:
+                RY[sc_r] = RAYS[sc_r][None].to(dev).float()
+            ry = RY[sc_r]
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP, enabled=not a.fp32):
-                c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
+                c = adapter(tok, ry, st)
+                if U_NULL[0] is None:  # with dropout the adapter returns its learned null for every input: compute once
+                    U_NULL[0] = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
+                u = U_NULL[0]
             if i == a.reset_at:
                 reset(TW); fresh = True  # forced cold restart (test T6)
             restart.append(fresh); fresh = False
-            gn = torch.Generator().manual_seed(zlib.crc32((f"{sc}|{seed}|{i}" + ("|salt" if 0 <= a.salt_from <= i else "")).encode()))  # per-tick private noise
+            tid = int(E["ticks"][i])  # receiver tick id (== array index on the current manifest)
+            gn = torch.Generator().manual_seed(zlib.crc32((f"{sc}|{seed}|{tid}" + ("|salt" if 0 <= a.salt_from <= i else "")).encode()))  # per-tick private noise
             zn = torch.randn(1, 4, 32, 64, generator=gn).to(dev)
             z = denoise(RHO ** 0.5 * z0 + (1 - RHO) ** 0.5 * zn if RHO < 1 else z0.clone(), c.to(AMP), u.to(AMP))
             out.append(z[0].half().cpu())
@@ -137,8 +160,12 @@ for di, sc in enumerate(drives):
                "code_sha": ck.get("code_sha"), "other": other if E2 is not None else "", "batch": 1}
         torch.save(rec, fo + ".tmp"); os.replace(fo + ".tmp", fo)
         print(sc, "seed", seed, n_out, "ticks", flush=True)
-for di, sc in enumerate(drives):  # verify the full expected output set of this shard
+for di, sc in enumerate(drives):  # verify the full expected output set of this shard: settings and tick count
     if di % sn_ == si_:
+        n_exp = len(torch.load(f"{a.enc}/{sc}.pt")["ticks"])
+        n_exp = (min(a.max_ticks, n_exp) if a.max_ticks else n_exp) - a.start_tick
         for seed in map(int, a.seeds.split(",")):
-            assert os.path.exists(f"{a.out}/{sc}_s{seed}.pt"), f"missing output {sc}_s{seed}"
+            o_ = torch.load(f"{a.out}/{sc}_s{seed}.pt")
+            assert all(o_.get(k) == v for k, v in SETTINGS.items()), f"{sc}_s{seed}: settings differ"
+            assert a.swap or len(o_["lat"]) == n_exp, f"{sc}_s{seed}: {len(o_['lat'])} ticks, expected {n_exp}"
 print("CAUSAL_ROLLOUT_DONE", a.mode, a.split)

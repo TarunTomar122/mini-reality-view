@@ -143,6 +143,8 @@ with torch.no_grad():
             reset(TW)
         set_step(TW, 1); cut.append(W(X[1][0:1, i], tt4[1][:1], encoder_hidden_states=C[0:1, i]).sample)
 d_hist = (torch.stack(cut, 1)[0, 13:] - ref4[1][0, 13:]).abs().max().item()
+fresh12 = run_clip(X[1][0, 12:], tt4[1][12:], C[0, 12:], F4 - 12)  # a clip that STARTS at the cut
+d_reset = (torch.stack(cut, 1)[0, 12:] - fresh12).abs().max().item()
 blk = CausalTemporalBlock(320, K).to(dev)
 with torch.no_grad():
     for n_, q in blk.named_parameters():
@@ -150,12 +152,13 @@ with torch.no_grad():
             q.add_(torch.randn(q.shape, generator=torch.Generator().manual_seed(5)).to(dev) * 0.1)
     xb = torch.randn(F4, 320, 8, 16, generator=torch.Generator().manual_seed(6)).to(dev)
     yb = blk.forward_clip(xb, F4)
-    xk1 = xb.clone(); xk1[12 - K - 1] += 1.0; yk1 = blk.forward_clip(xk1, F4)
-    xk = xb.clone(); xk[12 - K] += 1.0; yk = blk.forward_clip(xk, F4)
+    bump = torch.randn(320, 8, 16, generator=torch.Generator().manual_seed(8)).to(dev)  # non-uniform: survives per-frame GroupNorm
+    xk1 = xb.clone(); xk1[12 - K - 1] += bump; yk1 = blk.forward_clip(xk1, F4)
+    xk = xb.clone(); xk[12 - K] += bump; yk = blk.forward_clip(xk, F4)
 d_old, d_win = (yk1[12] - yb[12]).abs().max().item(), (yk[12] - yb[12]).abs().max().item()
-report("T4 stream == causal clip", worst < 1e-4 and worst_iso < 1e-5 and d_hist > 1e-3 and d_old < 1e-6 and d_win > 1e-3,
+report("T4 stream == causal clip", worst < 1e-4 and worst_iso < 1e-5 and d_hist > 1e-3 and d_reset < 1e-4 and d_old < 1e-6 and d_win > 1e-3,
        f"24 ticks x 4 rows x 3 slots max |diff| {worst:.2e} (<1e-4); stream alone vs interleaved {worst_iso:.2e}; cleared rings change "
-       f"later output {d_hist:.2e} (>1e-3); one block: frame {K + 1} back {d_old:.2e} (=0), frame {K} back {d_win:.2e} (>0)")
+       f"later output {d_hist:.2e} (>1e-3) and equal a clip starting at the cut {d_reset:.2e} (<1e-4); one block: frame {K + 1} back {d_old:.2e} (=0), frame {K} back {d_win:.2e} (>0)")
 
 # ---------- T3b rollout prefix invariance ----------
 ddim = DDIMScheduler.from_pretrained(SD, subfolder="scheduler"); ddim.set_timesteps(25); TS = ddim.timesteps

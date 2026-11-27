@@ -38,15 +38,19 @@ $R --max_ticks 40 --out $T/t6_ctrl > /dev/null; chk $? T6-ctrl
 $PY - <<P; chk $? T5-T6
 import torch, sys
 f = lambda d: torch.load(f"$T/{d}/${DRV}_s0.pt")
-c = f("t5_ctrl"); ok5 = len(c["lat"]) == 60 and not bool(c["hard"].any())
+c = f("t5_ctrl"); cam, salt, both = f("t5_cam"), f("t5_salt"), f("t5_both")
+ok5 = all(len(x["lat"]) == 60 and torch.equal(x["ticks"], c["ticks"]) and not bool(x["hard"].any()) for x in (c, cam, salt, both))
 msgs = []
-for v in ("t5_cam", "t5_salt", "t5_both"):
-    x = f(v); pre = (c["lat"][:30].float() - x["lat"][:30].float()).abs().max().item(); post = (c["lat"][30:].float() - x["lat"][30:].float()).abs().max().item()
-    same_src = torch.equal(c["src_ticks"], x["src_ticks"])
-    ok5 = ok5 and len(x["lat"]) == 60 and pre == 0.0 and post > 1e-3
-    msgs.append(f"{v}: prefix {pre:.3g} (=0) suffix {post:.3g} (>0)")
-x = f("t5_cam"); ok5 = ok5 and x["other"] != "" and x["other"] != "${DRV}"
-print(("PASS" if ok5 else "FAIL"), "T5 60 aligned ticks, no hard ticks %s; donor %s;" % (not bool(c["hard"].any()), x["other"]), "; ".join(msgs))
+for name, x in (("cam", cam), ("salt", salt), ("both", both)):
+    pre = (c["lat"][:30].float() - x["lat"][:30].float()).abs().max().item(); post = (c["lat"][30:].float() - x["lat"][30:].float()).abs().max().item()
+    ok5 = ok5 and pre == 0.0 and post > 1e-3; msgs.append(f"{name}: prefix {pre:.3g} (=0) suffix {post:.3g} (>0)")
+# the camera arms really fed the donor's cameras from tick 30 (and only from 30); the salt arm did not
+ok5 = ok5 and cam["other"] not in ("", "${DRV}") and torch.equal(cam["src_ticks"][:30], c["src_ticks"][:30]) and torch.equal(both["src_ticks"], cam["src_ticks"]) \
+      and torch.equal(salt["src_ticks"], c["src_ticks"]) and cam["salt_from"] == -1 and salt["salt_from"] == 30 and both["salt_from"] == 30
+# the combined arm depends on BOTH interventions: it differs from cameras-only and from salt-only after tick 30
+d_bc = (both["lat"][30:].float() - cam["lat"][30:].float()).abs().max().item(); d_bs = (both["lat"][30:].float() - salt["lat"][30:].float()).abs().max().item()
+ok5 = ok5 and d_bc > 1e-3 and d_bs > 1e-3
+print(("PASS" if ok5 else "FAIL"), "T5 60 aligned ticks, donor %s;" % cam["other"], "; ".join(msgs), "; both vs cam %.3g, both vs salt %.3g (>0)" % (d_bc, d_bs))
 rs, fr, ct = f("t6_reset"), f("t6_fresh"), f("t6_ctrl")
 s = (rs["lat"][20:].float() - fr["lat"].float()).abs().max().item(); dc = (ct["lat"][20:25].float() - rs["lat"][20:25].float()).abs().max().item()
 ok6 = len(fr["lat"]) == 20 and s == 0.0 and dc > 1e-3 and bool(rs["restart"][20]) and bool(fr["restart"][0])

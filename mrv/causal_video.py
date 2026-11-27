@@ -74,19 +74,16 @@ class CausalTemporalBlock(nn.Module):
         sh = lambda t: t.reshape(R * H * W, 1, s.heads, s.d).transpose(1, 2)  # (N, heads, 1, d)
         q, k, v = sh(q), sh(k), sh(v)
         past = s.rings.get(step)
-        if past is None:
-            kk, vv, n_past = k, v, 0
-        else:
-            kk, vv, n_past = torch.cat([past[0], k], 2), torch.cat([past[1], v], 2), past[0].shape[2]
+        if past is None:  # empty past: exactly A; only store this tick's K / V
+            s.rings[step] = (k.detach().clone(), v.detach().clone())
+            return x
+        kk, vv, n_past = torch.cat([past[0], k], 2), torch.cat([past[1], v], 2), past[0].shape[2]
         ages = torch.arange(n_past, -1, -1, device=x.device)  # oldest .. self(0)
         bias = s.age_bias[:, ages].to(q.dtype)[None, :, None, :]  # (1, heads, 1, n_past+1)
         a = F.scaled_dot_product_attention(q, kk, vv, attn_mask=bias)  # (N, heads, 1, d)
         a = a.transpose(1, 2).reshape(R, H * W, C)
-        # append this tick's K / V, keep the last K
-        nk, nv = kk[:, :, -s.K:].detach(), vv[:, :, -s.K:].detach()
-        s.rings[step] = (nk, nv)
-        if n_past == 0:  # empty past: exactly A
-            return x
+        # append this tick's K / V, keep the last K (clone: bounded storage, no K+1 backing tensor kept alive)
+        s.rings[step] = (kk[:, :, -s.K:].detach().clone(), vv[:, :, -s.K:].detach().clone())
         d = s._delta(tok, a)
         return x + d.transpose(1, 2).reshape(R, C, H, W).to(x.dtype)
 

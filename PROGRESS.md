@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:42 UTC — noise probe @2k: the blocks use the shared NOISE, not the past content
+- scripts/noise_probe.py on runs/vlive/ckpt_2000 (8 dev pairs from different drives x 4 noise draws; recipient tick fixed; eps-MSE on the recipient tick; pulled/noise_2000.json):
+  t300: on .0459, off .0919, noise_only (donor content + shared noise) .0374, content_only (true content + fresh past noise) .3688, neither .3253.
+  t700: on .0110, off .0152, noise_only .0088, content_only .0662, neither .0618.   t900: on .0030, off .0031, noise_only .0027, content_only .0163.
+  -> noise_gain > 0 and > full_gain; content_gain strongly NEGATIVE (fresh past noise makes it 4x worse than blocks off at t300). The blocks are noise matchers; past content adds nothing. Difference loss (report only): diff_on .0470 vs diff_off .0984 at t300.
+- Risk for live rollouts: past ticks' latents at the same DDIM step share z0 95% but follow their own trajectories, so their noise components drift from the current tick's; the 2k stream check (rendering) will show the effect.
+- A3: Astra signed the swapped text (fresh arm from A@20k at rho 0.95, MSE + adjacent-tick difference loss, no Min-SNR; a probe-confirmed 8k non-pass QUEUES it; launch by default after a safe 16k non-pass; earlier launch needs a safe 8k panel + live-VSR OK for a second slice). Fable's swap pending.
+
 ## 2026-11-27 21:37 UTC — review 21:30 converged: keep training; offline noise-vs-content probe; A3 being pre-registered
 - Fable (council/review-20261127-2130-fable.md): reading right (noise share 1.17 t300 / 1.52 t700 at 2k; the blocks learned "fixed on screen = noise"); risk = a ceiling: the noise trick alone can at best rebuild signed A (~-6..-11% vs own cold) while the gate needs ~-19.0% ID / -14.6% W vs own cold (estimate); change nothing in the run; cheapest tests: difference-loss probe on ckpt_2000 and a "distance to A's frame" read; pre-register A3 before 8k (next arm: rho 0.95 + difference loss + Min-SNR).
 - All three seats: keep vlive training under A1. Probe scripts/noise_probe.py (arms on / off / noise_only / content_only / neither + difference loss; 8 fixed dev pairs from different drives x 4 noise draws; separate from the tested code) running on ckpt_2000 (nprobe2k 3755505). A3 pre-registration asked of Astra + Fable (council/causal-video-a3.md). 16 active jobs (cap).

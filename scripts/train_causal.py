@@ -55,6 +55,12 @@ else:
         raise SystemExit(f"decision row for rho {a.rho} is not eligible full-panel evidence: {row_}")
     if a.rho == 0.8 and dec["rows"]["0.5"]["meets"]:
         raise SystemExit("rho 0.8 chosen although 0.5 meets the rule")
+    _sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()[:16]
+    for rho_, row2_ in dec["rows"].items():  # the evidence must still be the files the decision was made on
+        if _sha(row2_["metrics_file"]) != row2_["metrics_sha"]:
+            raise SystemExit(f"rho decision evidence changed: {row2_['metrics_file']}")
+    if _sha(dec["comparator"]) != dec["comparator_sha"]:
+        raise SystemExit("rho decision comparator changed")
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"

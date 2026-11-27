@@ -47,6 +47,12 @@ for name, x in (("cam", cam), ("salt", salt), ("both", both)):
 # the camera arms really fed the donor's cameras from tick 30 (and only from 30); the salt arm did not
 ok5 = ok5 and cam["other"] not in ("", "${DRV}") and torch.equal(cam["src_ticks"][:30], c["src_ticks"][:30]) and torch.equal(both["src_ticks"], cam["src_ticks"]) \
       and torch.equal(salt["src_ticks"], c["src_ticks"]) and cam["salt_from"] == -1 and salt["salt_from"] == 30 and both["salt_from"] == 30
+# recorded per-tick provenance: whose cameras were fed and which private draw was used
+D = cam["other"]
+prov = lambda x, cams_from, salt_from: x["src_scene"] == ["${DRV}"] * cams_from + [D] * (60 - cams_from) and \
+       [k.endswith("|salt") for k in x["noise_key"]] == [False] * salt_from + [True] * (60 - salt_from)
+ok5 = ok5 and prov(c, 60, 60) and prov(cam, 30, 60) and prov(salt, 60, 30) and prov(both, 30, 30)
+msgs.append("provenance ctrl/cam/salt/both %s %s %s %s" % (prov(c, 60, 60), prov(cam, 30, 60), prov(salt, 60, 30), prov(both, 30, 30)))
 # the combined arm depends on BOTH interventions: it differs from cameras-only and from salt-only after tick 30
 d_bc = (both["lat"][30:].float() - cam["lat"][30:].float()).abs().max().item(); d_bs = (both["lat"][30:].float() - salt["lat"][30:].float()).abs().max().item()
 ok5 = ok5 and d_bc > 1e-3 and d_bs > 1e-3

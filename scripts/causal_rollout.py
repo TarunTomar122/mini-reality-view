@@ -6,7 +6,7 @@ them. Output = the signed temporal_rollout format (<out>/<scene>_s<seed>.pt) so 
 
   python scripts/causal_rollout.py --ckpt runs/vlive/ckpt_2000.pt --split dev --out runs/troll/V2k_dev [--mode off]
 """
-import argparse, hashlib, json, os, zlib
+import argparse, hashlib, io, json, os, zlib
 import torch
 from diffusers import UNet2DConditionModel, DDIMScheduler
 from peft import LoraConfig
@@ -37,13 +37,10 @@ dev = "cuda"
 AMP = torch.float32 if a.fp32 else (torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16)
 SD = "sd-legacy/stable-diffusion-v1-5"
 os.makedirs(a.out, exist_ok=True)
-_hc = hashlib.sha256()
-with open(a.ckpt, "rb") as f_:
-    for blk_ in iter(lambda: f_.read(1 << 24), b""):
-        _hc.update(blk_)
-CKPT_SHA = _hc.hexdigest()[:16]  # binds reuse to checkpoint CONTENT, not its path
+_raw = open(a.ckpt, "rb").read()  # one read: the digest describes exactly the bytes that are loaded
+CKPT_SHA = hashlib.sha256(_raw).hexdigest()[:16]  # binds reuse to checkpoint CONTENT, not its path
 ROLL_CODE = hashlib.sha256(b"".join(open(f, "rb").read() for f in [__file__, "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
-ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
+ck = torch.load(io.BytesIO(_raw), map_location="cpu"); r = ck["args"]["rank"]; del _raw
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); res_ = unet.load_state_dict(ck["lora"], strict=False)
 assert not res_.unexpected_keys and {n for n, _ in unet.named_parameters() if "lora" in n} == set(ck["lora"]), "LoRA load mismatch"
@@ -109,7 +106,9 @@ RY, U_NULL = {}, [None]
 for di, sc in enumerate(drives):
     if di % sn_ != si_:
         continue
-    E = torch.load(f"{a.enc}/{sc}.pt")
+    _eb = open(f"{a.enc}/{sc}.pt", "rb").read(); ENC_SHA = hashlib.sha256(_eb).hexdigest()[:16]
+    E = torch.load(io.BytesIO(_eb)); del _eb
+    RAY_SHA = hashlib.sha256(RAYS[sc].float().numpy().tobytes()).hexdigest()[:16]
     other = ALL[(ALL.index(sc) + len(ALL) // 2) % len(ALL)]
     if a.swap and not os.path.exists(f"{a.enc}/{other}.pt"):
         raise SystemExit(f"--swap: donor {other} missing")
@@ -119,7 +118,8 @@ for di, sc in enumerate(drives):
         fo = f"{a.out}/{sc}_s{seed}.pt"
         if os.path.exists(fo):  # reuse only an artifact made with exactly these settings
             old_ = torch.load(fo)
-            bad_ = {k: (old_.get(k), v) for k, v in SETTINGS.items() if old_.get(k) != v}
+            want_ = {**SETTINGS, "enc_sha": ENC_SHA, "ray_sha": RAY_SHA, "other": other if E2 is not None else ""}
+            bad_ = {k: (old_.get(k), v) for k, v in want_.items() if old_.get(k) != v}
             if bad_:
                 raise SystemExit(f"{fo} exists with different settings {bad_}: use a new --out")
             continue
@@ -127,11 +127,12 @@ for di, sc in enumerate(drives):
         z0 = torch.randn(1, 4, 32, 64, generator=g).to(dev)
         reset(TW)
         out, restart, oks, hards, srct, fresh = [], [], [], [], [], True
+        src_scene, noise_key = [], []  # per-tick provenance: whose cameras, which private draw
         for i in range(a.start_tick, n):
             if E2 is not None and i >= a.swap_at and i >= len(E2["ticks"]):
                 break
             src, j, sc_r = (E2, i, other) if (E2 is not None and i >= a.swap_at) else (E, i, sc)
-            oks.append(bool(src["ok"][j])); hards.append(bool(src["hard"][j])); srct.append(int(src["ticks"][j]))
+            oks.append(bool(src["ok"][j])); hards.append(bool(src["hard"][j])); srct.append(int(src["ticks"][j])); src_scene.append(sc_r)
             if bool(src["hard"][j]):
                 out.append(torch.zeros(4, 32, 64, dtype=torch.float16)); restart.append(True); reset(TW); fresh = True
                 continue
@@ -147,8 +148,9 @@ for di, sc in enumerate(drives):
             if i == a.reset_at:
                 reset(TW); fresh = True  # forced cold restart (test T6)
             restart.append(fresh); fresh = False
-            tid = int(E["ticks"][i])  # receiver tick id (== array index on the current manifest)
-            gn = torch.Generator().manual_seed(zlib.crc32((f"{sc}|{seed}|{tid}" + ("|salt" if 0 <= a.salt_from <= i else "")).encode()))  # per-tick private noise
+            tid = int(E["ticks"][i])  # receiver tick id (== array index on the current manifest; --start_tick/--swap_at/--reset_at/--salt_from are array positions)
+            nk_ = f"{sc}|{seed}|{tid}" + ("|salt" if 0 <= a.salt_from <= i else ""); noise_key.append(nk_)
+            gn = torch.Generator().manual_seed(zlib.crc32(nk_.encode()))  # per-tick private noise
             zn = torch.randn(1, 4, 32, 64, generator=gn).to(dev)
             z = denoise(RHO ** 0.5 * z0 + (1 - RHO) ** 0.5 * zn if RHO < 1 else z0.clone(), c.to(AMP), u.to(AMP))
             out.append(z[0].half().cpu())
@@ -157,7 +159,7 @@ for di, sc in enumerate(drives):
                "hard": torch.tensor(hards), "restart": torch.tensor(restart), "amp": str(AMP), "snapshot": a.ckpt,
                "snapshot_step": int(ck.get("step", -1)), "s": -1.0, "method": f"causal_{a.mode}", "K": ck.get("K", 0), "rho": RHO, "reset_at": a.reset_at,
                "swap_from": a.swap_at if E2 is not None else -1, **SETTINGS, "base_args": {k: ck["args"].get(k) for k in ("arm", "rank")},
-               "code_sha": ck.get("code_sha"), "other": other if E2 is not None else "", "batch": 1}
+               "code_sha": ck.get("code_sha"), "enc_sha": ENC_SHA, "ray_sha": RAY_SHA, "src_scene": src_scene, "noise_key": noise_key, "other": other if E2 is not None else "", "batch": 1}
         torch.save(rec, fo + ".tmp"); os.replace(fo + ".tmp", fo)
         print(sc, "seed", seed, n_out, "ticks", flush=True)
 for di, sc in enumerate(drives):  # verify the full expected output set of this shard: settings and tick count

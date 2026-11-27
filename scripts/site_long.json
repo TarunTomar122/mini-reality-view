@@ -137,33 +137,28 @@
  "timeline": [
   [
    "done",
-   "A trained to 20k",
-   "the no-memory version, for a fair comparison at every check"
+   "Memory approach (one past frame) closed",
+   "smoother than A at every check, but drift and car mistakes grew with training; no checkpoint passed all three bars (best: 12k, 8.6% smoother vs 9.4% bar)"
   ],
   [
    "done",
-   "Found why late drives drift",
-   "C practised on stale drives drawn by its 4k self, so it learned to freeze (council: Astra + Fable)"
+   "Council design: a LIVE video model",
+   "frozen A + small time layers that look back 4 frames and never ahead (Astra + Fable agreed; Neon guards)"
   ],
   [
    "now",
-   "Fix 2 reaches 20k",
-   "15k: 12.6% smoother than A (bar 9.4%: met), but late drift +0.039 and cars 0.036 behind A (1st warning)"
+   "Final checks before training",
+   "code reviewed and signed (with conditions) by Astra; tests re-running; noise mix being decided"
   ],
   [
    "next",
-   "20k check decides",
-   "a second warning stops fix 2; then we pick the best checkpoint or a stronger fix"
-  ],
-  [
-   "next",
-   "15k and 20k checks, then one full exam",
-   "30 test drives"
+   "Train the live model overnight",
+   "checks at 2k / 4k (look-only), then 8k / 12k / 16k with videos; bars: >9.4% smoother than A, cars within 0.03, drift <= +0.03"
   ],
   [
    "later",
-   "Remove lingering fake cars",
-   "then train even longer for smoothness"
+   "Make it fast enough to be live",
+   "now 3.4 s per frame (0.6 s at 4 steps) on a small GPU; target 0.1 s"
   ]
  ]
 }

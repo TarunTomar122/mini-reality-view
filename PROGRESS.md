@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 23:39 UTC — vpriv seeded init accepted by both seats
+- Astra + Fable accept the seeded, unmatched vpriv init for the gates; vpriv-vs-vlive comparisons are "policy + init"; a pure policy claim needs a matched-init control (vlive's noise policy from vpriv's seed). Recorded in AGREED A3.
+
 ## 2026-11-27 23:39 UTC — vlive DONE at 16k; Neon 23:30: my "default seed is fixed" claim was FALSE -> seeded init; fixtures redone
 - vlive (3755462) COMPLETED 16,000 updates at 23:31:18 UTC (trainer probe @16k: noise share t300 1.105, t700 1.273). 12k rollouts done (scoring tmet-V12k), 16k rollouts running.
 - CORRECTION (Neon, P0): I wrote that PyTorch's default generator is seeded identically at process start so vpriv would match vlive's temporal init. FALSE: vprivA showed different init hashes in two processes (f74968705d5a84f2 vs ce451e32b4ffda8b). vlive's unseeded init is unrecoverable. Also my resume fixture compared runs with different inits, checked only update 3, and its refused-resume check was a tautology (Astra flagged the latter too).

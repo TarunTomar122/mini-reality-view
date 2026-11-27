@@ -102,3 +102,7 @@ so at 8k); gradient-cosine probe (pulled/gradcos_*.json) informational.
 - Before launch: T1-T7 + new fixtures (private-noise batches; alternating slot; resume compatibility) + Astra code signature.
 - Reports (no gate): the noise probe fed with shared and with private noise at each check. Cleaner-past design = next full
   council round if vpriv also fails. History guidance (blocks off on the uncond row) = informational side probe.
+- A3 init note (Astra + Fable, 27 Nov ~23:50 UTC; council/vpriv-init*.md): vlive's temporal init was unseeded and is unrecoverable;
+  vpriv uses a seeded, recorded init (torch.manual_seed(seed) before the blocks). Accepted for the decision gates (vs A@20k /
+  own cold). Every vpriv-vs-vlive number is labelled "policy + init"; a pure "policy" claim later needs vlive's noise policy run
+  from vpriv's seed (matched-init control).

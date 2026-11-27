@@ -1,0 +1,5 @@
+Fable, vpriv init (27 Nov): accept the seeded, unmatched init. I checked scripts/train_causal.py: the seed call (line 115) only feeds the temporal-block init; batch, timestep, noise and dropout draws use their own per-step generators (line 221) and the probes use a fixed one (line 166), so nothing else moved.
+Conditions: (1) every vpriv-vs-vlive number is labelled "policy + init", never "policy"; vlive stays a reference curve, not a control. (2) The gates stay as written (A@20k and own cold), since those do not depend on vlive's lost init.
+No seed-sensitivity control now: it costs job slots and would not change any gate. The size of the init effect is unmeasured, so do not write it down as "small" just because the output projection starts at zero.
+If we later want a clean "policy" claim, the control is one run of vlive's noise policy from the same seed (same init_sha as vpriv), not a rerun of vpriv with other seeds. Record init_sha in every result row so a mismatch is visible.
+SIGNED: accept

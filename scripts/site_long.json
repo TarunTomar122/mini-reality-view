@@ -1,17 +1,64 @@
 {
- "start": 4000, "target": 20000,
- "checks": [5000, 10000, 15000, 20000],
- "refresh": [8000, 12000, 16000],
+ "start": 4000,
+ "target": 20000,
+ "checks": [
+  5000,
+  10000,
+  15000,
+  20000
+ ],
+ "refresh": [
+  8000,
+  12000,
+  16000
+ ],
  "results": [
-  {"step": 4000, "label": "before the long run (4k steps, 6 practice drives)",
-   "jumps": {"A": 0.109, "C": 0.088}, "wobble": {"A": 32.0, "C": 29.0},
-   "fake": {"A": 4.3, "C": 8.8}, "car": {"A": 0.463, "C": 0.448}}
+  {
+   "step": 4000,
+   "label": "before the long run (4k steps, 6 practice drives)",
+   "jumps": {
+    "A": 0.109,
+    "C": 0.088
+   },
+   "wobble": {
+    "A": 32.0,
+    "C": 29.0
+   },
+   "fake": {
+    "A": 4.3,
+    "C": 8.8
+   },
+   "car": {
+    "A": 0.463,
+    "C": 0.448
+   }
+  }
  ],
  "timeline": [
-  ["done", "C draws its own practice drives", "48 whole drives, so it can learn from its own mistakes"],
-  ["now", "Long training", "C (memory) and A (no memory) both go from 4k to 20k steps"],
-  ["next", "Check every 5k steps", "6 practice drives + a new side-by-side video, here"],
-  ["next", "One full exam at 20k", "30 test drives, this afternoon"],
-  ["later", "Remove lingering fake cars", "then train even longer for smoothness"]
+  [
+   "now",
+   "C draws its own practice drives",
+   "48 whole drives, so it can learn from its own mistakes (about an hour)"
+  ],
+  [
+   "now",
+   "Long training",
+   "A (no memory) has started. C starts as soon as its practice drives are ready"
+  ],
+  [
+   "next",
+   "Check every 5k steps",
+   "6 practice drives + a new side-by-side video, here"
+  ],
+  [
+   "next",
+   "One full exam at 20k",
+   "30 test drives, this afternoon"
+  ],
+  [
+   "later",
+   "Remove lingering fake cars",
+   "then train even longer for smoothness"
+  ]
  ]
 }

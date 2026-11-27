@@ -36,6 +36,7 @@ p.add_argument("--drop_hi", type=float, default=0.5)
 p.add_argument("--drop_switch", type=int, default=1000)
 p.add_argument("--drop_lo", type=float, default=0.25)
 p.add_argument("--seed", type=int, default=0)
+p.add_argument("--budget_min", type=float, default=0, help="timing run: exit 3 if the projected 4k run (map prep + 4,000 updates + checkpoints) exceeds this many minutes")
 p.add_argument("--resume", action="store_true", help="continue <out>/ckpt.pt (staged 1k / 2k gates)")
 p.add_argument("--out", required=True)
 a = p.parse_args()
@@ -72,9 +73,11 @@ if __name__ == "__main__":
     # maps are deterministic (fixed degradation, no box dropout): rasterise every training frame once (z-buffered faces
     # cost ~0.13 s / frame), in parallel, and cache them
     from concurrent.futures import ProcessPoolExecutor
+    t_prep0 = time.time()
     with ProcessPoolExecutor(max_workers=max(1, len(os.sched_getaffinity(0)))) as ex:  # the job's CPUs, not the node's
         MAPS = dict(zip([r[1] for r in rows], ex.map(map_planes, [BOX[r[1]] for r in rows], chunksize=16)))
-    print(f"rasterised {len(MAPS)} maps", flush=True)
+    T_PREP = time.time() - t_prep0
+    print(f"rasterised {len(MAPS)} maps in {T_PREP / 60:.1f} min", flush=True)
     print(f"rows {len(rows)} from {len({r[0] for r in rows})} drives; skipped {miss} (no boxes / no key mask); "
           f"mean car-cell share {np.mean([float((r[4] > 0).float().mean()) for r in rows]):.3f}", flush=True)
 
@@ -96,13 +99,18 @@ if __name__ == "__main__":
         start = s_["step"]; print("resumed at", start, flush=True)
 
     def save(step, path):
+        ts_ = time.time()
         d = {"mapconv": unet.conv_in.map.state_dict(), "opt": opt.state_dict(), "step": step, "init": a.init,
              "args": {**ck0["args"], "carmap2": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
         torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
+        SAVE_T[0] += time.time() - ts_; SAVE_T[1] += 1
 
     style = torch.full((16,), 2, dtype=torch.long, device=dev); CLIP = [0, 0]
     log = open(f"{a.out}/log.jsonl", "a"); t0 = time.time(); SAVE = set(int(x) for x in a.save_at.split(","))
+    t10 = time.time(); SAVE_T = [0.0, 0]
     for step in range(start, a.steps):
+        if step - start == 10:
+            torch.cuda.synchronize(); t10 = time.time()
         g = torch.Generator().manual_seed(a.seed * 100003 + step)
         idx = torch.randint(0, len(rows), (16,), generator=g)
         u = torch.rand(16, generator=g); t = ((1 - u ** 3) * 1000).floor().clamp(0, 999).long()
@@ -139,4 +147,11 @@ if __name__ == "__main__":
             save(step + 1, ck)
         if step + 1 in SAVE:
             save(step + 1, f"{a.out}/ckpt_{step + 1}.pt")
+    if a.budget_min:
+        n_ = a.steps - start; per = (time.time() - t10) / max(1, n_ - 10) if n_ > 10 else float("nan")
+        t_save = SAVE_T[0] / max(1, SAVE_T[1])
+        proj = (T_PREP + 4000 * per + 6 * t_save + 120) / 60  # + ~2 min model load
+        print(f"TIMING per update {per:.3f} s (steps 10-{n_}), map prep {T_PREP / 60:.1f} min, save {t_save:.1f} s -> projected 4k {proj:.0f} min (budget {a.budget_min:.0f})", flush=True)
+        if not proj <= a.budget_min:
+            print("TIMING_OVER_BUDGET", flush=True); raise SystemExit(3)
     print("CARMAP2_TRAIN_DONE")

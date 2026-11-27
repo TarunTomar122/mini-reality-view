@@ -35,6 +35,7 @@ p.add_argument("--shuffle_cams", action="store_true", help="roll tokens AND rays
 p.add_argument("--carmap_boxes", default="", help="car map: glob of BEVFormer box JSONs (checkpoint must have a map branch)")
 p.add_argument("--carmap_oracle", action="store_true", help="car map from nuScenes annotations instead of the detector (oracle test)")
 p.add_argument("--carmap_grid", default="", help="X2: folder of cached BEV grids")
+p.add_argument("--frames_file", default="", help="fixed frame list JSON {frames: [{scene, k, token, donor, donor_k}]}: render exactly these (donor = swap source); asserts the count")
 p.add_argument("--map_swap", action="store_true", help="map-only swap: the car map of the judge drive half the list away")
 p.add_argument("--control", default="", choices=["", "roll_tokens", "swap_scene"],
                help="validation controls: roll_tokens = tokens rolled by 3 cameras, rays kept (front content placed behind); "
@@ -81,6 +82,12 @@ if a.keys_like:
 judge = names[a.first:a.first + a.n_scenes]
 if a.scenes:
     judge = a.scenes.split(",")
+FR = None
+if a.frames_file:
+    FR = {}
+    for f_ in json.load(open(a.frames_file))["frames"]:
+        FR.setdefault(f_["scene"], []).append(f_)
+    judge = list(FR)
 index = []
 for si, sc in enumerate(judge):
     e = torch.load(f"{a.tokens}/{sc}.pt")
@@ -91,8 +98,15 @@ for si, sc in enumerate(judge):
     if a.keys_like:  # frames that have a game key
         kk = sorted(int(os.path.basename(f)[:3]) for f in glob.glob(f"{a.keys_like}/{sc}/*.png"))
         ks = [kk[i] for i in np.linspace(0, len(kk) - 1, a.frames).round().astype(int)]
+    if FR is not None:
+        ks = [f_["k"] for f_ in FR[sc]]
+        for f_ in FR[sc]:
+            assert e["sample_tokens"][f_["k"]] == f_["token"], f"{sc} frame {f_['k']}: token mismatch"
     os.makedirs(f"{a.out}/{sc}", exist_ok=True)
     for k in ks:
+        if FR is not None and (a.control == "swap_scene" or a.map_swap):  # fixed donor frame
+            f_ = next(q for q in FR[sc] if q["k"] == k); osc = f_["donor"]; eo = torch.load(f"{a.tokens}/{osc}.pt")
+            assert eo["sample_tokens"][f_["donor_k"]] == f_["donor_token"]
         tok = e["tokens"][k:k + 1].to(dev).float()
         ry = RAYS[sc][None].to(dev).float()
         if a.shuffle_cams:
@@ -100,7 +114,7 @@ for si, sc in enumerate(judge):
         if a.control == "roll_tokens":
             tok = tok.roll(3, dims=1)
         if a.control == "swap_scene":
-            ko = min(round(k / max(1, n - 1) * (len(eo["tokens"]) - 1)), len(eo["tokens"]) - 1)
+            ko = f_["donor_k"] if FR is not None else min(round(k / max(1, n - 1) * (len(eo["tokens"]) - 1)), len(eo["tokens"]) - 1)
             tok, ry = eo["tokens"][ko:ko + 1].to(dev).float(), RAYS[osc][None].to(dev).float()
         st = torch.full((1,), a.style, dtype=torch.long, device=dev)
         for seed in map(int, a.seeds.split(",")):
@@ -110,7 +124,7 @@ for si, sc in enumerate(judge):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
             RES = None
             if BR is not None or MC:  # same car map in both guidance passes
-                msc, mk = (osc, min(round(k / max(1, n - 1) * (len(eo["sample_tokens"]) - 1)), len(eo["sample_tokens"]) - 1)) \
+                msc, mk = (osc, f_["donor_k"] if FR is not None else min(round(k / max(1, n - 1) * (len(eo["sample_tokens"]) - 1)), len(eo["sample_tokens"]) - 1)) \
                     if (a.control == "swap_scene" or a.map_swap) else (sc, k)
                 mtok = (eo if msc != sc else e)["sample_tokens"][mk]
                 fr = gt_frame(NUSC, mtok) if a.carmap_oracle else BOXES.get(mtok)
@@ -142,5 +156,8 @@ for si, sc in enumerate(judge):
             Image.fromarray(arr).save(f"{a.out}/{fn}")
             index.append({"scene": sc, "k": k, "token": e["sample_tokens"][k], "seed": seed, "file": fn})
     print(sc, len(ks), flush=True)
+if FR is not None:
+    want = sum(len(v) for v in FR.values()) * len(a.seeds.split(","))
+    assert len(index) == want, f"rendered {len(index)} frames, frame list asks for {want}"
 json.dump({"ckpt": a.ckpt, "style": a.style, "shuffle_cams": a.shuffle_cams, "control": a.control, "items": index}, open(f"{a.out}/index.json", "w"), indent=1)
 print("RENDER_DONE", len(index))

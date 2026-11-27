@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 01:20 — drift check 5 outcome (both)
+- Correction to the 00:00 entry: the 11 short calibration drives have ONE keyed frame each (not 3), so val84 = 73 x 4 + 11 = 303 frames is complete (Fable counted on the cluster).
+- Both: R may start only after (Fable) the pooled-18 frame list is fixed and committed and the timing gate is mechanical, and (Astra) P3 hull coverage is documented for all 30 train drives and the measured 4k budget fits. Done / running:
+  - council/carmap_dev18_frames.json (generator scripts/carmap_dev18_frames.py): 18 drives (6 dev, degraded boxes; 12 reserved, raw boxes), 69 frames (scene-0771 has one keyed frame, used once), seeds 0/1, fixed map-swap donors (drive half the list away, same relative frame). sd_render.py --frames_file renders exactly that list (token checks, count assert).
+  - train_carmap2.py --budget_min 180: projects map prep + 4,000 updates + checkpoints + load from the measured steps 10-100 and exits 3 if over; cmR-timing3 3753686 (degraded fixed-calibration boxes); cmR 3753661 afterok on it, still held until the all-30 P3 hull recompute is in (keyidx-train30 3753681 -> raw 3753682, degraded 3753683; scene-0705 has one keyed frame, so 117 frames).
+  - Arm C: cache files now record the snapshot (path, step); train_temporal.py --cache_step asserts it and that the cache covers all 85 clip drives. tmpC-a cancelled; rollcache_1000 (made before the stamp) will be stamped from its job record (runs/tmpB/ckpt_1000.pt, step 1000) and C resubmitted with --cache_step 1000.
+- Temporal rules (both): sweep B / C strength s on the 4k checkpoints only, with the lock rule written before reading; 2k scored with the same s; warm 0.7 stays the A + warm comparator; no method declared passing until the owner rules on the lag position (failing allowed); state 30 drives (22 for late gaps) beside decision figures.
+
 ## 2026-11-27 01:00 — temporal scorer SIGNED (764dd3ec95db, both); decision scoring released; C queued
 - Astra and Fable both signed scorer content hash 764dd3ec95db (git fded34e) for non-swap rollouts (council/scorer-sign-764dd3ec95db-*.md). Fable's reading conditions: "ghosts not growing" = paired difference vs independent on BOTH ghost growth and >= 5-tick ghosts (growth alone does not separate warm 0.5); state the drive count beside every late gap / ghost growth (decision set should be 22); flips descriptive only. Lag reported under the interim rule (signed for reporting). Report 65.6% dev link coverage beside ID / W.
 - Released the six decision metric jobs (independent and warm 0.7, 30 drives x seeds 0/1, 60 rollouts each, on 764dd3ec95db).

@@ -1,0 +1,631 @@
+{
+ "frames": [
+  {
+   "scene": "scene-0043",
+   "k": 0,
+   "token": "7ec5350531b74c35a02877ce8314a8d5",
+   "donor": "scene-0771",
+   "donor_k": 0,
+   "donor_token": "5a3a15f4ebdb4e6b83eb58628dc8e83f",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0043",
+   "k": 6,
+   "token": "d4f97f43798a4c989b318ea1ec60b5e8",
+   "donor": "scene-0771",
+   "donor_k": 0,
+   "donor_token": "5a3a15f4ebdb4e6b83eb58628dc8e83f",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0043",
+   "k": 10,
+   "token": "3d1eb3da8dfc4059b703484a83330a07",
+   "donor": "scene-0771",
+   "donor_k": 0,
+   "donor_token": "5a3a15f4ebdb4e6b83eb58628dc8e83f",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0043",
+   "k": 16,
+   "token": "1abc4343ba1543eaa63223c81ae8531e",
+   "donor": "scene-0771",
+   "donor_k": 0,
+   "donor_token": "5a3a15f4ebdb4e6b83eb58628dc8e83f",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0234",
+   "k": 0,
+   "token": "3481dbfd65864925b4a4b2d6b7256d44",
+   "donor": "scene-0783",
+   "donor_k": 0,
+   "donor_token": "e829650532104af6bdb060d75924421f",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0234",
+   "k": 12,
+   "token": "da4feceed7664d0b9ee6d952164c2cba",
+   "donor": "scene-0783",
+   "donor_k": 12,
+   "donor_token": "42623e17d6034e3f8bfb37abee634483",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0234",
+   "k": 24,
+   "token": "50f4023ea0654b65beda022c81bb1692",
+   "donor": "scene-0783",
+   "donor_k": 22,
+   "donor_token": "75c5b8cbc73c43a09d54fb4111653e0a",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0234",
+   "k": 36,
+   "token": "45a611be74584fcebba08bd82615f2b8",
+   "donor": "scene-0783",
+   "donor_k": 34,
+   "donor_token": "4a0987ae93eb4cb7b77e94f8ab034a27",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0285",
+   "k": 0,
+   "token": "b7dfd87604b44698a0d21bb3f3136ede",
+   "donor": "scene-0904",
+   "donor_k": 0,
+   "donor_token": "4e04d32a9949430287c14d49851f6f55",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0285",
+   "k": 12,
+   "token": "70ec55b0f96f4f4ab846dc9c1e0d135d",
+   "donor": "scene-0904",
+   "donor_k": 12,
+   "donor_token": "a6bd4918a50b4b52888bb8237ddc74b8",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0285",
+   "k": 24,
+   "token": "c8084a48ac5d4a708aaa57182bd4f61d",
+   "donor": "scene-0904",
+   "donor_k": 24,
+   "donor_token": "fe515f0e8f5145a29e059c13bb8fb127",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0285",
+   "k": 36,
+   "token": "d6b0de9fa8454e5ebc24983652ec6a06",
+   "donor": "scene-0904",
+   "donor_k": 36,
+   "donor_token": "5e3e194f6d484e898f7b39104f6b2c53",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0393",
+   "k": 0,
+   "token": "bf114fd37ca2449681a812564e146beb",
+   "donor": "scene-0925",
+   "donor_k": 0,
+   "donor_token": "e6fcfc5cd0254eee901c1bbc0a30a6ba",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0393",
+   "k": 12,
+   "token": "d6c2eb61fc154650879c9161459a988e",
+   "donor": "scene-0925",
+   "donor_k": 12,
+   "donor_token": "a9c59e28cc404418add2c66079e05040",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0393",
+   "k": 24,
+   "token": "bc265ffee875424abde55cf767c9dbca",
+   "donor": "scene-0925",
+   "donor_k": 26,
+   "donor_token": "245a861d17ce4ee094c30a27ff5805ec",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0393",
+   "k": 36,
+   "token": "8e1c956d40d6467fa1f236992c46c5fe",
+   "donor": "scene-0925",
+   "donor_k": 38,
+   "donor_token": "fce1e9a760464084ae8ccf05745df878",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0396",
+   "k": 0,
+   "token": "1759e74726f7465585fd860ec81315c5",
+   "donor": "scene-0928",
+   "donor_k": 0,
+   "donor_token": "fd0915986a6444ee8296894d2a307291",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0396",
+   "k": 12,
+   "token": "4ca00ec99bc44419a5de09d71ce5a1ee",
+   "donor": "scene-0928",
+   "donor_k": 12,
+   "donor_token": "967fb73bdd20468495b1ac6de9159404",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0396",
+   "k": 22,
+   "token": "d439b06668d843a89f394c7d274b2398",
+   "donor": "scene-0928",
+   "donor_k": 24,
+   "donor_token": "b1e7b23afebd4e5986b38ab6f7ae5a2b",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0396",
+   "k": 34,
+   "token": "bb0b9a0c75b34444bd58e530387025b7",
+   "donor": "scene-0928",
+   "donor_k": 36,
+   "donor_token": "a0741a79fe7d4d1db5020b3337288756",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0468",
+   "k": 0,
+   "token": "daca50a30ed845f8ae49d38f4aec022c",
+   "donor": "scene-0929",
+   "donor_k": 0,
+   "donor_token": "dad9942ea8f1409985140f500c69c88e",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0468",
+   "k": 12,
+   "token": "250da10f348f45f7a455219d66ef8735",
+   "donor": "scene-0929",
+   "donor_k": 12,
+   "donor_token": "b73bd8728da643b4b4e6a10583e444ee",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0468",
+   "k": 26,
+   "token": "dc9196bcf32a4e08b5d6f7c441db222d",
+   "donor": "scene-0929",
+   "donor_k": 24,
+   "donor_token": "a84326b4122c49d6a343301963928782",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0468",
+   "k": 38,
+   "token": "706977961ed4470a83ee838638766592",
+   "donor": "scene-0929",
+   "donor_k": 36,
+   "donor_token": "ecf5f484a9e9473ead2d6bfff5654802",
+   "group": "dev6"
+  },
+  {
+   "scene": "scene-0331",
+   "k": 0,
+   "token": "09361337f2bf4e819aac2a310481e62f",
+   "donor": "scene-0967",
+   "donor_k": 0,
+   "donor_token": "23d02c83708b4f5e9579bbd99370a672",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0331",
+   "k": 12,
+   "token": "8809e3930d5c4bfa88c2494ad3be72d9",
+   "donor": "scene-0967",
+   "donor_k": 12,
+   "donor_token": "9d62dd246bb8441198dd4cbf1f5a7a22",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0331",
+   "k": 24,
+   "token": "58976dcd6bc449b4a23cadab4fb49646",
+   "donor": "scene-0967",
+   "donor_k": 24,
+   "donor_token": "218372bb459f4fdebdad34163407c32b",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0331",
+   "k": 36,
+   "token": "15f9009a938b40a4b3c6ef83b55c19c2",
+   "donor": "scene-0967",
+   "donor_k": 36,
+   "donor_token": "cabe4ba83d9e4282b3d343945813316b",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0346",
+   "k": 0,
+   "token": "c35efe5eaf784275b8c7e31fb50aa902",
+   "donor": "scene-0972",
+   "donor_k": 0,
+   "donor_token": "e80bfd61023745b0a97caae3ff4a1727",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0346",
+   "k": 12,
+   "token": "88759370eff4419f9b3fd987b3035355",
+   "donor": "scene-0972",
+   "donor_k": 12,
+   "donor_token": "ac6670acd3054a0cb075fa248f036cbc",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0346",
+   "k": 26,
+   "token": "d37198617cdd43daa8f0b5ad25bc2852",
+   "donor": "scene-0972",
+   "donor_k": 26,
+   "donor_token": "42e802854cf34097a57b857663c6ddf7",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0346",
+   "k": 38,
+   "token": "d51bc02e54794cf38c6ea68071c70de2",
+   "donor": "scene-0972",
+   "donor_k": 38,
+   "donor_token": "9a454c6445374392afa1c2d90a930877",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0632",
+   "k": 0,
+   "token": "78c80690450a4e8aba63e1f2ca27c207",
+   "donor": "scene-1071",
+   "donor_k": 0,
+   "donor_token": "7e351605549547f8af19432917f23b73",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0632",
+   "k": 12,
+   "token": "30a3c33a60914974bb3c6ad379b472f6",
+   "donor": "scene-1071",
+   "donor_k": 12,
+   "donor_token": "560ca003953545d4a7d316b37350d597",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0632",
+   "k": 24,
+   "token": "c4b8c55ceed44c7e95c36e61b8a99ffe",
+   "donor": "scene-1071",
+   "donor_k": 24,
+   "donor_token": "f5fcaa580b7143dc8136501b9a3d547a",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0632",
+   "k": 36,
+   "token": "489b2a7292e44820beddb31d988a97c5",
+   "donor": "scene-1071",
+   "donor_k": 36,
+   "donor_token": "94b4a62553a145e8bec4ce2ae634e574",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0771",
+   "k": 0,
+   "token": "5a3a15f4ebdb4e6b83eb58628dc8e83f",
+   "donor": "scene-0043",
+   "donor_k": 0,
+   "donor_token": "7ec5350531b74c35a02877ce8314a8d5",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0783",
+   "k": 0,
+   "token": "e829650532104af6bdb060d75924421f",
+   "donor": "scene-0234",
+   "donor_k": 0,
+   "donor_token": "3481dbfd65864925b4a4b2d6b7256d44",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0783",
+   "k": 12,
+   "token": "42623e17d6034e3f8bfb37abee634483",
+   "donor": "scene-0234",
+   "donor_k": 12,
+   "donor_token": "da4feceed7664d0b9ee6d952164c2cba",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0783",
+   "k": 22,
+   "token": "75c5b8cbc73c43a09d54fb4111653e0a",
+   "donor": "scene-0234",
+   "donor_k": 24,
+   "donor_token": "50f4023ea0654b65beda022c81bb1692",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0783",
+   "k": 34,
+   "token": "4a0987ae93eb4cb7b77e94f8ab034a27",
+   "donor": "scene-0234",
+   "donor_k": 36,
+   "donor_token": "45a611be74584fcebba08bd82615f2b8",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0904",
+   "k": 0,
+   "token": "4e04d32a9949430287c14d49851f6f55",
+   "donor": "scene-0285",
+   "donor_k": 0,
+   "donor_token": "b7dfd87604b44698a0d21bb3f3136ede",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0904",
+   "k": 12,
+   "token": "a6bd4918a50b4b52888bb8237ddc74b8",
+   "donor": "scene-0285",
+   "donor_k": 12,
+   "donor_token": "70ec55b0f96f4f4ab846dc9c1e0d135d",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0904",
+   "k": 24,
+   "token": "fe515f0e8f5145a29e059c13bb8fb127",
+   "donor": "scene-0285",
+   "donor_k": 24,
+   "donor_token": "c8084a48ac5d4a708aaa57182bd4f61d",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0904",
+   "k": 36,
+   "token": "5e3e194f6d484e898f7b39104f6b2c53",
+   "donor": "scene-0285",
+   "donor_k": 36,
+   "donor_token": "d6b0de9fa8454e5ebc24983652ec6a06",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0925",
+   "k": 0,
+   "token": "e6fcfc5cd0254eee901c1bbc0a30a6ba",
+   "donor": "scene-0393",
+   "donor_k": 0,
+   "donor_token": "bf114fd37ca2449681a812564e146beb",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0925",
+   "k": 12,
+   "token": "a9c59e28cc404418add2c66079e05040",
+   "donor": "scene-0393",
+   "donor_k": 12,
+   "donor_token": "d6c2eb61fc154650879c9161459a988e",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0925",
+   "k": 26,
+   "token": "245a861d17ce4ee094c30a27ff5805ec",
+   "donor": "scene-0393",
+   "donor_k": 24,
+   "donor_token": "bc265ffee875424abde55cf767c9dbca",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0925",
+   "k": 38,
+   "token": "fce1e9a760464084ae8ccf05745df878",
+   "donor": "scene-0393",
+   "donor_k": 36,
+   "donor_token": "8e1c956d40d6467fa1f236992c46c5fe",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0928",
+   "k": 0,
+   "token": "fd0915986a6444ee8296894d2a307291",
+   "donor": "scene-0396",
+   "donor_k": 0,
+   "donor_token": "1759e74726f7465585fd860ec81315c5",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0928",
+   "k": 12,
+   "token": "967fb73bdd20468495b1ac6de9159404",
+   "donor": "scene-0396",
+   "donor_k": 12,
+   "donor_token": "4ca00ec99bc44419a5de09d71ce5a1ee",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0928",
+   "k": 24,
+   "token": "b1e7b23afebd4e5986b38ab6f7ae5a2b",
+   "donor": "scene-0396",
+   "donor_k": 22,
+   "donor_token": "d439b06668d843a89f394c7d274b2398",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0928",
+   "k": 36,
+   "token": "a0741a79fe7d4d1db5020b3337288756",
+   "donor": "scene-0396",
+   "donor_k": 34,
+   "donor_token": "bb0b9a0c75b34444bd58e530387025b7",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0929",
+   "k": 0,
+   "token": "dad9942ea8f1409985140f500c69c88e",
+   "donor": "scene-0468",
+   "donor_k": 0,
+   "donor_token": "daca50a30ed845f8ae49d38f4aec022c",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0929",
+   "k": 12,
+   "token": "b73bd8728da643b4b4e6a10583e444ee",
+   "donor": "scene-0468",
+   "donor_k": 12,
+   "donor_token": "250da10f348f45f7a455219d66ef8735",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0929",
+   "k": 24,
+   "token": "a84326b4122c49d6a343301963928782",
+   "donor": "scene-0468",
+   "donor_k": 26,
+   "donor_token": "dc9196bcf32a4e08b5d6f7c441db222d",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0929",
+   "k": 36,
+   "token": "ecf5f484a9e9473ead2d6bfff5654802",
+   "donor": "scene-0468",
+   "donor_k": 38,
+   "donor_token": "706977961ed4470a83ee838638766592",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0967",
+   "k": 0,
+   "token": "23d02c83708b4f5e9579bbd99370a672",
+   "donor": "scene-0331",
+   "donor_k": 0,
+   "donor_token": "09361337f2bf4e819aac2a310481e62f",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0967",
+   "k": 12,
+   "token": "9d62dd246bb8441198dd4cbf1f5a7a22",
+   "donor": "scene-0331",
+   "donor_k": 12,
+   "donor_token": "8809e3930d5c4bfa88c2494ad3be72d9",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0967",
+   "k": 24,
+   "token": "218372bb459f4fdebdad34163407c32b",
+   "donor": "scene-0331",
+   "donor_k": 24,
+   "donor_token": "58976dcd6bc449b4a23cadab4fb49646",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0967",
+   "k": 36,
+   "token": "cabe4ba83d9e4282b3d343945813316b",
+   "donor": "scene-0331",
+   "donor_k": 36,
+   "donor_token": "15f9009a938b40a4b3c6ef83b55c19c2",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0972",
+   "k": 0,
+   "token": "e80bfd61023745b0a97caae3ff4a1727",
+   "donor": "scene-0346",
+   "donor_k": 0,
+   "donor_token": "c35efe5eaf784275b8c7e31fb50aa902",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0972",
+   "k": 12,
+   "token": "ac6670acd3054a0cb075fa248f036cbc",
+   "donor": "scene-0346",
+   "donor_k": 12,
+   "donor_token": "88759370eff4419f9b3fd987b3035355",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0972",
+   "k": 26,
+   "token": "42e802854cf34097a57b857663c6ddf7",
+   "donor": "scene-0346",
+   "donor_k": 26,
+   "donor_token": "d37198617cdd43daa8f0b5ad25bc2852",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-0972",
+   "k": 38,
+   "token": "9a454c6445374392afa1c2d90a930877",
+   "donor": "scene-0346",
+   "donor_k": 38,
+   "donor_token": "d51bc02e54794cf38c6ea68071c70de2",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-1071",
+   "k": 0,
+   "token": "7e351605549547f8af19432917f23b73",
+   "donor": "scene-0632",
+   "donor_k": 0,
+   "donor_token": "78c80690450a4e8aba63e1f2ca27c207",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-1071",
+   "k": 12,
+   "token": "560ca003953545d4a7d316b37350d597",
+   "donor": "scene-0632",
+   "donor_k": 12,
+   "donor_token": "30a3c33a60914974bb3c6ad379b472f6",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-1071",
+   "k": 24,
+   "token": "f5fcaa580b7143dc8136501b9a3d547a",
+   "donor": "scene-0632",
+   "donor_k": 24,
+   "donor_token": "c4b8c55ceed44c7e95c36e61b8a99ffe",
+   "group": "reserved12"
+  },
+  {
+   "scene": "scene-1071",
+   "k": 36,
+   "token": "94b4a62553a145e8bec4ce2ae634e574",
+   "donor": "scene-0632",
+   "donor_k": 36,
+   "donor_token": "489b2a7292e44820beddb31d988a97c5",
+   "group": "reserved12"
+  }
+ ],
+ "seeds": [
+  0,
+  1
+ ],
+ "drives": 18,
+ "rule": "see header of council/carmap_dev18_frames.json generator (tmp/mk18.py)"
+}

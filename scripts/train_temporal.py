@@ -35,6 +35,7 @@ p.add_argument("--singles", default="data/lat512_tpv_lit", help="keyframe single
 p.add_argument("--tokens", default="data/enc_full")
 p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--cache", default="", help="arm C: folder of cached own rollouts (<scene>.pt {ticks, lat})")
+p.add_argument("--cache_step", type=int, default=-1, help="arm C: the snapshot step the cache must come from (asserted)")
 p.add_argument("--steps", type=int, default=6000)
 p.add_argument("--save_at", default="1000,2000,2500,4000,6000")
 p.add_argument("--clips", default="data/temporal_cclips.json", help="the 128 preselected eight-tick train clips (arm C's own-rollout rows); made once, seeded")
@@ -86,9 +87,13 @@ for f in sorted(glob.glob(f"{a.singles}/*.pt")):
         singles.append((e["tokens"][pos[t]], k["lat"][j], sc))
 CACHE = {}
 if a.arm == "C":
-    for f in glob.glob(f"{a.cache}/*.pt"):
-        c = torch.load(f); sc = os.path.basename(f)[:-3]
+    cf = glob.glob(f"{a.cache}/*.pt"); steps_ = set()
+    clip_sc = {c_[0] for c_ in json.load(open(a.clips))["clips"]}
+    assert {os.path.basename(f)[:-3] for f in cf} == clip_sc, f"cache {a.cache} does not cover all clip drives"
+    for f in cf:
+        c = torch.load(f); sc = os.path.basename(f)[:-3]; steps_.add(c.get("snapshot_step", -1))
         CACHE[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
+    assert steps_ == {a.cache_step}, f"cache {a.cache} made from snapshot steps {steps_}, expected {a.cache_step}"
 print(f"arm {a.arm}: dense rows {len(dense)} from {len(E)} drives, singles {len(singles)}, cached own frames {sum(len(v) for v in CACHE.values())}", flush=True)
 
 # ---------- model ----------

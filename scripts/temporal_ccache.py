@@ -70,6 +70,6 @@ for n_, sc in enumerate(sorted(by_sc)):
                     e = unet(torch.cat([z, z]), t, encoder_hidden_states=torch.cat([c, u])).sample.float()
                 ec, eu = e.chunk(2); z = ddim.step(eu + 2.0 * (ec - eu), t, z).prev_sample
             prev = z; ticks.append(int(E["ticks"][i])); lats.append(z[0].half().cpu())
-    torch.save({"ticks": torch.tensor(ticks), "lat": torch.stack(lats)}, f"{a.out}/{sc}.pt.tmp"); os.replace(f"{a.out}/{sc}.pt.tmp", f"{a.out}/{sc}.pt")
+    torch.save({"ticks": torch.tensor(ticks), "lat": torch.stack(lats), "snapshot": a.ckpt, "snapshot_step": int(ck.get("step", -1))}, f"{a.out}/{sc}.pt.tmp"); os.replace(f"{a.out}/{sc}.pt.tmp", f"{a.out}/{sc}.pt")
     print(sc, len(ticks), "own frames", flush=True)
 print("CCACHE_DONE", a.ckpt)

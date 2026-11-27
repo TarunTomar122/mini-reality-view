@@ -4,7 +4,8 @@
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp
 PY=.venv/bin/python; A=runs/longA/ckpt_20000.pt; T=runs/ctest_${SLURM_JOB_ID:-manual}; mkdir -p $T; FAILS=0
-sha256sum scripts/train_causal.py scripts/causal_rollout.py scripts/causal_tests.py mrv/causal_video.py slurm/causal_tests.sh | tee $T/code_sha256.txt
+sha256sum scripts/train_causal.py scripts/causal_rollout.py scripts/causal_tests.py mrv/causal_video.py slurm/causal_tests.sh scripts/rho_decision.py scripts/rho_rule.py scripts/test_rho_rule.py slurm/launch_vlive.sh | tee $T/code_sha256.txt
+echo "== rho rule CPU fixtures"; (cd scripts && ../$PY test_rho_rule.py); chk $? test_rho_rule
 chk() { if [ "$1" != 0 ]; then echo "FAIL $2 (exit $1)"; FAILS=$((FAILS+1)); fi; }
 echo "== causal_tests.py (T1 T3a T3b T4)"; $PY scripts/causal_tests.py --init $A --K 4; chk $? causal_tests.py
 [ $FAILS = 0 ] || { echo "fail-fast: causal_tests.py failed, skipping the rest"; echo "CAUSAL_TESTS_SH FAILS=$FAILS dir=$T"; exit $FAILS; }

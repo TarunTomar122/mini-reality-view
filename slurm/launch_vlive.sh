@@ -18,10 +18,13 @@ D=$(grep -o "dir=[^ ]*" $CT | tail -1 | cut -d= -f2)
 .venv/bin/python scripts/rho_decision.py --out council/rho_decision.json; rc=$?
 [ $rc = 0 ] || { echo "GATE FAIL: rho decision not valid (rc $rc) -> back to council"; exit 1; }
 RHO=$(.venv/bin/python -c "import json;print(json.load(open('council/rho_decision.json'))['chosen'])")
+MODE=$(.venv/bin/python -c "import json;print(json.load(open('council/rho_decision.json'))['mode'])")
+case "$MODE" in rule|fallback|override) ;; *) echo "GATE FAIL: unknown decision mode $MODE"; exit 1;; esac
+echo "decision mode $MODE rho $RHO"
 mkdir -p runs/vlive; lfs setstripe -i 0 -c 1 runs/vlive
 [ -e runs/vlive/ckpt.pt ] && { echo "runs/vlive already has a checkpoint; not relaunching"; exit 1; }
 J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=6:00:00 -J vlive -o logs2/%x-%j.out \
     slurm/py.sbatch scripts/train_causal.py --init runs/longA/ckpt_20000.pt --out runs/vlive --K 4 --rho $RHO \
     --rho_decision council/rho_decision.json --steps 16000)
 [ -n "$J" ] || { echo "GATE PASS but sbatch FAILED (account limit?) -> resubmit by hand"; exit 1; }
-echo "GATE PASS: tests clean, rho $RHO; training job vlive $J"
+echo "GATE PASS: tests clean, mode $MODE, rho $RHO; training job vlive $J"

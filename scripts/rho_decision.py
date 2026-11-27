@@ -10,10 +10,9 @@ decision JSON that train_causal.py requires (valid = a choice was made on admiss
   python scripts/rho_decision.py --out council/rho_decision.json
 """
 import argparse, glob, hashlib, json, math, os, subprocess, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import torch
 p = argparse.ArgumentParser(); p.add_argument("--out", required=True)
-p.add_argument("--override_out", default="", help="amendment A2 step 3: if no rung meets, write the guarded 0.8 override here")
-p.add_argument("--timed_out", action="store_true", help="A2: 0.9 / 0.95 evidence not admissible within 90 min of the 0.8 failure")
 a = p.parse_args()
 PY = ".venv/bin/python"; A = "runs/longA/ckpt_20000.pt"
 DEVL = json.load(open("data/temporal_lists.json"))["dev"]
@@ -59,41 +58,29 @@ for rho in RUNGS:
                  "meets": bool(rel_ok and idr <= 1.20 and wr <= 1.20)}
     rows[rho]["admissible"] = bool(panel_ok and elig["ID"] and elig["W"] and not borderline and d.get("drives") == 6 and d.get("runs") == 12)
     rows[rho]["metrics_file"] = met
-chosen, valid, mode, note = None, False, None, ""
-for rho in ("0.5", "0.8"):  # AGREED r1 ordered rule
-    if not rows[rho]["admissible"]:
-        note = f"rho {rho} inadmissible -> rule cannot be applied"; break
-    if rows[rho]["meets"]:
-        chosen, valid, mode = float(rho), True, "rule"; break
-both_bad = lambda hi, lo: rows[hi]["admissible"] and rows[lo]["admissible"] and rows[hi]["ID_ratio"] > rows[lo]["ID_ratio"] and rows[hi]["W_ratio"] > rows[lo]["W_ratio"]
-bug = [f"{hi} worse than {lo} on both" for i, lo in enumerate(RUNGS) for hi in RUNGS[i + 1:] if both_bad(hi, lo)]
-if chosen is None and not note and rows["0.8"]["admissible"]:  # A2 step 2: 0.8 failed on admissible evidence
-    if bug:
-        note = "A2 bug guard: " + "; ".join(bug) + " -> council"
-    else:
-        for rho in ("0.9", "0.95"):
-            if rows[rho]["admissible"] and rows[rho]["meets"]:
-                chosen, valid, mode = float(rho), True, "fallback"; break
-        if chosen is None:
-            note = "A2: no rung 0.9 / 0.95 meets" + (" (timed out)" if a.timed_out else "")
-OVR = None
-if chosen is None and a.override_out and rows["0.5"]["admissible"] and rows["0.8"]["admissible"] and not bug:
-    ladder_done = all(rows[r]["admissible"] and not rows[r]["meets"] for r in ("0.9", "0.95")) or a.timed_out
-    f1_ok = rows["0.8"]["car_f1"]["A"] >= rows["0.8"]["car_f1"]["B"] - 0.03
-    not_worse = not both_bad("0.8", "0.5")
-    if ladder_done and f1_ok and not_worse:
-        OVR = {"override": True, "rho": 0.8, "amendment": "A2 step 3", "timed_out": a.timed_out, "rows": rows,
-               "guards": {"f1_ok": f1_ok, "0.8_not_worse_than_0.5_on_both": not_worse, "no_bug": not bug},
-               "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json")}
-        json.dump(OVR, open(a.override_out, "w"), indent=1); mode = "override"
-    else:
-        note += f"; override guards failed (ladder_done {ladder_done}, f1_ok {f1_ok}, not_worse {not_worse}) -> council"
+# ---- amendment A2: pure rule (scripts/rho_rule.py, CPU-tested) on the rows above; 90-min clock from the FIRST admissible 0.8 failure ----
+import datetime
+from rho_rule import decide
+for r_ in RUNGS:
+    if rows[r_].get("admissible"):
+        rows[r_]["f1"], rows[r_]["f1_A"] = float(rows[r_]["car_f1"]["A"]), float(rows[r_]["car_f1"]["B"])
+STATE = "council/rho_fallback_state.json"
+elapsed = None
+if rows["0.8"].get("admissible") and not rows["0.8"]["meets"]:
+    if not os.path.exists(STATE):
+        json.dump({"t0_utc": datetime.datetime.now(datetime.timezone.utc).isoformat(), "evidence_sha_0.8": sha(rows["0.8"]["metrics_file"])}, open(STATE, "w"))
+    st_ = json.load(open(STATE))
+    if st_["evidence_sha_0.8"] != sha(rows["0.8"]["metrics_file"]):
+        raise SystemExit("0.8 evidence changed since the fallback clock started")
+    elapsed = (datetime.datetime.now(datetime.timezone.utc) - datetime.datetime.fromisoformat(st_["t0_utc"])).total_seconds() / 60
+mode, chosen, note = decide(rows, elapsed)
+valid = mode is not None
 for rho in RUNGS:
     rows[rho]["metrics_sha"] = rows[rho]["metrics_sha"] if rows[rho].get("metrics_sha") or not os.path.exists(rows[rho]["metrics_file"]) else sha(rows[rho]["metrics_file"])
 json.dump({"rule": "first of (0.5, 0.8) with ID and W each <= 1.20 x signed A@20k on admissible evidence; else back to council",
            "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json"),
-           "rows": rows, "chosen": chosen, "valid": valid, "mode": mode, "note": note, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
+           "rows": rows, "chosen": chosen, "valid": valid, "mode": mode, "note": note, "elapsed_min": elapsed, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
 print(json.dumps({k: {"ID_ratio": v.get("ID_ratio"), "W_ratio": v.get("W_ratio"), "meets": v["meets"],
                       "admissible": v["admissible"], "missing": v.get("missing_metrics")} for k, v in rows.items()}), "chosen", chosen, "valid", valid)
 print("mode", mode, "note", note)
-sys.exit(0 if (valid or OVR) else 2)
+sys.exit(0 if valid else 2)

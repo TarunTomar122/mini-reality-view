@@ -39,13 +39,18 @@ SD = "sd-legacy/stable-diffusion-v1-5"
 os.makedirs(a.out, exist_ok=True)
 ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
-unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck["lora"], strict=False)
+unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); res_ = unet.load_state_dict(ck["lora"], strict=False)
+assert not res_.unexpected_keys and {n for n, _ in unet.named_parameters() if "lora" in n} == set(ck["lora"]), "LoRA load mismatch"
 unet.to(dev, AMP).eval()
 TW = []
 if "temporal" in ck:
     TW = add_causal_temporal(unet, ck["K"])
+    names_ = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]
+    assert len(TW) == 16 and len(ck["temporal"]) == 16, "need 16 temporal blocks"
+    if "block_names" in ck and ck["block_names"] != names_:
+        raise SystemExit("temporal block names differ from the checkpoint's")
     for w, sd_ in zip(TW, ck["temporal"]):
-        w.temporal.load_state_dict(sd_)
+        w.temporal.load_state_dict(sd_, strict=True)
     for w in TW:
         w.temporal.to(dev, AMP).eval()
 elif a.mode == "stream":
@@ -56,13 +61,22 @@ RAYS = torch.load(a.rays)
 drives = json.load(open(a.lists))[a.split]
 ALL = list(drives)  # swap partners come from the full split, even with --drive_list
 if a.drive_list:
-    want_ = set(open(a.drive_list).read().split()); drives = [d_ for d_ in drives if d_ in want_]
+    want_ = set(open(a.drive_list).read().split())
+    if not want_ <= set(drives):
+        raise SystemExit(f"--drive_list drives not in split {a.split}: {sorted(want_ - set(drives))}")
+    drives = [d_ for d_ in drives if d_ in want_]
+missing_ = [d_ for d_ in drives if not os.path.exists(f"{a.enc}/{d_}.pt")]
+if missing_:
+    raise SystemExit(f"missing encodings: {missing_}")
+SETTINGS = {"snapshot": a.ckpt, "method": f"causal_{a.mode}", "rho": None, "swap": a.swap, "swap_at": a.swap_at,
+            "salt_from": a.salt_from, "start_tick": a.start_tick, "reset_at": a.reset_at, "max_ticks": a.max_ticks}
 st = torch.full((1,), 2, dtype=torch.long, device=dev)
 RHO = a.rho if a.rho is not None else ck.get("rho")
 if RHO is None:
     raise SystemExit("no rho: pass --rho (plain A checkpoint) or use a causal checkpoint that stores it")
 if a.rho is not None and "rho" in ck and abs(a.rho - ck["rho"]) > 1e-9:
     raise SystemExit(f"--rho {a.rho} differs from the checkpoint's rho {ck['rho']}")
+SETTINGS["rho"] = RHO
 set_mode(TW, a.mode)
 
 
@@ -77,15 +91,21 @@ def denoise(z, c, u):
 
 si_, sn_ = map(int, a.shard.split("/"))
 for di, sc in enumerate(drives):
-    if di % sn_ != si_ or not os.path.exists(f"{a.enc}/{sc}.pt"):
+    if di % sn_ != si_:
         continue
     E = torch.load(f"{a.enc}/{sc}.pt")
     other = ALL[(ALL.index(sc) + len(ALL) // 2) % len(ALL)]
-    E2 = torch.load(f"{a.enc}/{other}.pt") if a.swap and os.path.exists(f"{a.enc}/{other}.pt") else None
+    if a.swap and not os.path.exists(f"{a.enc}/{other}.pt"):
+        raise SystemExit(f"--swap: donor {other} missing")
+    E2 = torch.load(f"{a.enc}/{other}.pt") if a.swap else None
     n = len(E["ticks"]) if not a.max_ticks else min(a.max_ticks, len(E["ticks"]))
     for seed in map(int, a.seeds.split(",")):
         fo = f"{a.out}/{sc}_s{seed}.pt"
-        if os.path.exists(fo):
+        if os.path.exists(fo):  # reuse only an artifact made with exactly these settings
+            old_ = torch.load(fo)
+            bad_ = {k: (old_.get(k), v) for k, v in SETTINGS.items() if old_.get(k) != v}
+            if bad_:
+                raise SystemExit(f"{fo} exists with different settings {bad_}: use a new --out")
             continue
         g = torch.Generator().manual_seed(zlib.crc32(f"{sc}|{seed}".encode()))  # same tensor as the signed A rollouts
         z0 = torch.randn(1, 4, 32, 64, generator=g).to(dev)
@@ -103,7 +123,7 @@ for di, sc in enumerate(drives):
             with torch.no_grad(), torch.autocast("cuda", dtype=AMP, enabled=not a.fp32):
                 c = adapter(tok, ry, st); u = adapter(tok, ry, st, torch.ones(1, dtype=torch.bool, device=dev))
             if i == a.reset_at:
-                reset(TW)
+                reset(TW); fresh = True  # forced cold restart (test T6)
             restart.append(fresh); fresh = False
             gn = torch.Generator().manual_seed(zlib.crc32((f"{sc}|{seed}|{i}" + ("|salt" if 0 <= a.salt_from <= i else "")).encode()))  # per-tick private noise
             zn = torch.randn(1, 4, 32, 64, generator=gn).to(dev)
@@ -113,7 +133,12 @@ for di, sc in enumerate(drives):
         rec = {"ticks": E["ticks"][a.start_tick:a.start_tick + n_out], "src_ticks": torch.tensor(srct), "lat": torch.stack(out), "ok": torch.tensor(oks),
                "hard": torch.tensor(hards), "restart": torch.tensor(restart), "amp": str(AMP), "snapshot": a.ckpt,
                "snapshot_step": int(ck.get("step", -1)), "s": -1.0, "method": f"causal_{a.mode}", "K": ck.get("K", 0), "rho": RHO, "reset_at": a.reset_at,
-               "swap_from": a.swap_at if E2 is not None else -1, "start_tick": a.start_tick, "salt_from": a.salt_from, "other": other if E2 is not None else "", "batch": 1}
+               "swap_from": a.swap_at if E2 is not None else -1, **SETTINGS, "base_args": {k: ck["args"].get(k) for k in ("arm", "rank")},
+               "code_sha": ck.get("code_sha"), "other": other if E2 is not None else "", "batch": 1}
         torch.save(rec, fo + ".tmp"); os.replace(fo + ".tmp", fo)
         print(sc, "seed", seed, n_out, "ticks", flush=True)
+for di, sc in enumerate(drives):  # verify the full expected output set of this shard
+    if di % sn_ == si_:
+        for seed in map(int, a.seeds.split(",")):
+            assert os.path.exists(f"{a.out}/{sc}_s{seed}.pt"), f"missing output {sc}_s{seed}"
 print("CAUSAL_ROLLOUT_DONE", a.mode, a.split)

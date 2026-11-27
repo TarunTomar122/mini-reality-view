@@ -33,12 +33,29 @@ p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000")
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
+p.add_argument("--rho_decision", default="", help="JSON written by scripts/rho_decision.py; required unless --timing (AGREED: rho fixed before update 1)")
+p.add_argument("--timing", action="store_true", help="timing / test run: output dir must contain 'timing' or 'ctest'; weights are throwaway")
 a = p.parse_args()
+# ---------- AGREED-causal-r1 configuration (reject anything else) ----------
+if a.K != 4 or a.frames != 16 or a.clips != 2:
+    raise SystemExit(f"AGREED r1 fixes K=4, 16-tick clips, 2 clips/update (got K={a.K}, frames={a.frames}, clips={a.clips})")
+if a.rho not in (0.5, 0.8):
+    raise SystemExit(f"AGREED r1: rho must be 0.5 or 0.8 (got {a.rho}); never 1.0")
+if a.timing:
+    if not any(s in a.out for s in ("timing", "ctest")):
+        raise SystemExit("--timing runs must write to a *timing* / *ctest* directory")
+else:
+    if not a.rho_decision:
+        raise SystemExit("training needs --rho_decision (the recorded off-sweep decision, AGREED r1)")
+    dec = json.load(open(a.rho_decision))
+    if dec.get("chosen") != a.rho:
+        raise SystemExit(f"--rho {a.rho} != recorded decision {dec.get('chosen')} ({a.rho_decision})")
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"
 CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in [__file__, "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
 TRAIN = json.load(open(a.lists))["train"]
+assert not set(TRAIN) & set(json.load(open(a.lists))["dev"]), "train / dev overlap"
 RAYS = torch.load(a.rays)
 Fn = a.frames
 
@@ -50,11 +67,20 @@ for sc in sorted(TRAIN):
     for i in range(len(ticks) - Fn + 1):
         if all(ok[i + k] and not hard[i + k] and seq[i + k] == seq[i] and ticks[i + k] == ticks[i] + k for k in range(Fn)):
             starts.append((sc, i))
+COVER = {sc: sum(1 for s_, _ in starts if s_ == sc) for sc in sorted(TRAIN)}
 print(f"clips: {len(starts)} start positions of {Fn} ticks from {len({s for s, _ in starts})}/{len(E)} drives", flush=True)
 
 # ---------- model: frozen A + causal temporal blocks ----------
 ck0 = torch.load(a.init, map_location="cpu"); r = ck0["args"]["rank"]
-assert "hist" not in ck0, "init must be a no-memory renderer (A)"
+assert "hist" not in ck0 and "temporal" not in ck0, "init must be a plain no-memory renderer (A)"
+if not a.init.endswith("runs/longA/ckpt_20000.pt") or ck0.get("step") != 20000 or ck0["args"].get("arm") != "A":
+    raise SystemExit(f"AGREED r1: init must be A@20k (runs/longA/ckpt_20000.pt), got {a.init} step {ck0.get('step')} arm {ck0['args'].get('arm')}")
+_h = hashlib.sha256()
+for k_ in sorted(ck0["lora"]):
+    _h.update(k_.encode()); _h.update(ck0["lora"][k_].float().numpy().tobytes())
+for k_ in sorted(ck0["adapter"]):
+    _h.update(k_.encode()); _h.update(ck0["adapter"][k_].float().numpy().tobytes())
+BASE_SHA = _h.hexdigest()[:16]
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS))
 res = unet.load_state_dict(ck0["lora"], strict=False)
@@ -62,18 +88,22 @@ assert not res.unexpected_keys, f"unexpected LoRA keys: {res.unexpected_keys[:5]
 lora_names = {n for n, _ in unet.named_parameters() if "lora" in n}
 assert lora_names == set(ck0["lora"]) and len(lora_names) > 0, "every LoRA tensor must come from the init checkpoint"
 unet.requires_grad_(False); unet.to(dev, AMP)
+LORA_REF = {n: q for n, q in unet.named_parameters() if "lora" in n}  # references survive wrapping (names gain ".inner.")
+LORA_PRE = {n: q.detach().clone() for n, q in LORA_REF.items()}
 TW = add_causal_temporal(unet, a.K)
+BLOCK_NAMES = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]
+assert len(BLOCK_NAMES) == 16
 assert len(TW) == 16, len(TW)
 for w in TW:
     w.temporal.to(dev).float().requires_grad_(True)
 adapter = CameraAdapter(n_styles=ck0["args"].get("n_styles", 3)); adapter.load_state_dict(ck0["adapter"], strict=True)
 adapter.requires_grad_(False); adapter.to(dev).eval()
+AD_PRE = {n: q.detach().clone() for n, q in adapter.state_dict().items()}
 unet.eval()  # frozen renderer in eval mode (temporal blocks have no dropout)
 params = [q for w in TW for q in w.temporal.parameters()]
 trainable = [q for q in list(unet.parameters()) + list(adapter.parameters()) if q.requires_grad]
 assert {id(q) for q in trainable} == {id(q) for q in params}, "only the temporal blocks may train"
 print(f"temporal params: {sum(q.numel() for q in params)}; frozen base + A LoRA ({len(lora_names)} tensors) + A adapter", flush=True)
-frozen_sha = hashlib.sha1(b"".join(v.detach().float().cpu().numpy().tobytes() for k, v in sorted(ck0["lora"].items())[:8])).hexdigest()[:12]
 opt = torch.optim.AdamW(params, lr=1e-4, weight_decay=0.0)
 acp = DDPMScheduler.from_pretrained(SD, subfolder="scheduler").alphas_cumprod.to(dev)
 start, ck = 0, f"{a.out}/ckpt.pt"
@@ -81,33 +111,41 @@ if os.path.exists(ck):
     if not a.resume:
         raise SystemExit(f"{ck} exists: pass --resume or use a fresh --out")
     s_ = torch.load(ck, map_location="cpu")
-    if s_.get("K") != a.K or s_.get("init") != a.init or s_.get("rho") != a.rho:
-        raise SystemExit(f"incompatible resume: K {s_.get('K')} init {s_.get('init')}")
+    for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho), ("base_sha", BASE_SHA), ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA)):
+        if s_.get(key_) != want_:
+            raise SystemExit(f"incompatible resume: {key_} {s_.get(key_)} != {want_}")
+    if len(s_["temporal"]) != len(TW):
+        raise SystemExit("incompatible resume: block count")
     for w, sd_ in zip(TW, s_["temporal"]):
-        w.temporal.load_state_dict(sd_)
+        w.temporal.load_state_dict(sd_, strict=True)
     opt.load_state_dict(s_["opt"]); start = s_["step"]; print("resumed at", start, flush=True)
-json.dump({**vars(a), "code_sha": CODE_SHA, "frozen_lora_sha": frozen_sha, "clip_starts": len(starts)}, open(f"{a.out}/args.json", "w"), indent=1)
+json.dump({**vars(a), "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "clip_starts": len(starts),
+           "drives_with_clips": sum(1 for v in COVER.values() if v), "drives_without_clips": [k for k, v in COVER.items() if not v],
+           "clips_per_drive": COVER}, open(f"{a.out}/args.json", "w"), indent=1)
 
 
 def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K,
-         "frames": Fn, "noise_policy": "one t per clip; eps = sqrt(rho) eps_clip + sqrt(1-rho) eps_tick", "rho": a.rho, "code_sha": CODE_SHA,
+         "frames": Fn, "noise_policy": "one t per clip; eps = sqrt(rho) eps_clip + sqrt(1-rho) eps_tick", "rho": a.rho, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
          "args": {**ck0["args"], "causal": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
 
 # ---------- copy probe (AGREED-causal-r1): 8 fixed dev clips of K+1 ticks, t = 900 / 700 / 300 ----------
 DEVL = json.load(open(a.lists))["dev"]
-PROBE = []
 gp = torch.Generator().manual_seed(4242)
+_pc = {}  # dev drive -> candidate (tokens, lat) windows of K+1 legal ticks
 for sc in DEVL:
     e = torch.load(f"{a.enc}/{sc}.pt")
     ok, seq, ticks, hard = e["ok"].tolist(), e["seq"].tolist(), e["ticks"].tolist(), e["hard"].tolist()
     L = a.K + 1
     st_ = [i for i in range(len(ticks) - L + 1) if all(ok[i + k] and not hard[i + k] and seq[i + k] == seq[i] and ticks[i + k] == ticks[i] + k for k in range(L))]
-    for k_ in torch.randperm(len(st_), generator=gp)[:2].tolist():
-        i = st_[k_]; PROBE.append((sc, e["tokens"][i:i + L].float(), e["lat"][i:i + L].float()))
-PROBE = PROBE[:8]
+    _pc[sc] = [(e["tokens"][i:i + L].float(), e["lat"][i:i + L].float()) for i in (st_[k_] for k_ in torch.randperm(len(st_), generator=gp)[:2].tolist())]
+PROBE, DONOR = [], []  # 8 fixed (recipient, donor) pairs from DIFFERENT dev drives
+for pi in range(8):
+    rsc, dsc = DEVL[pi % len(DEVL)], DEVL[(pi + 1) % len(DEVL)]
+    assert rsc != dsc
+    PROBE.append((rsc,) + _pc[rsc][(pi // len(DEVL)) % len(_pc[rsc])]); DONOR.append((dsc,) + _pc[dsc][0])
 P_EPS = [torch.randn(1, 4, 32, 64, generator=gp) for _ in PROBE]  # one draw per probe clip (shared over its ticks, rho-mixed below)
 P_OWN = [torch.randn(a.K + 1, 4, 32, 64, generator=gp) for _ in PROBE]
 
@@ -119,7 +157,7 @@ def probe(step):
         for tv in (900, 700, 300):
             acc = {"on": 0.0, "off": 0.0, "past_other": 0.0, "cams_other": 0.0}
             for pi, (sc, tk, lt) in enumerate(PROBE):
-                osc, otk, olt = PROBE[(pi + 1) % len(PROBE)]
+                osc, otk, olt = DONOR[pi]
                 eps = (a.rho ** 0.5 * P_EPS[pi] + (1 - a.rho) ** 0.5 * P_OWN[pi]).to(dev)
                 tt = torch.full((L,), tv, device=dev); ab = acp[tt].view(-1, 1, 1, 1)
                 for kind in acc:
@@ -133,9 +171,9 @@ def probe(step):
                     set_mode(TW, "off" if kind == "off" else "clip", L)
                     pr = unet(xt, tt, encoder_hidden_states=ctx).sample.float()
                     acc[kind] += ((pr[-1] - eps[-1]) ** 2).mean().item() / len(PROBE)
-            res[tv] = {k: round(v, 5) for k, v in acc.items()}
-    flag = any(res[tv]["cams_other"] - res[tv]["on"] < res[tv]["past_other"] - res[tv]["on"] for tv in (900, 700))
-    rec = {"step": step, "probe": res, "copy_flag": flag}
+            res[tv] = acc
+    flag = any(res[tv]["cams_other"] - res[tv]["on"] < res[tv]["past_other"] - res[tv]["on"] for tv in (900, 700))  # unrounded
+    rec = {"step": step, "probe": {tv: {k: round(v, 5) for k, v in d.items()} for tv, d in res.items()}, "copy_flag": flag}
     print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
     set_mode(TW, "clip", Fn)
 
@@ -154,13 +192,13 @@ for step in range(start, end):
     eps_clip = torch.randn(a.clips, 1, 4, 32, 64, generator=g); eps_own = torch.randn(a.clips, Fn, 4, 32, 64, generator=g)
     eps = (a.rho ** 0.5 * eps_clip + (1 - a.rho) ** 0.5 * eps_own).reshape(a.clips * Fn, 4, 32, 64)
     drop = (torch.rand(a.clips, generator=g) < 0.1).repeat_interleave(Fn)
+    batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[:, 0, 0, 0].numpy().tobytes() + drop.numpy().tobytes()).hexdigest()[:10]
     tok, lat, ray = [], [], []
     for sc, i in (starts[k] for k in pick):
         e = E[sc]
         tok.append(e["tokens"][i:i + Fn].float()); lat.append(e["lat"][i:i + Fn].float()); ray.append(RAYS[sc][None].expand(Fn, *RAYS[sc].shape))
     tok = torch.cat(tok).to(dev); x0 = torch.cat(lat).to(dev); ray = torch.cat(ray).to(dev).float()
     tt = t.repeat_interleave(Fn).to(dev); eps = eps.to(dev)
-    batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[0, 0, 0].cpu().numpy().tobytes()).hexdigest()[:10]
     torch.cuda.synchronize(); t1 = time.time()
     ab = acp[tt].view(-1, 1, 1, 1); xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps
     for g_ in opt.param_groups:
@@ -173,15 +211,16 @@ for step in range(start, end):
     err = ((pred.float() - eps) ** 2).view(a.clips, Fn, 4, 32, 64)
     loss = (err * w_loss).sum() / (w_loss.sum() * 4 * 32 * 64)
     opt.zero_grad(set_to_none=True); loss.backward(); gn = torch.nn.utils.clip_grad_norm_(params, 1.0); opt.step()
-    if step == start:  # guard: the frozen renderer must be bit-identical after an optimizer step
-        cur = {n: q for n, q in unet.named_parameters() if "lora" in n}
-        assert all(torch.equal(cur[n].detach().cpu(), ck0["lora"][n].to(cur[n].dtype)) for n in ck0["lora"]), "LoRA changed!"
-        assert all(torch.equal(q.detach().cpu(), ck0["adapter"][n]) for n, q in adapter.state_dict().items()), "adapter changed!"
-        print("frozen check after first update: LoRA + adapter bit-identical to", a.init, flush=True)
+    if step == start:  # guard: the frozen renderer must be bit-identical after a real optimizer step; temporal params must move
+        assert all(torch.equal(LORA_REF[n], LORA_PRE[n]) for n in LORA_REF), "LoRA changed!"
+        assert all(torch.equal(q, AD_PRE[n]) for n, q in adapter.state_dict().items()), "adapter changed!"
+        moved = sum(int(not torch.equal(w.temporal.out.weight, torch.zeros_like(w.temporal.out.weight))) for w in TW)
+        assert moved == 16, f"temporal output weights moved in {moved}/16 blocks"
+        print(f"frozen check after first update: {len(LORA_REF)} LoRA + {len(AD_PRE)} adapter tensors bit-identical; 16/16 temporal out weights moved", flush=True)
     torch.cuda.synchronize(); t2 = time.time()
     t_data += t1 - t0; t_gpu += t2 - t1; n_acc += 1
-    if step % 100 == 0 or step == end - 1:
-        rec = {"step": step, "loss": round(loss.item(), 4), "gn": round(gn.item(), 4),
+    if (step + 1) % 100 == 0 or step == end - 1 or step == start:
+        rec = {"update": step + 1, "e2e_s": round(time.time() - t0, 3), "loss": round(loss.item(), 4), "gn": round(gn.item(), 4),
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),
                "step_s": round(t_gpu / n_acc, 3), "data_s": round(t_data / n_acc, 3),

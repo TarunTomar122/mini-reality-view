@@ -7,6 +7,7 @@ set -e
 cd "$(dirname "$0")/.."
 mkdir -p pulled/site/scores pulled/preview
 for e in E1 E2 E3; do rsync -a --timeout=40 -e ssh "mlp:mini-reality-view/runs/tpv$e/log.jsonl" "pulled/site/tpv$e.jsonl" < /dev/null || true; done
+for arm in A C; do rsync -a --timeout=40 -e ssh "mlp:mini-reality-view/runs/long$arm/log.jsonl" "pulled/site/long$arm.jsonl" < /dev/null || true; done
 rsync -a --timeout=60 -e ssh --include='tpv*_m2f.json' --exclude='*' "mlp:mini-reality-view/runs/judge/" pulled/site/scores/ < /dev/null || true
 rsync -a --timeout=60 -e ssh "mlp:mini-reality-view/runs/preview/" pulled/preview/ < /dev/null || true
 for d in pulled/preview/tpvE1_*; do
@@ -14,7 +15,7 @@ for d in pulled/preview/tpvE1_*; do
   python3 scripts/preview_sheet.py "$s" pulled/preview pulled/prev_cams "pulled/prev$s" > /dev/null
 done
 python3 scripts/build_site.py
-git add docs/index.html docs/site docs/videos scripts/site_news.json
+git add docs/index.html docs/site docs/videos scripts/site_news.json scripts/site_long.json
 git diff --cached --quiet || git commit -q -m "${1:-Live page update}
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

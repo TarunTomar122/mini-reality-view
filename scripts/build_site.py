@@ -61,8 +61,14 @@ if pics:
         hero = {"cam": out[0], "key": out[1], "e1": out[2], "step": st}
 
 news = json.load(open(P("scripts", "site_news.json")))
+long_ = json.load(open(P("scripts", "site_long.json")))
+long_["step"] = {}
+for arm in ("A", "C"):
+    f = P("pulled", "site", f"long{arm}.jsonl")
+    rows = [json.loads(l) for l in open(f)] if os.path.exists(f) else []
+    long_["step"][arm] = max([d["step"] for d in rows], default=long_["start"])
 data = {"updated": time.strftime("%d %b %Y, %H:%M"), "total": STEPS_TOTAL, "runs": RUNS, "drives": DRIVES,
-        "curves": curves, "scores": scores, "hero": hero, "pics": {str(k): v for k, v in sorted(pics.items())}, "news": news}
+        "curves": curves, "scores": scores, "hero": hero, "pics": {str(k): v for k, v in sorted(pics.items())}, "news": news, "long": long_}
 html = open(P("scripts", "site_template.html")).read().replace("/*DATA*/null", json.dumps(data, separators=(",", ":")))
 open(P("docs", "index.html"), "w").write(html)
 print("wrote docs/index.html", len(html) // 1024, "KB;", {k: len(v) for k, v in curves.items()}, "pictures at steps", sorted(pics))

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 15:40 — lever 2 (longC3) PASSES the 10k gate
+- longC3@10k (s 0.3) vs own cold (signed): late gap +0.014 [0.008, 0.022] (<= 0.03 OK); F1 0.416 vs 0.439 (-0.023, >= -0.03 OK); ID 0.098 vs 0.099 (below, CI incl. 0), W 29.0 vs 31.8 [-4.18, -1.51]; recall 0.409 vs 0.421; ghost_ge5 11.9 vs 4.3.
+- vs longC2@10k (fresh cache only): late gap 0.014 vs 0.050, fall 0.036 [0.018, 0.049] (>= 0.02, CI excl. 0 OK); F1 +0.037 [0.014, 0.061]; recall +0.037; early gap 0.0055 vs 0.0146; ghost_ge5 11.9 vs 14.75; ID higher (0.081 vs 0.069), W 27.1 vs 28.1.
+- vs A@10k: ID 0.0925 vs 0.1063 (-13%), W 27.6 vs 30.0 (-7.9%) -> smaller reduction 7.9% (bar 9.4%, judged at 10k / 15k); F1 0.416 vs 0.454 (-0.038; the A - 0.03 line applies at 15k / 20k).
+- Merged gate: all CONTINUE clauses met -> longC3 trains on (live cache, refresh every 2k). Refresh bottleneck: training waited ~20 min at 12.2k (account job limit, shared). Videos vidfix (key | A 10k | old 10k | fix 2 10k).
+
 ## 2026-11-27 14:50 — inference-noise probe: s 0.7 removes drift by switching the memory off
 - longC2@10k at s 0.7 vs own cold (signed): late gap +0.002 [-0.005, 0.009], F1 0.414 vs 0.415, but ID 0.105 vs 0.110 (-4%, CI incl. 0), W 31.1 vs 31.4: the smoothing is gone too; vs A@10k ID -7%, F1 0.414 vs 0.454, ghost_ge5 7.6. (s 0.5 scoring.) So more inference noise mostly means "ignore memory"; supports keeping decision s 0.3 and fixing training (lever 2).
 - longC3 (lever 2) at 11.4k, true-key rows with history dropped 46.6% (10% base + 40% extra, as designed), loss normal. own_10000 refresh submitted by the job; 4 of its 8 jobs wait on the ACCOUNT limit (20, shared with the walking-RL project), so training may pause at 12k until own_10000 is done. M10k check rendering.

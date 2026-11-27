@@ -32,6 +32,26 @@
     "A": 0.463,
     "C": 0.448
    }
+  },
+  {
+   "step": 5000,
+   "label": "at 5k steps (6 practice drives)",
+   "jumps": {
+    "A": 0.1039,
+    "C": 0.0929
+   },
+   "wobble": {
+    "A": 30.81,
+    "C": 29.56
+   },
+   "fake": {
+    "A": 4.25,
+    "C": 9.25
+   },
+   "car": {
+    "A": 0.448,
+    "C": 0.441
+   }
   }
  ],
  "timeline": [
@@ -41,14 +61,19 @@
    "48 whole drives, so it can learn from its own mistakes"
   ],
   [
-   "now",
-   "Long training",
-   "A (no memory) is running. C starts when A finishes (~09:35): the big GPU machine is full"
+   "done",
+   "A trained to 20k",
+   "the no-memory version, for a fair comparison at every check"
   ],
   [
-   "next",
-   "Check every 5k steps",
-   "6 practice drives + a new side-by-side video, here"
+   "now",
+   "C trains to 20k",
+   "at 12k now; its practice drives are redrawn from its newer self"
+  ],
+  [
+   "now",
+   "Checks at 5k, 10k, 15k, 20k",
+   "5k done (C ahead, but less than at 4k); 10k being drawn on 12 GPUs"
   ],
   [
    "next",

@@ -92,6 +92,26 @@
     "A": 0.43,
     "C": 0.332
    }
+  },
+  {
+   "step": 10000,
+   "label": "fix 2 at 10k (6 practice drives)",
+   "jumps": {
+    "A": 0.1063,
+    "C": 0.0925
+   },
+   "wobble": {
+    "A": 29.98,
+    "C": 27.62
+   },
+   "fake": {
+    "A": 4.67,
+    "C": 11.9
+   },
+   "car": {
+    "A": 0.454,
+    "C": 0.416
+   }
   }
  ],
  "timeline": [
@@ -107,13 +127,13 @@
   ],
   [
    "now",
-   "Fix 2: stop the model learning to copy",
-   "fresh practice drives alone did not stop the drift; now C also gets a noisier / hidden previous frame when it is shown the true one (restart from C at 8k)"
+   "Fix 2 trains on to 20k",
+   "passed its 10k check: late-drive drift +0.014 (was +0.050), cars more accurate"
   ],
   [
    "next",
-   "10k check of fix 2",
-   "late-drive drift at most +0.03 and cars as accurate as with memory off (~15:30)"
+   "15k check of fix 2",
+   "drift at most +0.03, cars within 0.03 of A, smoother than A by 9.4%+"
   ],
   [
    "next",

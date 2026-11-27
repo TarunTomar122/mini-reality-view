@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:37 UTC — review 21:30 converged: keep training; offline noise-vs-content probe; A3 being pre-registered
+- Fable (council/review-20261127-2130-fable.md): reading right (noise share 1.17 t300 / 1.52 t700 at 2k; the blocks learned "fixed on screen = noise"); risk = a ceiling: the noise trick alone can at best rebuild signed A (~-6..-11% vs own cold) while the gate needs ~-19.0% ID / -14.6% W vs own cold (estimate); change nothing in the run; cheapest tests: difference-loss probe on ckpt_2000 and a "distance to A's frame" read; pre-register A3 before 8k (next arm: rho 0.95 + difference loss + Min-SNR).
+- All three seats: keep vlive training under A1. Probe scripts/noise_probe.py (arms on / off / noise_only / content_only / neither + difference loss; 8 fixed dev pairs from different drives x 4 noise draws; separate from the tested code) running on ckpt_2000 (nprobe2k 3755505). A3 pre-registration asked of Astra + Fable (council/causal-video-a3.md). 16 active jobs (cap).
+
 ## 2026-11-27 21:36 UTC — review 21:30 (Astra, Neon): corrections + ops fixes
 - CORRECTIONS (Neon, Astra): noise share at step 1000 t700 is 1.56 (0.00505 / 0.00324), not 1.12 (my arithmetic); step 1500: 1.561, and at t900 past_other < off < on. "Loss noisy at 1300-1400" was a misreading: those are single-update losses with a random t per clip; the fixed-t probe "on" loss fell monotonically. The suite's code_sha256.txt lists 9 files (mrv/sd.py not included), not 10 (my "10 files sha-verified" referred to my own local-vs-cluster check).
 - Ops (Neon): 2k check jobs had started at 21:30 and idled until ckpt_2000 (rendering began 21:34:44); 4k check moved to begin 21:52; the 21 held 8k / 12k / 16k check jobs cancelled (will be submitted when each checkpoint is due).

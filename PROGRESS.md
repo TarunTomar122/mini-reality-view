@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 12:35 — drift council round 1 done; probes running; swap round started
+- Owner asked for a research round on the growing late drift. council/drift-brief.md -> drift-s1-astra.md, drift-s1-fable.md.
+- Both: stale own-history frames (C@4k frames for 12k updates); DAgger / Self Forcing need rollouts of the CURRENT model; fork from C@8k with fresh caches. Fable's read-only latent probe: memory-on frames change less per tick as training goes on (0.043 at 5k -> 0.021 at 15k; key 0.22), the gap is already there in the first 2 s, and on the 48-drive train pool 8k was best (own_12k error +14%, motion -27% vs own_8k on 40/43 drives): the model is freezing (copying its history). Higher history noise s lowers the effect.
+- Held longC-s5 / s6 (to 25k / 30k). longC-s4 (16k -> 20k, own_8k) running: stale-ish control.
+- Probes (signed scorer vs same-weights cold): C@8k cold + s 0.3; C@10k s 0.5 / 0.7; C@15k s 0.5 (metrics 3754189-93). C@15k s 0.3 check scoring.
+- Swap round: council/drift-swap.md -> drift-s2-astra.md / drift-s2-fable.md.
+
 ## 2026-11-27 12:00 — C 10k check: smoother, but first stop-rule strike (car F1, late drift)
 - C 10k (s 0.3) vs A 10k (signed compare, count list A10k k3, floor 0, cold_ref B): ID 0.0849 vs 0.0955 (-11.1%, CI -0.021..-0.001); W 26.87 vs 28.84 (-6.8%, CI -4.28..+0.92); headline 6.8% (< 9.4% at 4k). car F1 0.383 vs 0.454 (-0.071, CI -0.128..-0.027) -> past the -0.03 stop line; late LPIPS gap +0.059 (CI 0.039..0.076) -> past +0.03; recall -0.045; flips -0.037; ghost_ge5 15.25 vs 4.67 per run.
 - Where it comes from: C memory vs C cold (count list from C cold, cold_ref B): 5k F1 0.441 vs 0.429, late gap +0.006; 10k F1 0.383 vs 0.421, late gap +0.059, ghost_ge5 15.25 vs 4.9. So the memory rollout itself started to drift late in drives between 5k and 10k (late gap x10). C cold vs A cold could not be run with the signed script (it hard-fails on cold-vs-cold late gaps); the C cold F1 (0.421) is slightly below A 10k (0.454).

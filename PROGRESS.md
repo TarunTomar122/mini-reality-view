@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 20:43 UTC — rho 0.8 FAILS the rule -> amendment A2 fallback; A2 code fixed per Astra, tested, held for signature
+- rho 0.8 (admissible): ID ratio 1.325, W ratio 1.143 vs signed A@20k -> fails (ID > 1.20). launch-vlive2 (3755285) correctly refused (GATE FAIL). First admissible 0.8 failure 20:40:42 UTC = start of the A2 90-min clock (council/rho_fallback_state.json, bound to the 0.8 metrics sha) -> deadline 22:10:42 UTC.
+- Astra 20:30 review withheld A2 sign-off (5 findings: rung skipping, early override, F1-floor ambiguity, stale override binding, launcher dispatch) -> commit cd2605d: pure rule scripts/rho_rule.py + 16 CPU fixtures scripts/test_rho_rule.py (ALL PASS), rho_decision.py uses it for 0.5 / 0.8 / 0.9 / 0.95, trainer re-evaluates the recorded rows with the same rule, launcher dispatches rule / fallback / override, tested-code manifest extended (10 files sha-verified on the cluster).
+- Running: rho 0.9 / 0.95 off renders (8 of 10 jobs left) + scoring; test suite on cd2605d (ctests-h200 3755407); launcher 3 (3755408) HELD until Astra signs cd2605d (council/codereview-causal-a2-astra.md, requested).
+- Fable 20:30 / Neon 20:30 reviews still pending.
+
 ## 2026-11-27 20:33 UTC — amendment A2 signed; correction; hourly review 20:30 started
 - AGREED amendment A2 (rho fallback) signed by Astra and Fable before the 0.8 scores existed (council/causal-video-r4-*.md). A2 code committed locally only (not deployed, so the tested c0ed865 launch path stays valid).
 - CORRECTION: at 20:31 I told the owner the 0.9 / 0.95 renders "are drawn"; they were still rendering (started 20:22, 10 / 10 jobs running at 20:32). 0.8 scoring (tmet2-Aoff-0.8) still running at 20:32 (20 min).

@@ -15,7 +15,15 @@ Rules
 - A2 step 3 override (rho 0.8): when 0.9 and 0.95 are both admissible failures, or the 90-min deadline has passed; requires 0.5
   and 0.8 admissible, 0.8 not worse than 0.5 on both ratios, no bug, F1 floor at 0.8.
 """
+import math
+
 RUNGS = ("0.5", "0.8", "0.9", "0.95")
+
+
+def f1_agrees(raw, signed):
+    """admission check (Astra a2r2): the unrounded mean must be finite and round EXACTLY to the signed 4-decimal value"""
+    return isinstance(raw, (int, float)) and isinstance(signed, (int, float)) and math.isfinite(raw) and math.isfinite(signed) \
+        and round(raw, 4) == signed
 DEADLINE_MIN = 90.0
 
 

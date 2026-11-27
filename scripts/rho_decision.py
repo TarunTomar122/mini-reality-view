@@ -60,7 +60,7 @@ for rho in RUNGS:
     rows[rho]["metrics_file"] = met
 # ---- amendment A2: pure rule (scripts/rho_rule.py, CPU-tested) on the rows above; 90-min clock from the FIRST admissible 0.8 failure ----
 import datetime
-from rho_rule import decide
+from rho_rule import decide, f1_agrees
 def f1_full(metrics_file):
     """unrounded car F1 mean, temporal_compare weighting: equal per drive, seeds pooled (averaged) within a drive"""
     dr = json.load(open(metrics_file))["drives"]; per = {}
@@ -71,7 +71,7 @@ F1_A = f1_full("runs/troll/m_A20k_indep_dev.json")
 for r_ in RUNGS:
     if rows[r_].get("admissible"):
         f1c = f1_full(rows[r_]["metrics_file"])
-        if abs(round(f1c, 4) - rows[r_]["car_f1"]["A"]) > 1.01e-4 or abs(round(F1_A, 4) - rows[r_]["car_f1"]["B"]) > 1.01e-4:
+        if not (f1_agrees(f1c, rows[r_]["car_f1"]["A"]) and f1_agrees(F1_A, rows[r_]["car_f1"]["B"])):
             rows[r_]["admissible"] = False; rows[r_]["f1_mismatch"] = [f1c, rows[r_]["car_f1"]["A"], F1_A, rows[r_]["car_f1"]["B"]]
             continue
         rows[r_]["f1"], rows[r_]["f1_A"] = f1c, F1_A  # full precision (the signed tool rounds to 4 decimals)

@@ -2,7 +2,7 @@
   python scripts/test_rho_rule.py
 """
 import sys
-from rho_rule import decide
+from rho_rule import decide, f1_agrees
 
 A = 0.4456
 
@@ -36,7 +36,13 @@ cases = [
     ("bug: 0.95 worse than 0.9 on both -> council", {"0.5": P05, "0.8": row(1.3, 1.25), "0.9": row(1.21, 1.21), "0.95": row(1.25, 1.24)}, 20, (None, None)),
     ("0.5 inadmissible -> no rule", {"0.5": MISS, "0.8": row(1.1, 1.1)}, None, (None, None)),
 ]
+agree_cases = [  # (raw, signed, expected) -- Astra a2r2: exact 4-decimal agreement, finite only
+    (0.41561, 0.4156, True), (0.41561, 0.4155, False), (0.44564, 0.4456, True), (0.44564, 0.4457, False),
+    (float("nan"), 0.4456, False), (0.4456, float("nan"), False), (float("inf"), 0.4456, False), (None, 0.4456, False)]
 fails = 0
+for raw, signed, want in agree_cases:
+    got = f1_agrees(raw, signed); ok = got == want; fails += not ok
+    print(("PASS" if ok else "FAIL"), f"f1_agrees({raw}, {signed}) -> {got} (want {want})")
 for name, rows, el, want in cases:
     mode, rho, note = decide(rows, el)
     ok = (mode, rho) == want

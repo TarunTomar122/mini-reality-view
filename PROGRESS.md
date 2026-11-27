@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 13:10 — old recipe stopped at 15k (strike two); probes back the fix; fixed run longC2 training
+- C 15k (s 0.3) vs A 15k (signed): ID 0.082 vs 0.139, W 30.1 vs 31.7, car F1 0.332 vs 0.430 (CI -0.161..-0.046), recall 0.359 vs 0.432, late LPIPS gap +0.119 (CI 0.066..0.161), early gap +0.059, ghost_ge5 24.5 vs 5.1. Second check running past both stop lines -> the stale-cache run is stopped (s4 finished 20k as the stale control; no further stages).
+- Probes, memory on vs same-weights cold (signed; count list from the cold run): C@8k s 0.3: late gap +0.002 (CI -0.013..0.015), F1 0.423 vs 0.416 -> healthy fork point. C@10k: s 0.3 +0.059, s 0.5 +0.027 (F1 0.405 vs 0.421), s 0.7 +0.008 (F1 0.401; ID -13%, W -5% vs cold, ghost_ge5 7.1). C@15k: s 0.3 +0.119, s 0.5 +0.095. History noise is a trust dial (supports Fable's second lever), but by 15k the stale-trained weights are too far gone for noise alone. Figure docs/figs/drift_probes.png.
+- longC2 (3754199) started ~12:45, data load ~12 min, training from 8k on own_8k. In-job sbatch works on compute nodes (sbtest). Refresh uses 8 rollout jobs (owner cap 16). longC2 10k check queued (2+2 shards, wait for ckpt_10000; metrics after).
+- VPN dropped again ~12:50; reconnected.
+
 ## 2026-11-27 13:00 — drift council converged: live own cache, forked from C@8k
 - Round 2 (council/drift-s2-astra.md, drift-s2-fable.md) converged: fork C@8k (optimiser) into runs/longC2; own-history cache always from the current model: redraw at every 2k (10k, 12k, ... 18k) with the same drives / seed / s groups as own_8k, in-process reload of the newest complete cache (100% newest; age ~1.8k-3.8k; wait if > 4k). The first 2k updates (8k -> 10k on own_8k) are Astra's clean replay vs recorded C@10k.
 - 10k gate: longC2@10k vs C@10k, each vs its own cold: late gap down >= 0.02 (CI excl. 0) -> staleness confirmed, continue; < 0.01 -> stop, go to the second lever. 15k / 20k: late gap <= +0.03 and car F1 >= A - 0.03 (two strikes stop); 9.4% smoothness bar kept (a miss -> second history frame). At 20k longC2 vs stale C@20k (s4) on late gap, expect >= 0.03. Ghosts reported only. Second lever if needed: true-key rows s in [0.3, 0.7] + 40% history dropout (only if the s probes show the gap falling with s).

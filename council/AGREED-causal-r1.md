@@ -72,7 +72,9 @@ Sources: council/causal-video-r4-fallback.md, causal-video-r4-{astra,fable}.md, 
 4. The fallback code path (decision modes rule / fallback / override; trainer accepts them) needs the test suite re-passed and
    Astra's code signature before any fallback launch. Every check also reports reductions vs the model's own cold baseline.
 
-## Amendment A3 (next arm; pre-registered 27 Nov ~22:00 UTC BEFORE any vlive 8k number; Astra + Fable)
+## Amendment A3 — DRAFT, NOT CONVERGED (Neon guard 22:30: the builder misread Astra's swap note, which signed a computed lambda,
+## pairs i = 5..15 and probe-gated queueing; the text below enacted Fable-only terms). Not binding until both seats sign one text.
+## (original header: next arm; pre-registered 27 Nov ~22:00 UTC BEFORE any vlive 8k number)
 Sources: council/causal-video-a3*.md (proposals, swap, lambda). Probe evidence at the time: scripts/noise_probe.py on vlive
 ckpt_2000 (the blocks use the 95%-shared past noise, not past content; pulled/noise_2000.json).
 - vlive runs unchanged to 16k as the control (A1 bars and timing).

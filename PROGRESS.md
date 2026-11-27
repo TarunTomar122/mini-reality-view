@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 22:36 UTC — 2k informational result (jumpier); Neon 22:30: A3 NOT converged (marked DRAFT); corrections
+- V2k (live stream at rho 0.95, signed, 6 dev drives x 2 seeds), informational under A1:
+  vs signed A@20k: ID 0.1635 vs 0.1012 (+61.5%), W 39.42 vs 30.16 (+30.7%), car F1 0.4377 vs 0.4456 (-0.008), recall 0.439 vs 0.446, late gap +0.003, lingering ghosts 0.25 vs 4.33.
+  vs own cold (off at 0.95; count list from Aoff0.95): ID +34.4%, W +19.6%, F1 -0.007, ghosts 0.25 vs 3.42.
+  -> at 2k the memory makes the live video JUMPIER (consistent with the noise-matching shortcut: past noise components drift from the current tick's during real rollouts), while lingering fake cars nearly vanish.
+- CORRECTIONS (Neon): (1) A3 was written into AGREED as converged, but I misread Astra's swap note (which signed a computed lambda, pairs i = 5..15 and probe-gated queueing): A3 is now marked DRAFT / not binding until both seats sign one text. (2) "Shortcut slightly weaker at 7k" was wrong: the offline probe @8k (runs/probe/noise_8000.json) shows content_only / off rising from 4.0-5.3x (2k) to 5.3-10.0x (8k): the blocks rely MORE on the shared noise; diff_on / diff_off 0.466. (3) I missed that tmet-V2k had finished at 22:31.
+- Astra 22:30: keep vlive as the control; prepare A3; launch only after a safe 16k non-pass; finish the signed 8k panel (first exam-eligible checkpoint). Fable pending. vlive at ~9.1k; 8k rollouts rendering; 4k scoring.
+
 ## 2026-11-27 22:18 UTC — vlive at 7,300; 2k scoring; 8k check + 8k noise probe queued
 - vlive 7,300 updates (22:18), 0.459 s/update; ckpts 1k / 2k / 4k / 6k. Trainer probe @7000: past_other still < on (t300 .0352 vs .0420, t700 .0084 vs .0101); noise share t300 1.14, t700 1.34 (from 1.17 / 1.52 at 2k): the shared-noise shortcut persists, slightly weaker.
 - 2k check: rollouts done, scoring (tmet-V2k running). 4k check: 9 / 12 rollouts. 8k check queued (vchk8k x6 + tmet-V8k 3755556, wait for ckpt_8000 ~22:23) + offline noise probe @8k (3755557). 14 active jobs.

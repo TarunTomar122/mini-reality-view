@@ -95,7 +95,9 @@ if a.arm == "C":
         c = torch.load(f); sc = os.path.basename(f)[:-3]; steps_.add(c.get("snapshot_step", -1))
         CACHE[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
     assert steps_ == {a.cache_step}, f"cache {a.cache} made from snapshot steps {steps_}, expected {a.cache_step}"
-    snaps_ = {torch.load(f).get("snapshot") for f in cf[:5]}
+    snaps_ = set()
+    for f in cf:  # every cache file, not a sample
+        snaps_.add(torch.load(f).get("snapshot"))
     assert a.cache_snapshot and snaps_ == {a.cache_snapshot}, f"cache snapshot {snaps_} != expected {a.cache_snapshot}"
     for sc_, st_, t0_ in json.load(open(a.clips))["clips"]:  # every tick of every clip must have an own frame
         for q_ in range(8):

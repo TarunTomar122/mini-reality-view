@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 02:10 — drift check 6 outcome; R timing passes; scene-0036 problem
+- Both: warm 0.7 rejection upheld (third drive missing from ID = scene-0014, which has no eligible edge-car transitions). s-lock rule amended where they agree (recall >= -0.02, late F1, ghost growth and lingering ghosts in eligibility; an s with an eligible-but-no-shared dev drive is ineligible; both seeds on all 6 dev drives; lag not used; same s for 2k, 4k and every comparator; full sweep table committed with the lock). Swap running on ranking (worse-of vs mean) and tie direction.
+- Applied: C resume asserts the cache snapshot path and every tick of all 128 clips (tmpC-b re-queued 3753702 with --cache_snapshot runs/tmpC/ckpt_2500.pt); R map cache key includes the rasteriser code hash.
+- R timing (cmR-timing4): 0.458 s/update, map prep 1.8 min, save 1.2 s -> projected 4k 34 min (budget 180) -> passed; cmR 3753661 queued on an A6000.
+- Fable's check: on decision drive scene-0036 independent matches 0 of 23 eligible ID transitions (both seeds); scene-0016 independent 5 and 3 of 17. Under "no shared transitions on an eligible drive cannot pass", no method can ever pass ID against independent -> amendment question sent to both before any B / C decision file is read.
+- VPN dropped once (~02:00); reconnected via FortiTray; no jobs affected.
+
 ## 2026-11-27 01:55 — temporal frozen methods, DECISION SET: warm start fails; independent stays
 - Scorer 764dd3ec95db (signed), 30 decision drives x seeds 0/1 (60 runs each), late gaps on 22 contiguous drives; warm 0.7 vs independent (paired drive bootstrap):
   ID 0.105 vs 0.136 (-22.5%, [-0.043, -0.019], 27 drives with shared transitions; scene-0016 and scene-0036 have eligible but no shared transitions -> the comparison cannot pass on that alone); W 35.3 vs 34.2 (+3%, [-0.6, +2.8]); recall 0.307 vs 0.357 (-0.050 [-0.080, -0.025]); car F1 0.258 vs 0.317 (-0.059 [-0.082, -0.041]); road 0.830 vs 0.853 (-0.023 [-0.031, -0.015]); late LPIPS gap +0.058 [+0.043, +0.073] (22 drives); late car-F1 gap -0.014 [-0.039, +0.010]; ghosts / tick 2.33 vs 1.90; >= 5-tick ghosts per run 13.7 vs 5.1 (+8.6 [+6.1, +11.6]); flips 0.171 vs 0.197 (descriptive). Link coverage 63.0% of 16,150 edge cars; W valid share 0.908.

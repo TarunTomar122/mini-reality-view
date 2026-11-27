@@ -36,6 +36,7 @@ p.add_argument("--tokens", default="data/enc_full")
 p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--cache", default="", help="arm C: folder of cached own rollouts (<scene>.pt {ticks, lat})")
 p.add_argument("--cache_step", type=int, default=-1, help="arm C: the snapshot step the cache must come from (asserted)")
+p.add_argument("--cache_snapshot", default="", help="arm C: the snapshot checkpoint path the cache must come from (asserted)")
 p.add_argument("--steps", type=int, default=6000)
 p.add_argument("--save_at", default="1000,2000,2500,4000,6000")
 p.add_argument("--clips", default="data/temporal_cclips.json", help="the 128 preselected eight-tick train clips (arm C's own-rollout rows); made once, seeded")
@@ -94,6 +95,12 @@ if a.arm == "C":
         c = torch.load(f); sc = os.path.basename(f)[:-3]; steps_.add(c.get("snapshot_step", -1))
         CACHE[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
     assert steps_ == {a.cache_step}, f"cache {a.cache} made from snapshot steps {steps_}, expected {a.cache_step}"
+    snaps_ = {torch.load(f).get("snapshot") for f in cf[:5]}
+    assert a.cache_snapshot and snaps_ == {a.cache_snapshot}, f"cache snapshot {snaps_} != expected {a.cache_snapshot}"
+    for sc_, st_, t0_ in json.load(open(a.clips))["clips"]:  # every tick of every clip must have an own frame
+        for q_ in range(8):
+            tk_ = int(E[sc_]["ticks"][st_ + q_])
+            assert tk_ in CACHE[sc_], f"cache misses {sc_} tick {tk_}"
 print(f"arm {a.arm}: dense rows {len(dense)} from {len(E)} drives, singles {len(singles)}, cached own frames {sum(len(v) for v in CACHE.values())}", flush=True)
 
 # ---------- model ----------

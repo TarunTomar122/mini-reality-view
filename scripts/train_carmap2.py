@@ -74,7 +74,9 @@ if __name__ == "__main__":
     # ~0.13 s / frame) in this process and cache them on disk next to the box file (keyed by its size + mtime)
     t_prep0 = time.time()
     bf = [x for pat in a.boxes.split(",") for x in sorted(glob.glob(pat))]
-    tag = "_".join(f"{os.path.basename(f)}-{os.path.getsize(f)}-{int(os.path.getmtime(f))}" for f in bf)
+    import hashlib
+    code_sha = hashlib.sha1(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "mrv", "carmap.py"), "rb").read()).hexdigest()[:12]
+    tag = code_sha + "_" + "_".join(f"{os.path.basename(f)}-{os.path.getsize(f)}-{int(os.path.getmtime(f))}" for f in bf)  # rasteriser code + box files
     mc = f"tmp/carmap_maps_{zlib.crc32(tag.encode()):08x}.pt"
     MAPS = torch.load(mc) if os.path.exists(mc) else {}
     todo = [r[1] for r in rows if r[1] not in MAPS]

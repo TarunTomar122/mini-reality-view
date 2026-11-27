@@ -1,5 +1,9 @@
 [
  {
+  "when": "27 Nov, 03:55",
+  "text": "Car map, second design: still not using the map enough. With the right map vs a wrong map, the model's guess at car areas is better only 54-59% of the time (needed 75%). Early stop per plan; the reviewers decide whether to try the last named fallback."
+ },
+ {
   "when": "27 Nov, 01:55",
   "text": "Steady video, first verdict on 30 test drives: the no-training trick (start each frame from the last one) cuts car flicker by 23% but places cars worse (0.26 vs 0.32), drifts over 15 s and leaves lingering phantom cars (13.7 vs 5.1 per drive). It fails the plan's checks, so it is not used. Next: the three trained memory versions."
  },

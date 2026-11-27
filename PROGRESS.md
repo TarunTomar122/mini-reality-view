@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 03:55 — car map R FAILS its 1k single-step gate (stops per v4)
+- runs/judge/cmR_1000_check.json (6 dev drives, degraded boxes, 93 car-bearing keyframes): t700: right map beats the map-only-swapped map on 59.1% of keyframes, mean car-cell error reduction +0.82%; t900: 53.8%, -0.41%. Gate: >= 75% and >= 2% at both t -> FAIL. RMS(eps_right - eps_swapped) 0.0105 / 0.0082 (vs eps RMS ~1): the map changes the prediction by ~1%, and barely more for the right map than for a wrong one. Map-conv weight norm grew to 0.57 (the conv is used), but not map-specifically.
+- Per PLAN-carmap v4: R stops and is never scored on decision drives. Dev-only records still running (500 check; pooled-18 renders right / map-swap; E3 on the same 69 frames). Next step goes to the council (drift check 8): run the named fallback (bias-free 4-scale branch) or stop the car-map track.
+
 ## 2026-11-27 03:50 — arm C done at 4k; C dev sweep queued
 - tmpC-b finished: C resumed from 2,500 with the C@2.5k cache (snapshot path + all clip ticks asserted), 4,000 updates, own_share 0.5, loss ~0.075. Checkpoints runs/tmpC/ckpt_2000 / 2500 / 4000.
 - Queued (held for the cap): C 4k cold (independent) dev rollouts and C 4k history s = 0 / 0.1 / 0.3 / 0.5 dev rollouts. B sweep rollouts ~1.5 h in; B cold queued. R 1k single-step gate running.

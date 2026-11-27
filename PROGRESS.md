@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 21:36 UTC — review 21:30 (Astra, Neon): corrections + ops fixes
+- CORRECTIONS (Neon, Astra): noise share at step 1000 t700 is 1.56 (0.00505 / 0.00324), not 1.12 (my arithmetic); step 1500: 1.561, and at t900 past_other < off < on. "Loss noisy at 1300-1400" was a misreading: those are single-update losses with a random t per clip; the fixed-t probe "on" loss fell monotonically. The suite's code_sha256.txt lists 9 files (mrv/sd.py not included), not 10 (my "10 files sha-verified" referred to my own local-vs-cluster check).
+- Ops (Neon): 2k check jobs had started at 21:30 and idled until ckpt_2000 (rendering began 21:34:44); 4k check moved to begin 21:52; the 21 held 8k / 12k / 16k check jobs cancelled (will be submitted when each checkpoint is due).
+- Astra: keep training at 0.95 under A1; shared noise could explain the probe gain, effect on rollouts unverified; before 8k vary prefix noise and scene content independently with the recipient tick fixed. Neon: add a past-same-content-fresh-noise probe arm offline on ckpt_2000 plus an inference past-swap test before any amendment. Fable pending.
+
 ## 2026-11-27 21:30 UTC — copy probe: possible NOISE shortcut at rho 0.95; hourly review 21:30 started
 - runs/vlive probe (8 fixed dev clips, loss on the last tick): at steps 500 and 1000, replacing the past with ANOTHER drive's past (same noise draws) gives a LOWER loss than the true past at t 700 and 300 (step 1000: t300 on .0505 / past_other .0424 / off .0910; t700 .0117 / .0098 / .0149). copy_flag stays False (it only compares with swapped cameras). Fable's noise share (off - past_other) / (off - on) = 1.20 (t300), 1.12 (t700) -> the blocks seem to read the 95%-shared noise of the past ticks rather than their content. Whether this transfers to inference (where past latents at the same DDIM step follow their own trajectories) is open. Loss noisy at 1300-1400 (.032, .158 vs ~.007).
 - Training at 1,400 updates (21:29). Hourly review 21:30 asks Astra / Fable for the cheapest decisive test before 8k and whether to change anything (needs an amendment), Neon to verify the last hour's claims.

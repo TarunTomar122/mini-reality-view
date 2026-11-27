@@ -112,6 +112,26 @@
     "A": 0.454,
     "C": 0.416
    }
+  },
+  {
+   "step": 15000,
+   "label": "fix 2 at 15k (6 practice drives)",
+   "jumps": {
+    "A": 0.1074,
+    "C": 0.0831
+   },
+   "wobble": {
+    "A": 32.3,
+    "C": 28.23
+   },
+   "fake": {
+    "A": 5.08,
+    "C": 13.08
+   },
+   "car": {
+    "A": 0.43,
+    "C": 0.394
+   }
   }
  ],
  "timeline": [
@@ -127,13 +147,13 @@
   ],
   [
    "now",
-   "Fix 2 trains on to 20k",
-   "passed its 10k check: late-drive drift +0.014 (was +0.050), cars more accurate"
+   "Fix 2 reaches 20k",
+   "15k: 12.6% smoother than A (bar 9.4%: met), but late drift +0.039 and cars 0.036 behind A (1st warning)"
   ],
   [
    "next",
-   "15k check of fix 2",
-   "drift at most +0.03, cars within 0.03 of A, smoother than A by 9.4%+"
+   "20k check decides",
+   "a second warning stops fix 2; then we pick the best checkpoint or a stronger fix"
   ],
   [
    "next",

@@ -223,9 +223,9 @@ if (D.hero) $("hero").innerHTML = [[D.hero.cam, "real camera", ""], [D.hero.key,
   $("axis").innerHTML = [L.start, ...L.checks].map(s => `<span style="left:${pct(s)}%">${s / 1000}k</span>`).join("");
   const R = L.results[L.results.length - 1];
   $("cmpTitle").textContent = "How C compares with no memory, " + R.label;
-  const box = (title, hint, key, unit, goodWord, badWord, fixLater) => {
+  const box = (title, hint, key, unit, goodWord, badWord, fixLater, higher) => {
     const a = R[key].A, c = R[key].C, mx = Math.max(a, c) * 1.1;
-    const ch = (c - a) / a * 100, better = c < a;
+    const ch = (c - a) / a * 100, better = higher ? c > a : c < a;
     const word = better ? `${Math.abs(ch).toFixed(0)}% ${goodWord}` : (fixLater ? `${(c / a).toFixed(1)}x ${badWord} (fix later)` : `${Math.abs(ch).toFixed(0)}% ${badWord}`);
     const bar = (lab, v, col) => `<div class="hb"><span>${lab}</span><div class="b" style="width:${v / mx * 100}%;background:${col}"></div><span class="v">${unit(v)}</span></div>`;
     return `<div class="cmpbox"><div class="t">${title}</div><div class="h">${hint}</div>
@@ -234,7 +234,8 @@ if (D.hero) $("hero").innerHTML = [[D.hero.cam, "real camera", ""], [D.hero.key,
   $("cmp").innerHTML =
     box("Car jumps", "how much a car changes between frames (lower is better)", "jumps", v => v.toFixed(3), "fewer", "more") +
     box("Wobble", "picture shake on cars at the edges (lower is better)", "wobble", v => v.toFixed(1), "less", "more") +
-    box("Lingering fake cars", "per drive, staying 0.5 s or more (lower is better)", "fake", v => v.toFixed(1), "fewer", "more", true);
+    box("Lingering fake cars", "per drive, staying 0.5 s or more (lower is better)", "fake", v => v.toFixed(1), "fewer", "more", true) +
+    box("Car accuracy", "cars in the right place vs the answer key (higher is better)", "car", v => v.toFixed(3), "better", "worse", false, true);
   $("steps").innerHTML = L.timeline.map(([st, t, d]) =>
     `<div class="stepc st-${st}"><span class="st">${st}</span><b>${t}</b>${d}</div>`).join("");
 })();

@@ -36,14 +36,14 @@
  ],
  "timeline": [
   [
-   "now",
+   "done",
    "C draws its own practice drives",
-   "48 whole drives, so it can learn from its own mistakes (about an hour)"
+   "48 whole drives, so it can learn from its own mistakes"
   ],
   [
    "now",
    "Long training",
-   "A (no memory) has started. C starts as soon as its practice drives are ready"
+   "A (no memory) is running. C starts when A finishes (~09:35): the big GPU machine is full"
   ],
   [
    "next",

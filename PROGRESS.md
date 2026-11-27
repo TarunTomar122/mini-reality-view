@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 13:00 — drift council converged: live own cache, forked from C@8k
+- Round 2 (council/drift-s2-astra.md, drift-s2-fable.md) converged: fork C@8k (optimiser) into runs/longC2; own-history cache always from the current model: redraw at every 2k (10k, 12k, ... 18k) with the same drives / seed / s groups as own_8k, in-process reload of the newest complete cache (100% newest; age ~1.8k-3.8k; wait if > 4k). The first 2k updates (8k -> 10k on own_8k) are Astra's clean replay vs recorded C@10k.
+- 10k gate: longC2@10k vs C@10k, each vs its own cold: late gap down >= 0.02 (CI excl. 0) -> staleness confirmed, continue; < 0.01 -> stop, go to the second lever. 15k / 20k: late gap <= +0.03 and car F1 >= A - 0.03 (two strikes stop); 9.4% smoothness bar kept (a miss -> second history frame). At 20k longC2 vs stale C@20k (s4) on late gap, expect >= 0.03. Ghosts reported only. Second lever if needed: true-key rows s in [0.3, 0.7] + 40% history dropout (only if the s probes show the gap falling with s).
+- Code: train_temporal.py --cache_root / --max_stale / --refresh_every (load_cache() refactor with the same asserts + one file per drive + method hist; a bad cache is rejected and logged, old cache kept); slurm/own_refresh.sh (12 rollout shards + CPU DONE writer that checks 48 files from the same checkpoint). The trainer submits the refresh itself after saving ckpt_<N>.
+- Queued longC2 (3754199) after longC-s4 (3754121, 16k -> 20k stale control; started training only at ~12:55 after ~40 min loading). Cancelled longC-s5 / s6.
+
 ## 2026-11-27 12:35 — drift council round 1 done; probes running; swap round started
 - Owner asked for a research round on the growing late drift. council/drift-brief.md -> drift-s1-astra.md, drift-s1-fable.md.
 - Both: stale own-history frames (C@4k frames for 12k updates); DAgger / Self Forcing need rollouts of the CURRENT model; fork from C@8k with fresh caches. Fable's read-only latent probe: memory-on frames change less per tick as training goes on (0.043 at 5k -> 0.021 at 15k; key 0.22), the gap is already there in the first 2 s, and on the 48-drive train pool 8k was best (own_12k error +14%, motion -27% vs own_8k on 40/43 drives): the model is freezing (copying its history). Higher history noise s lowers the effect.

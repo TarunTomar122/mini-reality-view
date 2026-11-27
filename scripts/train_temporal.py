@@ -38,6 +38,9 @@ p.add_argument("--cache", default="", help="arm C: folder of cached own rollouts
 p.add_argument("--cache_step", type=int, default=-1, help="arm C: the snapshot step the cache must come from (asserted)")
 p.add_argument("--pool_list", default="", help="long bet: file of drives whose WHOLE-DRIVE own rollouts form the own-history pool; the 6 'own' rows per batch are drawn from ALL dense rows of these drives (for every arm, so targets stay identical); replaces the 128-clip pool")
 p.add_argument("--cache_snapshot", default="", help="arm C: the snapshot checkpoint path the cache must come from (asserted)")
+p.add_argument("--cache_root", default="", help="live own cache (council/drift-s2): folder of own_<N>/ subfolders, each complete when own_<N>/DONE exists; every 200 updates the newest complete one with N <= step is validated and swapped in; training waits if the cache in use is more than --max_stale updates old")
+p.add_argument("--max_stale", type=int, default=4000)
+p.add_argument("--refresh_every", type=int, default=0, help="live cache: after saving ckpt_<N> at multiples of this, submit the refresh rollouts for own_<N> (slurm/own_refresh.sh)")
 p.add_argument("--steps", type=int, default=6000)
 p.add_argument("--save_at", default="1000,2000,2500,4000,6000")
 p.add_argument("--clips", default="data/temporal_cclips.json", help="the 128 preselected eight-tick train clips (arm C's own-rollout rows); made once, seeded")
@@ -94,35 +97,43 @@ for f in sorted(glob.glob(f"{a.singles}/*.pt")):
     pos = {t: i for i, t in enumerate(e["sample_tokens"])}
     for j, t in enumerate(k["sample_tokens"]):
         singles.append((e["tokens"][pos[t]], k["lat"][j], sc))
-CACHE = {}
-if a.arm == "C":
-    cf = glob.glob(f"{a.cache}/*.pt"); steps_ = set()
+def load_cache(folder, want_step, want_snap):
+    """validated whole-drive own cache -> {scene: {tick: latent}}; raises SystemExit on any mismatch"""
+    cache, cf, steps_, snaps_ = {}, glob.glob(f"{folder}/*.pt"), set(), set()
     if POOL is not None:  # whole-drive rollout files are named <scene>_s<seed>.pt
         cf = [f for f in cf if os.path.basename(f).rsplit("_s", 1)[0] in set(POOL)]
-        got_ = {os.path.basename(f).rsplit("_s", 1)[0] for f in cf}
-        if got_ != set(POOL):
-            raise SystemExit(f"cache {a.cache} misses pool drives: {sorted(set(POOL) - got_)}")
+        got_ = [os.path.basename(f).rsplit("_s", 1)[0] for f in cf]
+        if set(got_) != set(POOL) or len(got_) != len(set(got_)):
+            raise SystemExit(f"cache {folder} must hold exactly one rollout per pool drive (missing {sorted(set(POOL) - set(got_))})")
     else:
         clip_sc = {c_[0] for c_ in json.load(open(a.clips))["clips"]}
-        assert {os.path.basename(f)[:-3] for f in cf} == clip_sc, f"cache {a.cache} does not cover all clip drives"
+        if {os.path.basename(f)[:-3] for f in cf} != clip_sc:
+            raise SystemExit(f"cache {folder} does not cover all clip drives")
     for f in cf:
         c = torch.load(f); sc = os.path.basename(f)[:-3] if POOL is None else os.path.basename(f).rsplit("_s", 1)[0]
-        steps_.add(c.get("snapshot_step", -1))
-        CACHE[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
-    assert steps_ == {a.cache_step}, f"cache {a.cache} made from snapshot steps {steps_}, expected {a.cache_step}"
-    snaps_ = set()
-    for f in cf:  # every cache file, not a sample
-        snaps_.add(torch.load(f).get("snapshot"))
-    assert a.cache_snapshot and snaps_ == {a.cache_snapshot}, f"cache snapshot {snaps_} != expected {a.cache_snapshot}"
+        steps_.add(c.get("snapshot_step", -1)); snaps_.add(c.get("snapshot"))
+        if c.get("method", "hist") != "hist":
+            raise SystemExit(f"cache file {f} made with method {c.get('method')}")
+        cache[sc] = {int(t): z for t, z in zip(c["ticks"].tolist(), c["lat"])}
+    if steps_ != {want_step}:
+        raise SystemExit(f"cache {folder} made from snapshot steps {steps_}, expected {want_step}")
+    if not want_snap or snaps_ != {want_snap}:
+        raise SystemExit(f"cache snapshot {snaps_} != expected {want_snap}")
     if POOL is not None:  # every pool row's predecessor must have an own frame (non-hard ticks are rendered)
         for sc_, i_ in clip_rows:
-            if int(E[sc_]["ticks"][i_ - 1]) not in CACHE[sc_]:
-                raise SystemExit(f"cache misses {sc_} tick {int(E[sc_]['ticks'][i_ - 1])}")
+            if int(E[sc_]["ticks"][i_ - 1]) not in cache[sc_]:
+                raise SystemExit(f"cache {folder} misses {sc_} tick {int(E[sc_]['ticks'][i_ - 1])}")
     else:
         for sc_, st_, t0_ in json.load(open(a.clips))["clips"]:  # every tick of every clip must have an own frame
             for q_ in range(8):
-                tk_ = int(E[sc_]["ticks"][st_ + q_])
-                assert tk_ in CACHE[sc_], f"cache misses {sc_} tick {tk_}"
+                if int(E[sc_]["ticks"][st_ + q_]) not in cache[sc_]:
+                    raise SystemExit(f"cache {folder} misses {sc_} tick {int(E[sc_]['ticks'][st_ + q_])}")
+    return cache
+
+
+CACHE, CACHE_STEP = {}, -1
+if a.arm == "C":
+    CACHE = load_cache(a.cache, a.cache_step, a.cache_snapshot); CACHE_STEP = a.cache_step
 print(f"arm {a.arm}: dense rows {len(dense)} from {len(E)} drives, singles {len(singles)}, cached own frames {sum(len(v) for v in CACHE.values())}", flush=True)
 
 # ---------- model ----------
@@ -229,7 +240,52 @@ style = torch.full((16,), 2, dtype=torch.long, device=dev)
 unet.train(); adapter.train(); t0 = time.time()
 log = open(f"{a.out}/log.jsonl", "a")
 SAVE = set(int(x) for x in a.save_at.split(",") if x)
+def live_caches():
+    """complete live caches: [(N, folder)] with own_<N>/DONE, sorted by N"""
+    out = []
+    for d_ in glob.glob(f"{a.cache_root}/own_*"):
+        try:
+            n_ = int(os.path.basename(d_)[4:])
+        except ValueError:
+            continue
+        if os.path.exists(f"{d_}/DONE"):
+            out.append((n_, d_))
+    return sorted(out)
+
+
+BAD = set()
+
+
+def maybe_reload(step):
+    global CACHE, CACHE_STEP
+    while True:
+        cand = [(n_, d_) for n_, d_ in live_caches() if CACHE_STEP < n_ <= step and d_ not in BAD]
+        if cand:
+            n_, d_ = cand[-1]
+            try:  # load into a new dict, validate, then swap; a bad cache is logged and skipped (the old one stays)
+                snap_ = json.load(open(f"{d_}/DONE"))["snapshot"]
+                t_ = time.time(); new_ = load_cache(d_, n_, snap_)
+                CACHE, CACHE_STEP = new_, n_
+                print(f"live cache: step {step} now uses {d_} (snapshot {snap_}, age {step - n_}), loaded in {time.time() - t_:.0f} s", flush=True)
+            except (SystemExit, Exception) as e_:
+                BAD.add(d_); print(f"live cache: REJECTED {d_}: {e_}", flush=True)
+                continue
+        if step - CACHE_STEP <= a.max_stale:
+            return
+        print(f"live cache: waiting at step {step}: cache {CACHE_STEP} is {step - CACHE_STEP} > {a.max_stale} updates old", flush=True)
+        time.sleep(60)
+
+
+def submit_refresh(n_):
+    """after ckpt_<n_> is saved: submit the 12 pool rollout shards for own_<n_> plus the DONE writer (slurm/own_refresh.sh)"""
+    import subprocess
+    r_ = subprocess.run(["bash", "slurm/own_refresh.sh", f"{a.out}/ckpt_{n_}.pt", f"{a.cache_root}/own_{n_}"], capture_output=True, text=True)
+    print(f"refresh own_{n_}: rc {r_.returncode} {r_.stdout.strip()[-300:]} {r_.stderr.strip()[-300:]}", flush=True)
+
+
 for step in range(start, a.steps):
+    if a.cache_root and a.arm == "C" and step % 200 == 0:
+        maybe_reload(step)
     tok, x0, ray, H, t, eps, drop = batch(step)
     ab = acp[t].view(-1, 1, 1, 1); xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps
     for g_ in opt.param_groups:
@@ -245,10 +301,14 @@ for step in range(start, a.steps):
     opt.step()
     if step % 100 == 0:
         rec = {"step": step, "loss": round(loss.item(), 4), "gn": round(gn.item(), 3), "min": round((time.time() - t0) / 60, 1),
-               "own_share": round(N_OWN[0] / max(1, N_OWN[1]), 3)}
+               "own_share": round(N_OWN[0] / max(1, N_OWN[1]), 3), "cache_step": CACHE_STEP, "stale": step - CACHE_STEP if CACHE_STEP >= 0 else None}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
     if (step + 1) % 1000 == 0 or step + 1 == a.steps:
         save(step + 1, ck)
     if step + 1 in SAVE:
         save(step + 1, f"{a.out}/ckpt_{step + 1}.pt")
+    if a.refresh_every and a.cache_root and (step + 1) % a.refresh_every == 0 and step + 1 < a.steps:
+        if step + 1 not in SAVE:
+            save(step + 1, f"{a.out}/ckpt_{step + 1}.pt")
+        submit_refresh(step + 1)
 print("TEMPORAL_TRAIN_DONE", a.arm)

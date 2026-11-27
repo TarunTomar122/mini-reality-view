@@ -27,10 +27,11 @@ p = argparse.ArgumentParser()
 p.add_argument("--ckpt", required=True); p.add_argument("--out", required=True)
 p.add_argument("--enc", default="data/enc_tpv10"); p.add_argument("--lists", default="data/temporal_lists.json")
 p.add_argument("--rays", default="data/calib_rays.pt"); p.add_argument("--reps", type=int, default=4, help="noise draws per clip")
+p.add_argument("--noise", default="ckpt", choices=["ckpt", "private"], help="probe noise: the checkpoint's rho mix (shared) or fully private per tick (rho 0); A3 reporting")
 a = p.parse_args()
 dev = "cuda"; SD = "sd-legacy/stable-diffusion-v1-5"
 AMP = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
-ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]; K = ck["K"]; RHO = ck["rho"]; L = K + 1
+ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]; K = ck["K"]; RHO = ck["rho"] if a.noise == "ckpt" else 0.0; L = K + 1
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck["lora"], strict=False)
 unet.to(dev, AMP).eval()
@@ -85,6 +86,6 @@ with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
         acc["full_gain"] = acc["off"] - acc["on"]; acc["diff_gain"] = acc["diff_off"] - acc["diff_on"]
         res[tv] = {k: round(v, 6) for k, v in acc.items()}
         print(tv, res[tv], flush=True)
-out = {"ckpt": a.ckpt, "step": ck.get("step"), "rho": RHO, "K": K, "reps": a.reps, "pairs": [[x[0], y[0]] for x, y in PAIRS], "t": res}
+out = {"ckpt": a.ckpt, "step": ck.get("step"), "rho": RHO, "noise": a.noise, "K": K, "reps": a.reps, "pairs": [[x[0], y[0]] for x, y in PAIRS], "t": res}
 import os; os.makedirs(os.path.dirname(a.out), exist_ok=True); json.dump(out, open(a.out, "w"), indent=1)
 print("NOISE_PROBE_DONE", a.ckpt)

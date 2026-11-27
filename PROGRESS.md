@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 23:49 UTC — vpriv fixtures ALL PASS on ad1b0aa; T2 PASS; suite T1-T4 PASS (T5-T7 running)
+- vprivA (3755758): seeded init hash identical across 3 processes (9f21e926a01825a8); private 0 reproduces vlive's update-100 batch_sha exactly (0ae901af00; loss 0.0065 = 0.0065, info only); modes 0 / 1 / 2 share the cumulative pick hash at 100 (ce5cfd0555) and pass the frozen guard (incl. two private clips). FAILS=0.
+- vprivB (3755759): resume split after odd update 1 == straight run for updates 1-3 (batch_sha and loss identical); resuming with a changed private count exits before any update (log lines 3 -> 3, ckpt sha unchanged); private-2 checkpoint rolls out at rho 0.95 and records train_noise {private_clips 2, rho_shared_clips 0.95}. FAILS=0.
+- T2 (3755760): off@rho1 == signed A@20k exactly (109 ticks, max |diff| 0). Suite (3755757): noise fixtures, T1, T3a, T4, T3b PASS; T5 / T6 / T7 running.
+- scripts/noise_probe.py gained --noise private (fully private probe noise) for the A3 two-noise report.
+- 12k scoring (13 min), 16k rendering.
+
 ## 2026-11-27 23:42 UTC — Fable 23:30: trend over-read corrected; 8k leave-one-drive-out; fixtures re-running
 - CORRECTION (Fable): "the 4k improvement reversed at 8k" is NOT established: confidence intervals overlap and two thin drives (13 + 13 transitions) carry about a third of the ID headline. The 8k entry also omitted leave-one-drive-out, copy warnings and flips (+12.9% vs A).
 - 8k leave-one-drive-out (scripts/lodo.py, signed compare per subset, runs/s_lock/lodo_V8k_vs_A20k.json): ID +41.0..+59.4% vs A, W +15.6..+27.8%, car F1 -0.007..+0.019, late gap +0.002..+0.008, flips +7.8..+17.8% -> the 8k smoothness failure is robust to any single drive; safety bars hold in every subset.

@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-27 04:20 — F preconditions pass; F training released
+- Branch-off: zero-projection F checkpoint vs E3, 2 dev drives x 4 keyframes x 2 seeds: max |pixel difference| 0 on all 16 renders (exact).
+- F timing: 0.423 s / update, map prep 1.7 min -> projected 4k 32 min (budget 180). F (3753757) released: 1,000 updates, --arch branch4 --tmax 962.
+- R 500 single-step (record): t700 48.4% right-better, +0.35%; t900 47.3% - no map-specific signal at 500 either.
+
 ## 2026-11-27 04:10 — drift check 8 outcome: last car-map arm F (bias-free 4-scale branch)
 - Both: (a) run the named fallback once as the LAST car-map arm (F = mrv/carmap.CarMapBranchBF: bias-free, nine planes, zero-init projections, every step, both CFG passes), R's data / boxes / seeds / draws / batch / AdamW 1e-4 / 100 warm-up / dropout 50% -> 25% at 1k / equal whole + car-cell eps loss; R's gates unchanged (1k single-step >= 75% and >= 2% at each t; 2k pooled-18 beats E3 and correct - swapped >= 0.02); either failure closes the car-map track (no third form, no retuned thresholds).
 - Recipe swap: (i) t = floor((1 - u^3) x 962), clamped at 961 (R spent ~34% of draws above the highest DDIM-25 step) - accepted by both; (ii) dividing each row's error by alpha-bar_t - Fable yes, Astra no -> NOT applied (rule: only changes both accept).

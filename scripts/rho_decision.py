@@ -61,9 +61,20 @@ for rho in RUNGS:
 # ---- amendment A2: pure rule (scripts/rho_rule.py, CPU-tested) on the rows above; 90-min clock from the FIRST admissible 0.8 failure ----
 import datetime
 from rho_rule import decide
+def f1_full(metrics_file):
+    """unrounded car F1 mean, temporal_compare weighting: equal per drive, seeds pooled (averaged) within a drive"""
+    dr = json.load(open(metrics_file))["drives"]; per = {}
+    for run, q in dr.items():
+        per.setdefault(run.rsplit("_s", 1)[0], []).append(q["car_f1"])
+    return sum(sum(v) / len(v) for v in per.values()) / len(per)
+F1_A = f1_full("runs/troll/m_A20k_indep_dev.json")
 for r_ in RUNGS:
     if rows[r_].get("admissible"):
-        rows[r_]["f1"], rows[r_]["f1_A"] = float(rows[r_]["car_f1"]["A"]), float(rows[r_]["car_f1"]["B"])
+        f1c = f1_full(rows[r_]["metrics_file"])
+        if abs(round(f1c, 4) - rows[r_]["car_f1"]["A"]) > 1.01e-4 or abs(round(F1_A, 4) - rows[r_]["car_f1"]["B"]) > 1.01e-4:
+            rows[r_]["admissible"] = False; rows[r_]["f1_mismatch"] = [f1c, rows[r_]["car_f1"]["A"], F1_A, rows[r_]["car_f1"]["B"]]
+            continue
+        rows[r_]["f1"], rows[r_]["f1_A"] = f1c, F1_A  # full precision (the signed tool rounds to 4 decimals)
 STATE = "council/rho_fallback_state.json"
 elapsed = None
 if rows["0.8"].get("admissible") and not rows["0.8"]["meets"]:
@@ -79,7 +90,8 @@ for rho in RUNGS:
     rows[rho]["metrics_sha"] = rows[rho]["metrics_sha"] if rows[rho].get("metrics_sha") or not os.path.exists(rows[rho]["metrics_file"]) else sha(rows[rho]["metrics_file"])
 json.dump({"rule": "first of (0.5, 0.8) with ID and W each <= 1.20 x signed A@20k on admissible evidence; else back to council",
            "comparator": "runs/troll/m_A20k_indep_dev.json", "comparator_sha": sha("runs/troll/m_A20k_indep_dev.json"),
-           "rows": rows, "chosen": chosen, "valid": valid, "mode": mode, "note": note, "elapsed_min": elapsed, "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
+           "rows": rows, "chosen": chosen, "valid": valid, "mode": mode, "note": note, "elapsed_min": elapsed,
+           "rho_rule_sha": sha(os.path.join(os.path.dirname(os.path.abspath(__file__)), "rho_rule.py")), "roll_code": ROLL_CODE, "a20k_sha": A_SHA}, open(a.out, "w"), indent=1)
 print(json.dumps({k: {"ID_ratio": v.get("ID_ratio"), "W_ratio": v.get("W_ratio"), "meets": v["meets"],
                       "admissible": v["admissible"], "missing": v.get("missing_metrics")} for k, v in rows.items()}), "chosen", chosen, "valid", valid)
 print("mode", mode, "note", note)

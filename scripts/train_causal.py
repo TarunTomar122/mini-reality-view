@@ -48,11 +48,19 @@ else:
     if not a.rho_decision:
         raise SystemExit("training needs --rho_decision (the recorded off-sweep decision, AGREED r1)")
     dec = json.load(open(a.rho_decision))
-    import sys as _sys; _sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    from rho_rule import decide  # re-evaluate the recorded rows with the CPU-tested rule: mode and rho must match
-    m_, r_, n_ = decide(dec["rows"], dec.get("elapsed_min"))
-    if not dec.get("valid") or (m_, r_) != (dec.get("mode"), dec.get("chosen")) or r_ != a.rho:
-        raise SystemExit(f"rho decision does not hold: recorded {dec.get('mode')} {dec.get('chosen')}, rule gives {m_} {r_} ({n_}); --rho {a.rho}")
+    import subprocess as _sp, tempfile as _tf
+    # rebuild the decision NOW from the canonical evidence files and the bound clock (council/rho_fallback_state.json), with
+    # the same CPU-tested rule; it must give the recorded mode / rho / evidence digests (no cached flags trusted)
+    _tmp = _tf.mktemp(suffix=".json", dir=os.environ.get("TMPDIR", "/tmp"))
+    _r = _sp.run([".venv/bin/python", "scripts/rho_decision.py", "--out", _tmp], capture_output=True, text=True)
+    if not os.path.exists(_tmp):
+        raise SystemExit(f"could not rebuild the rho decision: {_r.stdout[-400:]} {_r.stderr[-400:]}")
+    now_ = json.load(open(_tmp))
+    rec_keys_ = lambda d: {k: (v.get("admissible"), v.get("metrics_sha"), v.get("meets")) for k, v in d["rows"].items()}
+    if not dec.get("valid") or (now_.get("mode"), now_.get("chosen")) != (dec.get("mode"), dec.get("chosen")) or dec.get("chosen") != a.rho \
+            or rec_keys_(now_) != rec_keys_(dec) or now_.get("rho_rule_sha") != dec.get("rho_rule_sha"):
+        raise SystemExit(f"rho decision does not hold now: recorded {dec.get('mode')} {dec.get('chosen')}, rebuilt {now_.get('mode')} "
+                         f"{now_.get('chosen')} ({now_.get('note')}); --rho {a.rho}")
     _sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()[:16]
     for rho_, row2_ in dec["rows"].items():  # the evidence must still be the files the decision was made on
         if row2_.get("metrics_sha") is None:

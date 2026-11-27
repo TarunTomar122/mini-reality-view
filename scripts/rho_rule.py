@@ -8,10 +8,10 @@ Returns (mode, rho, note): mode in {"rule", "fallback", "override", None}; None 
 
 Rules
 - AGREED r1: 0.5 then 0.8; the first admissible row that meets is chosen ("rule"); an inadmissible row stops the rule.
-- A2 step 2 (only after an admissible 0.8 failure): the lowest of 0.9, 0.95 that meets, but a rung is only reachable when every
-  lower rung is admissible and failed; a missing rung = wait (unless the 90-min deadline passed).
+- A2 step 2 (only after an admissible 0.8 failure): wait for the COMPLETE 0.9 / 0.95 panel, then the lowest rung that meets;
+  at / after the 90-min deadline an incomplete panel allows only the guarded 0.8 override (Astra a2 review).
 - Bug guard: any admissible higher rung worse than an admissible lower rung on BOTH ratios -> council.
-- F1 floor (reconciled Astra / Fable): the off car F1 at the rho that would TRAIN must be >= A - 0.03 (fallback and override).
+- F1 floors (Astra + Fable): off car F1 at 0.8 AND at the rho that would train must be >= A - 0.03, full-precision means.
 - A2 step 3 override (rho 0.8): when 0.9 and 0.95 are both admissible failures, or the 90-min deadline has passed; requires 0.5
   and 0.8 admissible, 0.8 not worse than 0.5 on both ratios, no bug, F1 floor at 0.8.
 """
@@ -41,17 +41,17 @@ def decide(rows, elapsed_min=None):
     bug = [f"{hi} worse than {lo} on both" for i, lo in enumerate(RUNGS) for hi in RUNGS[i + 1:] if _both_worse(rows, hi, lo)]
     if bug:
         return None, None, "bug guard: " + "; ".join(bug) + " -> council"
+    if not _f1_ok(rows, "0.8"):  # Astra's signed 0.8 guard applies to every fallback / override
+        return None, None, f"off@0.8 car F1 {rows['0.8']['f1']:.6f} < A - 0.03 -> council"
     timed_out = elapsed_min is not None and elapsed_min >= DEADLINE_MIN
-    for r in ("0.9", "0.95"):
-        if not _adm(rows, r):
-            if timed_out:
-                break  # deadline passed with an incomplete ladder -> step 3
-            return None, None, f"waiting for admissible rho {r} evidence ({elapsed_min} of {DEADLINE_MIN:.0f} min)"
+    complete = _adm(rows, "0.9") and _adm(rows, "0.95")
+    if not complete:
+        if not timed_out:
+            return None, None, f"waiting for the complete 0.9 / 0.95 panel ({elapsed_min} of {DEADLINE_MIN:.0f} min)"
+        return "override", 0.8, "90-min deadline passed with an incomplete ladder: guarded override at 0.8"
+    for r in ("0.9", "0.95"):  # complete panel: lowest rung meeting, with its own F1 floor too
         if rows[r]["meets"]:
             if not _f1_ok(rows, r):
-                return None, None, f"rho {r} meets the ratios but off car F1 {rows[r]['f1']:.4f} < A - 0.03 -> council"
-            return "fallback", float(r), f"rho {r} is the lowest rung meeting the rule"
-    # step 3: guarded override at 0.8
-    if not _f1_ok(rows, "0.8"):
-        return None, None, f"override refused: off@0.8 car F1 {rows['0.8']['f1']:.4f} < A - 0.03 -> council"
-    return "override", 0.8, "no rung meets" + (" (90-min deadline passed)" if timed_out else "") + ": guarded override at 0.8"
+                return None, None, f"rho {r} meets the ratios but off car F1 {rows[r]['f1']:.6f} < A - 0.03 -> council"
+            return "fallback", float(r), f"rho {r} is the lowest rung meeting the rule (complete panel)"
+    return "override", 0.8, "complete panel, no rung meets: guarded override at 0.8"

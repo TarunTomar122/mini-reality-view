@@ -1,0 +1,196 @@
+{
+ "comparator": "runs/troll/m_A4k_indep_dev.json",
+ "comparator_roll": "runs/troll/A4k_indep_dev",
+ "comparator_files_sha": "f674209dc988",
+ "scorer_sha": "764dd3ec95db",
+ "link": "iou",
+ "k": 3,
+ "seeds_pooled": [
+  "0",
+  "1"
+ ],
+ "drives": [
+  "scene-0043",
+  "scene-0234",
+  "scene-0285",
+  "scene-0393",
+  "scene-0396",
+  "scene-0468"
+ ],
+ "ID": {
+  "counting": [
+   "scene-0043",
+   "scene-0234",
+   "scene-0285",
+   "scene-0393",
+   "scene-0396",
+   "scene-0468"
+  ],
+  "comparator_matched": {
+   "scene-0043": 34,
+   "scene-0234": 316,
+   "scene-0285": 43,
+   "scene-0393": 394,
+   "scene-0396": 466,
+   "scene-0468": 414
+  },
+  "eligible": {
+   "scene-0043": 236,
+   "scene-0234": 672,
+   "scene-0285": 204,
+   "scene-0393": 616,
+   "scene-0396": 1138,
+   "scene-0468": 486
+  },
+  "per_seed": {
+   "scene-0043": {
+    "0": {
+     "eligible": 118,
+     "matched": 9
+    },
+    "1": {
+     "eligible": 118,
+     "matched": 25
+    }
+   },
+   "scene-0234": {
+    "0": {
+     "eligible": 336,
+     "matched": 163
+    },
+    "1": {
+     "eligible": 336,
+     "matched": 153
+    }
+   },
+   "scene-0285": {
+    "0": {
+     "eligible": 102,
+     "matched": 18
+    },
+    "1": {
+     "eligible": 102,
+     "matched": 25
+    }
+   },
+   "scene-0393": {
+    "0": {
+     "eligible": 308,
+     "matched": 191
+    },
+    "1": {
+     "eligible": 308,
+     "matched": 203
+    }
+   },
+   "scene-0396": {
+    "0": {
+     "eligible": 569,
+     "matched": 217
+    },
+    "1": {
+     "eligible": 569,
+     "matched": 249
+    }
+   },
+   "scene-0468": {
+    "0": {
+     "eligible": 243,
+     "matched": 213
+    },
+    "1": {
+     "eligible": 243,
+     "matched": 201
+    }
+   }
+  }
+ },
+ "W": {
+  "counting": [
+   "scene-0043",
+   "scene-0234",
+   "scene-0285",
+   "scene-0393",
+   "scene-0396",
+   "scene-0468"
+  ],
+  "comparator_matched": {
+   "scene-0043": 32,
+   "scene-0234": 270,
+   "scene-0285": 29,
+   "scene-0393": 271,
+   "scene-0396": 344,
+   "scene-0468": 356
+  },
+  "eligible": {
+   "scene-0043": 236,
+   "scene-0234": 672,
+   "scene-0285": 204,
+   "scene-0393": 616,
+   "scene-0396": 1138,
+   "scene-0468": 486
+  },
+  "per_seed": {
+   "scene-0043": {
+    "0": {
+     "eligible": 118,
+     "matched": 9
+    },
+    "1": {
+     "eligible": 118,
+     "matched": 23
+    }
+   },
+   "scene-0234": {
+    "0": {
+     "eligible": 336,
+     "matched": 139
+    },
+    "1": {
+     "eligible": 336,
+     "matched": 131
+    }
+   },
+   "scene-0285": {
+    "0": {
+     "eligible": 102,
+     "matched": 14
+    },
+    "1": {
+     "eligible": 102,
+     "matched": 15
+    }
+   },
+   "scene-0393": {
+    "0": {
+     "eligible": 308,
+     "matched": 142
+    },
+    "1": {
+     "eligible": 308,
+     "matched": 129
+    }
+   },
+   "scene-0396": {
+    "0": {
+     "eligible": 569,
+     "matched": 163
+    },
+    "1": {
+     "eligible": 569,
+     "matched": 181
+    }
+   },
+   "scene-0468": {
+    "0": {
+     "eligible": 243,
+     "matched": 180
+    },
+    "1": {
+     "eligible": 243,
+     "matched": 176
+    }
+   }
+  }
+ }
+}

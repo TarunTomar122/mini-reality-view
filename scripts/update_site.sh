@@ -14,7 +14,7 @@ for d in pulled/preview/tpvE1_*; do
   python3 scripts/preview_sheet.py "$s" pulled/preview pulled/prev_cams "pulled/prev$s" > /dev/null
 done
 python3 scripts/build_site.py
-git add docs/index.html docs/site scripts/site_news.json
+git add docs/index.html docs/site docs/videos scripts/site_news.json
 git diff --cached --quiet || git commit -q -m "${1:-Live page update}
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>"

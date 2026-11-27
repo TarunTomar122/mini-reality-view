@@ -83,6 +83,22 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
 /*PLANCSS*/.treewrap { margin-top: 12px; padding: 12px; overflow-x: auto; }
 .tree { display: block; width: 100%; min-width: 600px; height: auto; font-family: inherit; }
 /*/PLANCSS*/
+
+/*NOWCSS*/.now { border: 2px solid var(--accent); border-radius: 12px; padding: 18px; margin-top: 20px; background: var(--surface); }
+.now h2 { margin-top: 0; }
+.now .goal { font-size: 18px; font-weight: 600; margin: 0 0 10px; }
+.now .kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin: 12px 0; }
+.now .kpi { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; }
+.now .kpi b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
+.now .kpi span { font-size: 13px; color: var(--ink-3); }
+.now ol.timeline { list-style: none; padding: 0; margin: 12px 0 0; display: grid; gap: 6px; }
+.now ol.timeline li { display: grid; grid-template-columns: 110px 1fr auto; gap: 10px; align-items: center; font-size: 14px; }
+.now ol.timeline .t { color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.vids { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 12px; margin-top: 12px; }
+.vids figure { margin: 0; }
+.vids video { width: 100%; height: auto; border-radius: 8px; border: 1px solid var(--line); background: #000; }
+.vids figcaption { font-size: 13px; color: var(--ink-3); margin-top: 4px; }
+/*/NOWCSS*/
 </style>
 </head>
 <body>
@@ -93,22 +109,69 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <figure class="hero" id="hero"></figure>
   <div class="meta"><span id="updated"></span><a href="https://github.com/TarunTomar122/mini-reality-view">Code on GitHub</a><a href="https://github.com/TarunTomar122/mini-reality-view/blob/main/docs/results.md">Full write-up</a><a href="https://github.com/TarunTomar122/mini-reality-view/blob/main/PROGRESS.md">Lab notes</a></div>
 
+<!--NOW-->
+  <section class="now" id="now">
+    <h2>Right now</h2>
+    <p class="goal">Goal: a smooth video. Cars should not jump from frame to frame.</p>
+    <p>We train <b>one</b> version long: <b>memory version C</b> (it looks at its own previous frame and was trained on its
+    own mistakes), up to 20,000 training steps. Next to it, the same model <b>without memory</b> (version A), trained just
+    as long, so we can see what the memory adds. Fake cars that linger are counted and shown, but fixing them comes later.</p>
+    <div class="kpis">
+      <div class="kpi"><b>19% fewer</b><span>car jumps (C vs no memory, practice drives, 4k steps)</span></div>
+      <div class="kpi"><b>9% less</b><span>wobble between frames</span></div>
+      <div class="kpi"><b>same</b><span>car placement and no drift</span></div>
+      <div class="kpi"><b>+4 per drive</b><span>lingering fake cars (fix later)</span></div>
+    </div>
+    <ol class="timeline">
+      <li><span class="t">now</span><span>C draws 48 whole practice drives itself (its own mistakes to learn from); A training starts</span><span class="chip run">running</span></li>
+      <li><span class="t">~10:30</span><span>C training starts (4k to 20k steps; refreshes its own drives at 8k, 12k, 16k)</span><span class="chip">next</span></li>
+      <li><span class="t">every 5k steps</span><span>quick check on 6 practice drives + a new side-by-side video here</span><span class="chip">planned</span></li>
+      <li><span class="t">~afternoon</span><span>20k steps reached: one full exam on 30 test drives</span><span class="chip">planned</span></li>
+      <li><span class="t">after that</span><span>remove the lingering fake cars; then train even longer for smoothness</span><span class="chip">later</span></li>
+    </ol>
+    <div class="vids">
+      <figure><video src="videos/scene-0234.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Turn past parked cars. Panels: game answer key | no memory (E3) | version A | warm-start trick | version B. 10 frames per second.</figcaption></figure>
+      <figure><video src="videos/scene-0396.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Busy street, same panels. Version C and the long-trained versions appear here as they finish.</figcaption></figure>
+    </div>
+    <p class="small">Parked for now: the car map (placing cars more exactly). It only ever got 1,000-2,000 training steps, so it is not ruled out.</p>
+  </section>
+<!--/NOW-->
+
   <h2>Where we are</h2>
   <div class="stages">
     <div class="card stage"><span class="n">1</span><span>Answer keys from real data, small renderer</span><span class="chip">done</span></div>
     <div class="card stage"><span class="n">2</span><span>Start from Stable Diffusion: photo-like but messy</span><span class="chip">done</span></div>
     <div class="card stage"><span class="n">3</span><span>Practise in a simulator first: a head start only</span><span class="chip">done</span></div>
-    <div class="card stage now"><span class="n">4</span><span><b>Real cameras in, game-style chase view out</b></span><span class="chip run">running now</span></div>
-    <div class="card stage"><span class="n">5</span><span>Longer training, speed, video, phone photos</span><span class="chip">next</span></div>
+    <div class="card stage"><span class="n">4</span><span>Real cameras in, game-style chase view out (base model E3)</span><span class="chip">done</span></div>
+    <div class="card stage now"><span class="n">5</span><span><b>Smooth video: one memory version trained long</b></span><span class="chip run">now</span></div>
   </div>
 
   <!--PLAN-->
   <h2>The plan from here</h2>
-  <p>Rough times, UK. They slip when the cluster slows down.</p>
-  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 704" role="img" aria-label="Decision tree: E3 splits into a memory track and a car map track; each has a pass test; the winners combine in X3, which is checked on 24 unseen drives before it becomes the final model"><defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs><rect x="275.0" y="8" width="330" height="52" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="440" y="31.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">E3: our best model today</text><text x="440" y="48.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">cars 0.32 · data ready ✓</text><path d="M440 60 V84 H220 V108" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M440 84 H660 V108" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><rect x="75.0" y="110" width="290" height="52" rx="10" fill="var(--surface)" stroke="var(--s1)" stroke-width="2"/><text x="220" y="133.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Memory: ONE bet, trained long</text><text x="220" y="150.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">~20k steps + same-length control</text><rect x="515.0" y="110" width="290" height="52" rx="10" fill="var(--surface)" stroke="var(--s2)" stroke-width="2"/><text x="660" y="133.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Car map: train X1, X2</text><text x="660" y="150.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">parked (got only 1-2k steps)</text><path d="M220 162 V188" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 162 V188" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><polygon points="220,190 340,245 220,300 100,245" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="220" y="242" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Jumps down,</text><text x="220" y="259" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">no ghost cars?</text><polygon points="660,190 780,245 660,300 540,245" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="660" y="242" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Cars ≥ 0.38</text><text x="660" y="259" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">and +0.05?</text><text x="92" y="241" text-anchor="end" font-size="12" font-weight="400" fill="var(--ink-3)">verdict</text><text x="92" y="257" text-anchor="end" font-size="12" font-weight="600" fill="var(--ink-2)">checks every 5k</text><text x="788" y="241" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">verdict</text><text x="788" y="257" text-anchor="start" font-size="12" font-weight="600" fill="var(--ink-2)">closed Fri 05:00</text><path d="M220 300 V318 H130 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M220 318 H310 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 300 V318 H570 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M660 318 H750 V340" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><text x="136" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="316" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><text x="576" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="756" y="333" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><rect x="50.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="130" y="371.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">long bet</text><rect x="230.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="310" y="363.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">simple trick</text><text x="310" y="380.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">(or no memory)</text><rect x="490.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="570" y="371.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">(closed)</text><rect x="670.0" y="342" width="160" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/><text x="750" y="363.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink-2)">no car map ✓</text><text x="750" y="380.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">final = E3 + memory</text><path d="M130 390 V408 H570 V390" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/><path d="M310 390 V408" fill="none" stroke="var(--ink-3)" stroke-width="1.5"/><path d="M440 408 V428" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><rect x="275.0" y="430" width="330" height="52" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/><text x="440" y="453.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">final = E3 + long memory bet</text><text x="440" y="470.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">one exam at the end</text><path d="M440 482 V498" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><polygon points="440,498 580,553 440,608 300,553" fill="var(--surface)" stroke="var(--ink-3)" stroke-width="1.5"/><text x="440" y="550" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">Passes 24 drives</text><text x="440" y="567" text-anchor="middle" font-size="13" font-weight="600" fill="var(--ink)">nobody has seen?</text><text x="292" y="557" text-anchor="end" font-size="12" font-weight="600" fill="var(--ink-2)">Sat morning</text><path d="M440 608 V626 H330 V646" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><path d="M440 626 H550 V646" fill="none" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/><text x="336" y="640" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">yes</text><text x="556" y="640" text-anchor="start" font-size="12" font-weight="400" fill="var(--ink-3)">no</text><rect x="240.0" y="648" width="180" height="48" rx="10" fill="var(--accent)" stroke="var(--accent)" stroke-width="1.5"/><text x="330" y="677.0" text-anchor="middle" font-size="14" font-weight="600" fill="#fff">FINAL MODEL</text><rect x="460.0" y="648" width="180" height="48" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/><text x="550" y="669.0" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink-2)">keep the parts</text><text x="550" y="686.0" text-anchor="middle" font-size="12" fill="var(--ink-3)">that passed</text></svg></div>
-  <!--/PLAN-->
-  <h2>Running now</h2>
-  <p>Three runs side by side: which starting point, and is the data enough?</p>
+  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 150" role="img" aria-label="Plan: train memory version C and the no-memory version A to 20k steps, check every 5k steps, one full exam, then remove lingering fake cars">
+  <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs>
+  <rect x="10" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
+  <text x="105" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Train C and A long</text>
+  <text x="105" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">to 20k steps · now</text>
+  <path d="M200 65 H228" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+  <rect x="232" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="327" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Check every 5k</text>
+  <text x="327" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">6 drives + a video</text>
+  <path d="M422 65 H450" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+  <rect x="454" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
+  <text x="549" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">One full exam</text>
+  <text x="549" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">30 test drives · afternoon</text>
+  <path d="M644 65 H672" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
+  <rect x="676" y="30" width="194" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/>
+  <text x="773" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Remove fake cars</text>
+  <text x="773" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">then train longer</text>
+  <text x="327" y="125" text-anchor="middle" font-size="12" fill="var(--ink-3)">stop early if car placement or drift gets worse twice in a row</text>
+  </svg></div>
+<!--/PLAN-->
+  <h2>Earlier runs (base model, 25-26 Nov)</h2>
+  <p class="small">The three starting points we compared before choosing E3. The work right now is in the box at the top.</p>
   <div class="runs" id="runs"></div>
 
   <h2>Training</h2>

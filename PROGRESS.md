@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 11:40 UTC — Astra t2: 5 of 15 closed (1, 2, 6, 10, 13; SENS_STEP 32 accepted), 10 open + one timing blocker -> builder again
+- Open, timing: forecast prices dev IDs from its own list before checking them (3); the sweep accepted and selected an extra grad_ckpt=2 cell (4); raw vs rounded panel hours rejected a valid 14,000-update forecast, and any earlier timing id could stand in for the charged 3756964 (5); production-only parity I/O missing from start-up (7); memory sample count rose on failed reads (8); geometry manifest digest not bound to the trainer's (9); ledger path not bound / missing ledger read as zero / mrv/guide.py missing from the evidence list (11); rehearsal checked inputs against mutable sidecars, not the timing manifest (new). Production: unresolved weight sentinels could match (12), scoring reservation clock and partial ledgers (14), one-snapshot binding of checkpoint / donor plan (15).
+- All sent to the builder with CPU repros, timing items first as one commit. Timing stays held.
+
 ## 2026-11-28 11:24 UTC — builder fixed all 15 Astra t1 items (ab0880c, 8dec71d, 20dac6d); deployed; parity resubmitted; Astra re-review t2 running
 - Each item has CPU repros ("T1 item N"); Astra's three false-PASS repros (48-drive list, 100-update blocks, zero-panel forecast) now fail the right rule. One cluster-only failure found on deploy: mrv.wan_stage's CLI used parse_args with files after --dst, which the cluster's Python 3.11 refuses -> parse_intermixed_args (cd5f183); WAN_TESTS FAILS=0 locally and in the cluster venv.
 - saxa cgroup layout checked (cgroup v2: /system.slice/slurmstepd.scope/job_<id>/step_0/...), so the memory sampler finds the job-level group.

@@ -1166,5 +1166,121 @@ _exp3 = (4 * 2000 + 2 * (160 + 5 * 160) + 2 * 160) * 1.0 + (1000 + (160 + 5 * 16
 check("T3b Neon C repro (Astra): a shared swap is priced at its planned n, not the receiver's full length (88 s less here)",
       abs(_new3 - _exp3) < 1e-6 and abs(_new3 - 10664.0) < 1e-6 and abs((_old3 - _new3) - 88.0) < 1e-6, (_old3, _new3, _exp3))
 check("T3b Neon C: the forecast passes per-receiver lengths", "drive_ticks=_dt" in open("scripts/wan_forecast.py").read())
+
+# ---- exit-6 adjudicator (council/review-20261128-1330-swap2-astra.md): synthetic pass, boundaries, refusals, repeat, wrong job / key
+import importlib.util as _ilu
+_spec = _ilu.spec_from_file_location("wan_gate_adjudicate", "scripts/wan_gate_adjudicate.py"); ADJ = _ilu.module_from_spec(_spec); _spec.loader.exec_module(ADJ)
+ADJ_SHA = ADJ.sha256_file("scripts/wan_gate_adjudicate.py")
+GK_A = "a1b2c3d4e5f60718"
+
+
+def _adj_fixture(td, **kw):
+    """an overfit run directory + gate registry exactly as scripts/train_wan_teacher.py writes them (NOT_REACHED, job 3757187)"""
+    o = dict(kw)
+    hist = o.pop("hist", [[0, 1.0]] + [[s, 1.0 - s / 4000] for s in range(100, 2001, 100)])  # 2000 -> 0.5 (ratio 0.5 boundary)
+    counts = o.pop("counts", {"sample": [2, 3, 3], "roundtrip": [1, 1, 1], "tokens_only": [1, 2, 2], "none": [37, 63, 63]})
+    f1 = {k: 2 * v[0] / max(1, 2 * v[0] + v[1] + v[2]) for k, v in counts.items()}
+    l0 = hist[0][1]; lf = o.pop("final", dict((s, v) for s, v in hist).get(2000, 0.5))
+    run = f"{td}/runs/wan_ctest_overfit_3757187"; os.makedirs(run, exist_ok=True)
+    status = o.pop("status", "NOT_REACHED (loss ratio missed with placement passing): rerun longer / lr 3e-4")
+    O = {"eval_loss_update0": l0, "eval_loss_final": lf, "ratio": lf / l0, "declared_ratio": 0.25, "loss_pass": False,
+         "car_f1_sample": f1["sample"], "car_f1_roundtrip": f1["roundtrip"], "declared_f1_frac": 0.8, "f1_pass": True,
+         "car_f1_controls": {"hybrid": f1["sample"], "tokens_only": f1["tokens_only"], "none": f1["none"]}, "roundtrip_positive": True,
+         "counts": counts, "eval_history": hist, "clips": [["mid", ["scene-0001", 0, i]] for i in range(6)] + [["start", ["scene-0002", i]] for i in range(2)],
+         "updates": 2000, "declared_updates": 2000, "status": status, "PASS": False, "gate_key": GK_A, "prior_not_reached": 0, "none_margin": 0.02}
+    O.update({k: v for k, v in o.items() if k not in ("gates_extra", "gate_rec", "pin", "no_samples", "log_skip")})
+    json.dump(O, open(f"{run}/overfit.json", "w"), indent=1)
+    with open(f"{run}/log.jsonl", "w") as f_:
+        for s, v in hist:
+            if s not in o.get("log_skip", ()):
+                f_.write(json.dumps({"update": s, "overfit_eval": [v, v, v], "mean": round(v, 5)}) + "\n")
+    if not o.get("no_samples"):
+        open(f"{run}/overfit_samples.png", "wb").write(b"\x89PNG fake")
+    gp = f"{td}/gates.jsonl"
+    rec = {"kind": "overfit", "gate_key": GK_A, "status": status, "out": "runs/wan_ctest_overfit_3757187" if not os.path.isabs(run) else run,
+           "f1": O["car_f1_controls"], "ratio": O["ratio"], "job": "3757187", "time": 1.0}
+    rec["out"] = run
+    rec.update(o.get("gate_rec", {}))
+    with open(gp, "w") as f_:
+        f_.write(json.dumps({"kind": "resume_test", "gate_key": "otherkey", "status": "PASS", "time": 0.5}) + "\n")
+        for r in o.get("gates_extra", []):
+            f_.write("\n" + json.dumps(r) + "\n")
+        f_.write("\n" + json.dumps(rec) + "\n")
+    fz = f"{td}/FREEZE.md"
+    open(fz, "w").write(f"```\n{ADJ_SHA if o.get('pin', True) else '0' * 64}  scripts/wan_gate_adjudicate.py\n```\n")
+    return run, gp, fz
+
+
+def _adj(td, job="3757187", key=GK_A, **kw):
+    run, gp, fz = _adj_fixture(td, **kw)
+    return ADJ.main(["--run_dir", run, "--gates", gp, "--job", job, "--gate_key", key, "--freeze", fz]), run, gp, fz
+
+
+import contextlib as _cl, io as _io
+_ADJ_TD = _tf.mkdtemp()
+with _cl.redirect_stdout(_io.StringIO()):
+    run, gp, fz = _adj_fixture(_ADJ_TD); _ADJ_B0 = open(gp, "rb").read()
+    rc = ADJ.main(["--run_dir", run, "--gates", gp, "--job", "3757187", "--gate_key", GK_A, "--freeze", fz])
+    b1 = open(gp, "rb").read()
+    rc2 = ADJ.main(["--run_dir", run, "--gates", gp, "--job", "3757187", "--gate_key", GK_A, "--freeze", fz])
+    b2 = open(gp, "rb").read()
+G_ = [json.loads(l) for l in open(gp) if l.strip()]
+added = [r for r in G_ if r.get("adjudicated")]
+check("adjudicator: synthetic qualifying NOT_REACHED (ratio 0.50, hybrid = 0.80 x round trip) -> exactly ONE adjudicated PASS appended",
+      rc == 0 and len(added) == 1 and added[0]["status"] == "PASS" and added[0]["kind"] == "overfit" and added[0]["gate_key"] == GK_A
+      and added[0]["job"] == "3757187" and added[0]["adjudicator_sha256"] == ADJ_SHA and added[0]["original_verdict"] == "NOT_REACHED"
+      and added[0]["measured_ratio"] == 0.5 and added[0]["car_f1_hybrid"] == 0.4 and added[0]["car_f1_roundtrip"] == 0.5 and added[0]["car_f1_none"] == 0.37, added)
+check("adjudicator: existing registry lines unchanged (append only), the original NOT_REACHED kept",
+      b1.startswith(_ADJ_B0) and sum(1 for r in G_ if str(r.get("status", "")).startswith("NOT_REACHED")) == 1 and len(G_) == 3)
+check("adjudicator: a repeat call refuses and appends nothing (one adjudicated PASS max)", rc2 != 0 and b1 == b2)
+WP.gate_append(gp, {"kind": "resume_test", "gate_key": GK_A, "status": "PASS"})
+check("adjudicator: the frozen trainer's MODE=train gate check (mrv.wan_plan.gates_ok) accepts the adjudicated PASS under the same key",
+      WP.gates_ok(gp, GK_A)[0] and not WP.gates_ok(gp, "otherkey")[0])
+_sh_.rmtree(_ADJ_TD, ignore_errors=True)
+_H = lambda tail: [[0, 1.0]] + [[s, 0.8 - s / 10000] for s in range(100, 1700, 100)] + [[s, v] for s, v in zip((1700, 1800, 1900, 2000), tail)]
+for nm_, kw_, want in (
+        ("boundary: ratio exactly 0.50 passes", {}, 0),
+        ("boundary: ratio 0.5000001 refused", {"hist": [[0, 1.0]] + [[s, 1.0 - s / 4000] for s in range(100, 2000, 100)] + [[2000, 0.5000001]]}, 1),
+        ("boundary: hybrid exactly 0.80 x round trip passes", {}, 0),
+        ("boundary: hybrid just below 0.80 x round trip refused", {"counts": {"sample": [2, 3, 4], "roundtrip": [1, 1, 1], "tokens_only": [0, 0, 0], "none": [1, 30, 30]}}, 1),
+        ("boundary: hybrid == no-input + 0.02 refused (strictly greater needed)", {"counts": {"sample": [2, 3, 3], "roundtrip": [1, 1, 1], "tokens_only": [0, 0, 0], "none": [19, 30, 32]}}, 1),
+        ("boundary: hybrid > no-input + 0.02 by a hair passes", {"counts": {"sample": [2, 3, 3], "roundtrip": [1, 1, 1], "tokens_only": [0, 0, 0], "none": [37, 63, 63]}}, 0),
+        ("boundary: 1,900 == 2,000 (not strictly decreasing) refused", {"hist": _H([0.45, 0.44, 0.43, 0.43])}, 1),
+        ("boundary: 1,700 < 1,800 refused", {"hist": _H([0.44, 0.45, 0.43, 0.42])}, 1),
+        ("refusal: status FAIL", {"status": "FAIL"}, 1),
+        ("refusal: already PASS", {"PASS": True}, 1),
+        ("refusal: read at update 1,999", {"updates": 1999}, 1),
+        ("refusal: prior_not_reached 1 (second NOT_REACHED)", {"prior_not_reached": 1}, 1),
+        ("refusal: seven clips", {"clips": [["mid", ["s", 0, i]] for i in range(7)]}, 1),
+        ("refusal: duplicate clips", {"clips": [["mid", ["s", 0, 0]]] * 8}, 1),
+        ("refusal: unsigned declared ratio", {"declared_ratio": 0.5}, 1),
+        ("refusal: no key cars", {"counts": {"sample": [0, 0, 0], "roundtrip": [0, 0, 0], "tokens_only": [0, 0, 0], "none": [0, 0, 0]}}, 1),
+        ("refusal: round-trip F1 0 (cars present, none kept)", {"counts": {"sample": [0, 0, 5], "roundtrip": [0, 3, 5], "tokens_only": [0, 0, 0], "none": [0, 0, 5]}}, 1),
+        ("refusal: non-finite final loss", {"final": float("nan")}, 1),
+        ("refusal: recorded F1 inconsistent with its counts", {"car_f1_sample": 0.9}, 1),
+        ("refusal: recorded ratio inconsistent with the losses", {"ratio": 0.3}, 1),
+        ("refusal: eval at 1,700 missing", {"hist": [e for e in _H([0.44, 0.43, 0.42, 0.41]) if e[0] != 1700]}, 1),
+        ("refusal: log.jsonl lacks the 1,900 eval", {"log_skip": (1900,)}, 1),
+        ("refusal: samples missing", {"no_samples": True}, 1),
+        ("refusal: registry record ratio differs from overfit.json", {"gate_rec": {"ratio": 0.49}}, 1),
+        ("refusal: registry record for another output dir", {"gate_rec": {"out": "runs/wan_ctest_overfit_other"}}, 1),
+        ("refusal: registry record of another job", {"gate_rec": {"job": "3757999"}}, 1),
+        ("refusal: an earlier NOT_REACHED for the same key (not the first)",
+         {"gates_extra": [{"kind": "overfit", "gate_key": GK_A, "status": "NOT_REACHED (x)", "job": "3750000", "out": "runs/old"}]}, 1),
+        ("refusal: an overfit PASS already exists for the key", {"gates_extra": [{"kind": "overfit", "gate_key": GK_A, "status": "PASS", "job": "3750001"}]}, 1),
+        ("refusal: adjudicator sha not pinned (Neon has not verified it)", {"pin": False}, 1)):
+    with _tf.TemporaryDirectory() as td:
+        with _cl.redirect_stdout(_io.StringIO()):
+            rc_, run_, gp_, _ = _adj(td, **kw_)
+        n_adj = sum(1 for l in open(gp_) if '"adjudicated": true' in l)
+    check(f"adjudicator {nm_}", rc_ == want and n_adj == (1 if want == 0 else 0), (rc_, n_adj))
+for nm_, job_, key_ in (("wrong job 3757188", "3757188", GK_A), ("wrong gate key", "3757187", "ffffffffffffffff")):
+    with _tf.TemporaryDirectory() as td:
+        with _cl.redirect_stdout(_io.StringIO()):
+            rc_, run_, gp_, _ = _adj(td, job=job_, key=key_)
+        n_adj = sum(1 for l in open(gp_) if '"adjudicated": true' in l)
+    check(f"adjudicator refusal: {nm_} -> nothing appended", rc_ != 0 and n_adj == 0)
+check("adjudicator: no frozen file is touched (it imports nothing from the repo and writes only the registry append)",
+      "import mrv" not in open("scripts/wan_gate_adjudicate.py").read() and "from mrv" not in open("scripts/wan_gate_adjudicate.py").read())
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

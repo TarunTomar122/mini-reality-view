@@ -31,18 +31,20 @@ jobstate() {  # active | done | failed | unknown
 deps() {  # deps <id...>: prints ":id" for still-active ids; COMPLETED ids are dropped; failed / unknown -> stop
   local j st; for j in "$@"; do st=$(jobstate $j)
     case $st in active) printf ":%s" $j;; done) ;; *) die "dependency $j is $st";; esac; done; }
-byname() {  # ids carrying exactly this name, from squeue AND sacct (both must succeed)
-  local q1 q2; q1=$(squeue -u $USER -h -n $1 -o %i) || return 1; q2=$(sacct -u $USER -X -n -P -S now-3days --name=$1 -o JobID) || return 1
+byname() {  # byname <name> [<start time>]: ids carrying exactly this name, from squeue AND sacct (both must succeed); sacct
+           # searches from the persisted intent time (default: 3 days back)
+  local q1 q2; q1=$(squeue -u $USER -h -n $1 -o %i) || return 1; q2=$(sacct -u $USER -X -n -P -S ${2:-now-3days} --name=$1 -o JobID) || return 1
   printf "%s\n%s\n" "$q1" "$q2" | grep -E '^[0-9]+$' | sort -u; }
 submit() {  # submit <state key> <base name> <sbatch args...>: intent first, then one sbatch, then the id
   local key=$1 base=$2 n j q; shift 2
   if [ -s $S/$key.name ]; then  # an earlier attempt: reconcile before anything else
-    n=$(cat $S/$key.name); q=$(byname $n) || die "lookup failed for intent $n"
+    n=$(cat $S/$key.name); [ -s $S/$key.time ] || die "intent $n has no recorded time: reconcile by hand"
+    q=$(byname $n $(cat $S/$key.time)) || die "lookup failed for intent $n"
     case $(echo "$q" | grep -c .) in 1) rec $key $q; echo "adopted $n = $q"; return;; 0) ;; *) die "intent $n matches several jobs: $q";; esac
-  else n="$base.$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"; rec $key.name $n; fi
+  else n="$base.$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')"; rec $key.time $(date -d '-5 minutes' +%Y-%m-%dT%H:%M:%S); rec $key.name $n; fi
   j=$(sbatch --parsable -J $n "$@")
   if [[ "$j" =~ ^[0-9]+$ ]]; then rec $key $j; echo "$(date -u +%H:%M) $key: $n = $j"; return; fi
-  sleep 30; q=$(byname $n) || die "ambiguous sbatch for $n (lookup failed)"
+  sleep 30; q=$(byname $n $(cat $S/$key.time)) || die "ambiguous sbatch for $n (lookup failed)"
   [ "$(echo "$q" | grep -c .)" = 1 ] && { rec $key $q; echo "adopted $n = $q"; return; }
   die "ambiguous sbatch for $n (matches: ${q:-none})"; }
 running() { local q; q=$(squeue -u $USER -h -n vpriv -o %i) || return 0; [ -n "$q" ]; }  # queue error: assume running
@@ -50,18 +52,19 @@ running() { local q; q=$(squeue -u $USER -h -n vpriv -o %i) || return 0; [ -n "$
 reconcile() {  # outstanding intents (name recorded, no id) are resolved BEFORE any admission check
   local f key n q
   for f in $S/*.name; do [ -e "$f" ] || continue; key=${f%.name}; [ -s $key ] && continue
-    n=$(cat $f); q=$(byname $n) || die "lookup failed for intent $n"
+    n=$(cat $f); [ -s $key.time ] || die "intent $n has no recorded time: reconcile by hand"
+    q=$(byname $n $(cat $key.time)) || die "lookup failed for intent $n"
     case $(echo "$q" | grep -c .) in 1) rec ${key#$S/} $q; echo "adopted $n = $q";; 0) ;; *) die "intent $n matches several jobs: $q";; esac
   done; }
 check_chain() {  # any failed job in a gated chain (shards, metrics, score) stops the watcher with its id; unknown state is
                  # tolerated for at most 10 passes per job
   local f st u
-  for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/16.sh* $S/16.m $S/16.c; do
-    [ -e "$f" ] || continue; case $f in *.name|*.unk) continue;; esac
+  for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/12.early $S/16.sh* $S/16.m $S/16.c; do
+    [ -e "$f" ] || continue; case $f in *.name|*.unk|*.time) continue;; esac
     st=$(jobstate $(cat $f))
     case $st in failed) die "gated chain job $(cat $f) (${f#$S/}) failed";;
       unknown) u=$(( $(cat $f.unk 2>/dev/null || echo 0) + 1 )); echo $u > $f.unk
-        [ $u -gt 10 ] && die "gated chain job $(cat $f) (${f#$S/}) state unknown for 10 passes";;
+        [ $u -ge 10 ] && die "gated chain job $(cat $f) (${f#$S/}) state unknown for 10 passes";;
       *) rm -f $f.unk;; esac
   done; }
 pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothing admissible now (sleep), 2 = all done
@@ -69,10 +72,12 @@ pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothi
   alldone=1
   reconcile; check_chain
   # early continuation (Fable 01:30): 12k saved and the 8k decision safe -> the 12k decision cannot stop the run -> resume now
-  if [ -f runs/vpriv/ckpt_12000.pt ] && [ -s runs/vpriv_gate/a1_8k.json ] && [ ! -s $S/12.early ] && [ ! -e runs/vpriv_gate/CONTINUED ]; then
+  # requires the CURRENT 8k score job to have COMPLETED (not just any a1_8k.json), and 2 free slots (helper + trainer)
+  if [ -f runs/vpriv/ckpt_12000.pt ] && [ -s $S/8.c ] && [ "$(jobstate $(cat $S/8.c))" = done ] && [ -s runs/vpriv_gate/a1_8k.json ] \
+     && [ ! -s $S/12.early ] && [ ! -e runs/vpriv_gate/CONTINUED ]; then
     if [ "$(.venv/bin/python -c "import json;print(json.load(open('runs/vpriv_gate/a1_8k.json')).get('safe') is True)")" = True ]; then
-      k=12; take || return 1
-      submit 12.early vcont --cpus-per-task=1 --mem=4G --time=0:30:00 -o logs2/%x-%j.out slurm/vpriv_score.sh early; return 0
+      f=$(free) || return 1; [ "$f" -ge 2 ] || return 1
+      submit 12.early vcont --cpus-per-task=1 --mem=4G --time=0:30:00 -o logs2/%x-%j.out slurm/vpriv_score.sh early $(cat $S/8.c); return 0
     fi
   fi
   for k in 8 12 16 2 4; do
@@ -115,7 +120,13 @@ pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothi
     fi
     rec $k.done queued; return 0
   done
-  [ $alldone = 1 ] && return 2
+  if [ $alldone = 1 ]; then  # keep monitoring until every gated chain job is terminal (check_chain dies on failures)
+    for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/12.early $S/16.sh* $S/16.m $S/16.c; do
+      [ -e "$f" ] || continue; case $f in *.name|*.unk|*.time) continue;; esac
+      [ "$(jobstate $(cat $f))" = done ] || return 1
+    done
+    return 2
+  fi
   # everything saved is queued; a checkpoint that can no longer appear ends the watcher (after draining the saved work)
   [ -n "$missing" ] && die "vpriv not running and checkpoint(s)$missing missing"
   return 1

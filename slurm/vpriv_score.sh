@@ -17,12 +17,19 @@ cont() {  # stage-2 resume 12k -> 16k (caller holds the gate lock and has checke
     echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING && [ -s $G2/CONT_PENDING ] || { echo "SCORE_FAIL cannot write the continuation intent"; exit 1; }
     J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=3:00:00 -J vpriv -o logs2/%x-%j.out \
         slurm/py.sbatch scripts/train_causal.py --init runs/longA/ckpt_20000.pt --out runs/vpriv --K 4 --rho 0.95 \
-        --rho_decision council/rho_decision.json --private_clips $PRIV --steps 16000 --resume)
-    [[ "$J" =~ ^[0-9]+$ ]] || { echo "SCORE_FAIL continuation sbatch returned '$J' (CONT_PENDING kept; check sacct)"; exit 1; }
+        --rho_decision council/rho_decision.json --private_clips $PRIV --steps 16000 --resume 2>$G2/cont_sbatch.err)
+    if ! [[ "$J" =~ ^[0-9]+$ ]]; then
+      if grep -q "Batch job submission failed" $G2/cont_sbatch.err; then  # definite rejection: nothing was queued -> a retry is safe
+        rm -f $G2/CONT_PENDING; echo "SCORE_FAIL continuation rejected by Slurm ($(head -1 $G2/cont_sbatch.err)); intent cleared, retry allowed"; exit 1; fi
+      echo "SCORE_FAIL continuation sbatch ambiguous ('$J'; CONT_PENDING kept; check sacct)"; exit 1; fi
     echo "job=$J resume 12000->16000 private_clips=$PRIV" > $G2/CONTINUED && grep -q "job=$J" $G2/CONTINUED || { echo "SCORE_FAIL receipt"; exit 1; }
     echo "CONTINUED vpriv to 16k: job $J"
 }
 if [ "$1" = early ]; then  # resume without waiting for the 12k score: allowed only if the 8k A1 decision is safe (JSON true)
+  # and was written by the CURRENT 8k score job ($2), which must have COMPLETED
+  [[ "$2" =~ ^[0-9]+$ ]] || { echo "SCORE_FAIL early needs the 8k score job id"; exit 1; }
+  ST=$(sacct -n -X -P -S now-3days -j $2 -o State | head -1) || { echo "SCORE_FAIL sacct"; exit 1; }
+  [ "$ST" = COMPLETED ] || { echo "SCORE_FAIL 8k score job $2 is '$ST', not COMPLETED: no early continuation"; exit 1; }
   G2=runs/vpriv_gate; exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }
   flock -w 600 9 || { echo "SCORE_FAIL gate lock not acquired"; exit 1; }
   SAFE=$($PY -c "import json,sys;s=json.load(open('$G2/a1_8k.json'))['safe'];sys.exit(1) if not isinstance(s,bool) else print('safe' if s else 'unsafe')") \

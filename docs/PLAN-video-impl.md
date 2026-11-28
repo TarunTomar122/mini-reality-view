@@ -174,8 +174,8 @@ boundary and exits cleanly, so a time limit loses less than one update. `slurm/w
 the limit (`#SBATCH --signal=B:USR1@300`) and forwards USR1 / TERM to the trainer (it runs in the background under
 `run_fg`). Timing is unchanged.
 
-**Joint dropout.** One draw per clip, defaults `--p_both 0.10 --p_guide_only 0.10 --p_tok_only 0.10`, recorded in
-`args.json` → `dropout`.
+**Joint dropout.** One draw per clip, defaults `--p_drop_both 0.10 --p_drop_guide_only 0.10 --p_drop_tokens_only 0.10`,
+recorded in `args.json` → `dropout`.
 - Marginals: guide 20% (as signed in C9), tokens 20% (signed: 10%).
 - The both-dropped case (the CFG / S2 unconditional branch) rises from 2% to 10%.
 - The token marginal has to exceed the both share, or the tokens-dropped / guide-kept case (the guide-only ablation) would
@@ -192,6 +192,33 @@ The eval history is saved in every checkpoint. If a signal or budget stop ends t
 
 **Text slot.** The default is still one zero row. The trainer logs a NOTE (also stored in `args.json` → `prompt_note`)
 suggesting an off-cluster umT5 embedding of a plain scene caption via `--prompt_embed` before production.
+
+## Fable 08:30 additions
+
+**Overfit reading.** In order:
+- `FAIL` if the round trip has no cars.
+- `FAIL` if hybrid car F1 ≤ no-inputs car F1 + 0.02, whatever the loss says.
+- `PASS` if both declared gates hold.
+- `NOT_REACHED` if the loss ratio is missed while placement passes or the loss is still falling. This is allowed once per gate
+  key; a second one for the same key is `FAIL`.
+- `FAIL` otherwise.
+
+**Gate key.** A sha of the trainer code, the model recipe (rank, token ticks, tokens on/off, shift, sigma distribution, lr,
+warm-up, prompt, Wan id, batch), the frozen base, the VAE and the guide version. Lists, caches, dropout and steps are excluded,
+so the gates can run on the 48 S0c drives with dropout off.
+
+**Gate enforcement.**
+- Every overfit verdict and every resume check is appended to `runs/wan_gates/gates.jsonl`.
+- `MODE=train` and `MODE=extend` refuse to start without both an overfit PASS and a resume_test PASS for their gate key.
+- An overfit run stopped before 2,000 updates (signal or job limit) exits 7 (PENDING), so an `afterok` chain cannot treat it
+  as success.
+- The signal handler only sets a flag.
+
+**Flags.** The dropout flags are renamed `--p_drop_both`, `--p_drop_guide_only` and `--p_drop_tokens_only` (shares
+10 / 10 / 10).
+
+**Splits.** `scripts/build_guides.py` (train / dev; sealed drives only with `--unseal`) and `scripts/fit_depth_scale.py`
+(train only) now pass their resolved drives through `mrv.wan_plan.check_split_membership`. That's a two-line change in each.
 
 ## Open points
 

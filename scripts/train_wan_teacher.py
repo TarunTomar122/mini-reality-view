@@ -12,9 +12,9 @@ Recipe
 - objective: rectified flow (x_s = (1 - s) x0 + s eps, v = eps - x0, timestep 1000 s), MSE fp32; one sigma per clip,
   shifted-uniform with shift --shift 2.0 (Wan 480p uses 3.0 for 32.8k tokens; the SD3 sqrt(token) rule gives 1.7 per frame /
   0.84 per clip for our 2,560; kept above the rule because car placement is decided at high noise; median sigma 0.67).
-- JOINT input dropout (Fable 07:30): one draw per clip -> both dropped --p_both 0.10 (the unconditional branch CFG / S2 need;
-  independent 20 % / 10 % gave only 2 %), guide only --p_guide_only 0.10, tokens only --p_tok_only 0.10 (marginals guide 20 %,
-  tokens 20 %; recorded in args.json "dropout"); a kept guide gets holes w.p. 0.5. Updates 1 and 2 (absolute steps 0 / 1) use
+- JOINT input dropout (Fable 07:30): one draw per clip -> both dropped --p_drop_both 0.10 (the unconditional branch CFG / S2
+  need; independent 20 % / 10 % gave only 2 %), only the guide dropped --p_drop_guide_only 0.10, only the tokens dropped
+  --p_drop_tokens_only 0.10 (marginals guide 20 %, tokens 20 %; recorded in args.json "dropout"); a kept guide gets holes w.p. 0.5. Updates 1 and 2 (absolute steps 0 / 1) use
   NO dropout / holes, so the first-update guard and the gate-open gradient check are deterministic.
 - signals: SIGTERM / SIGUSR1 (slurm/wan_teacher.sh asks Slurm for USR1 300 s before the time limit and forwards it) -> atomic
   rolling checkpoint at the next update boundary, clean exit (WAN_TEACHER_SIGNAL_STOP), resume with --resume.
@@ -46,8 +46,10 @@ Modes
   the SAME 8 every 100 updates; PASS = final eval loss <= --overfit_ratio (0.25) x the update-0 eval loss AND decoded samples
   (30 Euler steps, hybrid) reach car F1 >= --overfit_f1_frac (0.8) x the Wan-VAE round-trip car F1 against the keys (signed
   scorer's segmentation + 0.3 matcher), the round trip itself > 0; tokens-only and none samples of the same 8 clips / noise are
-  reported as controls; pre-registered: a missed loss ratio with placement passing or a still-falling eval loss = NOT_REACHED
-  (exit 6: rerun longer / lr 3e-4), not a bug; both gates read at update 2,000 only (--steps 2000 required;
+  reported as controls; pre-registered (Fable 07:30 / 08:30): FAIL if hybrid car F1 <= no-inputs car F1 + 0.02; a missed loss
+  ratio with placement passing or a still-falling eval loss = NOT_REACHED (exit 6: rerun longer / lr 3e-4), allowed ONCE per gate
+  key (code / model recipe / base / VAE / guide version), a second one = FAIL (exit 4); every verdict is appended to --gates and
+  MODE=train refuses to start without PASS overfit + PASS resume-test records for its gate key; a stopped run exits 7 (PENDING); both gates read at update 2,000 only (--steps 2000 required;
   a shorter job prints OVERFIT_PENDING and resumes); the update-0 eval loss is stored in every checkpoint; sampling runs in the
   fitting microbatch -> overfit.json, exit 4 on FAIL.
   python scripts/train_wan_teacher.py --out runs/wan_s1 --steps 40000 --budget_hours 24 --ledger runs/wan_s1_ledger.jsonl --resume
@@ -79,9 +81,10 @@ p.add_argument("--warmup", type=int, default=500)
 p.add_argument("--shift", type=float, default=2.0)
 p.add_argument("--sigma_dist", default="shifted_uniform", choices=["shifted_uniform", "logit_normal"])
 p.add_argument("--p_start", type=float, default=0.15)
-p.add_argument("--p_both", type=float, default=0.10, help="joint dropout: both inputs dropped (unconditional branch for CFG / S2)")
-p.add_argument("--p_guide_only", type=float, default=0.10, help="joint dropout: guide dropped, tokens kept")
-p.add_argument("--p_tok_only", type=float, default=0.10, help="joint dropout: tokens dropped, guide kept")
+p.add_argument("--p_drop_both", type=float, default=0.10, help="joint dropout share: BOTH inputs dropped (unconditional branch for CFG / S2)")
+p.add_argument("--p_drop_guide_only", type=float, default=0.10, help="joint dropout share: ONLY the guide dropped (tokens kept)")
+p.add_argument("--p_drop_tokens_only", type=float, default=0.10, help="joint dropout share: ONLY the tokens dropped (guide kept)")
+p.add_argument("--gates", default="runs/wan_gates/gates.jsonl", help="overfit / resume-test verdict registry (MODE=train needs PASS records)")
 p.add_argument("--p_holes", type=float, default=0.5)
 p.add_argument("--save_every", type=int, default=500)
 p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,16000,20000,24000,28000,32000,36000,40000")
@@ -238,7 +241,7 @@ def make_batch(step):
     pm = torch.randint(0, len(MID), (B,), generator=g).tolist(); ps = torch.randint(0, max(1, len(START)), (B,), generator=g).tolist()
     sig = sample_sigma(g, B)
     eps = torch.randn(B, 16, NL, 32, 64, generator=g)
-    gd_, td_ = WP.drop_masks(torch.rand(B, generator=g).tolist(), a.p_both, a.p_guide_only, a.p_tok_only)  # joint dropout
+    gd_, td_ = WP.drop_masks(torch.rand(B, generator=g).tolist(), a.p_drop_both, a.p_drop_guide_only, a.p_drop_tokens_only)  # joint dropout
     gdrop, tdrop = torch.tensor(gd_), torch.tensor(td_)
     holes = torch.rand(B, generator=g) < a.p_holes
     hole_boxes = [[(int(torch.randint(3, 13, (1,), generator=g)), int(torch.randint(4, 25, (1,), generator=g)),
@@ -271,9 +274,10 @@ PROMPT_NOTE = (f"text slot = cached embedding {a.prompt_embed}" if a.prompt_embe
                "text slot = ONE all-zero 4096-d row (default; stock Wan never saw an all-zero prompt: Fable 07:30 suggests an "
                "off-cluster umT5 embedding of a plain scene caption via --prompt_embed before MODE=train)")
 print("NOTE", PROMPT_NOTE, flush=True)
-DROP = {"p_both": a.p_both, "p_guide_only": a.p_guide_only, "p_tok_only": a.p_tok_only, "guide_marginal": a.p_both + a.p_guide_only,
-        "tokens_marginal": a.p_both + a.p_tok_only, "holes_if_guide_kept": a.p_holes, "updates_1_2": "no dropout (guards)"}
-WP.drop_masks([0.5], a.p_both, a.p_guide_only, a.p_tok_only)  # validates the shares
+DROP = {"p_drop_both": a.p_drop_both, "p_drop_guide_only": a.p_drop_guide_only, "p_drop_tokens_only": a.p_drop_tokens_only,
+        "guide_dropped_marginal": a.p_drop_both + a.p_drop_guide_only, "tokens_dropped_marginal": a.p_drop_both + a.p_drop_tokens_only,
+        "holes_if_guide_kept": a.p_holes, "updates_1_2": "no dropout (guards)"}
+WP.drop_masks([0.5], a.p_drop_both, a.p_drop_guide_only, a.p_drop_tokens_only)  # validates the shares
 model, DIAG = WC.build(a.wan, rank=a.rank, tok_ticks=a.tok_ticks, use_tokens=bool(a.use_tokens), dtype=AMP, device=dev, prompt=prompt,
                        grad_ckpt=bool(a.grad_ckpt), parity=True, seed=a.seed)
 print("init diagnostics", DIAG, flush=True)
@@ -292,9 +296,15 @@ if VAE_SHAS != {VAE_SHA}:
     raise SystemExit(f"cache latents were made with another VAE ({VAE_SHAS}) than the one on disk ({VAE_SHA})")
 opt = torch.optim.AdamW(params, lr=a.lr, betas=(0.9, 0.999), weight_decay=0.0)
 RECIPE = {k: getattr(a, k) for k in ("seed", "lists", "cache", "tokens", "rank", "tok_ticks", "use_tokens", "batch", "lr", "warmup", "shift",
-                                     "sigma_dist", "p_start", "p_both", "p_guide_only", "p_tok_only", "p_holes", "overfit", "prompt_embed", "wan")}
+                                     "sigma_dist", "p_start", "p_drop_both", "p_drop_guide_only", "p_drop_tokens_only", "p_holes", "overfit", "prompt_embed", "wan")}
 CFG = {"rank": a.rank, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "shift": a.shift, "n_extra": WC.N_EXTRA,
        "prompt_embed": a.prompt_embed, "wan": a.wan, "clip_latents": NL, "tok_grid": WC.TOK_GRID, "seed": a.seed}
+GATE_KEY = WP.gate_key(CODE_SHA, RECIPE, BASE_SHA, VAE_SHA, GUIDE_VERSION)
+if KIND == "train":  # Fable 08:30: production needs PASS overfit AND PASS resume-test records for this code / recipe
+    ok_g, have_g = WP.gates_ok(a.gates, GATE_KEY)
+    if not ok_g:
+        raise SystemExit(f"MODE=train refused: gate records for key {GATE_KEY} in {a.gates}: {have_g} (need overfit PASS and resume_test PASS)")
+    print(f"gates PASS for key {GATE_KEY}: {have_g}", flush=True)
 start, ck, CHAIN, OF0, OF_HIST = 0, f"{a.out}/ckpt.pt", "", None, []
 if os.path.exists(ck):
     if not a.resume:
@@ -318,13 +328,13 @@ if os.path.exists(ck):
 json.dump({**vars(a), "kind": KIND, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "init_sha": INIT_SHA,
            "guide_version": GUIDE_VERSION, "mid_clips": len(MID), "start_clips": len(START), "clips_per_drive": PER_DRIVE,
            "drives_without_clips": no_clip, "trainable_lora_M": round(n_lora / 1e6, 2), "trainable_new_M": round(n_new / 1e6, 3),
-           "init_diagnostics": DIAG, "cfg": CFG, "ledger_hours_at_start": LEDGER.hours(), "prompt_note": PROMPT_NOTE, "dropout": DROP}, open(f"{a.out}/args.json", "w"), indent=1)
+           "init_diagnostics": DIAG, "cfg": CFG, "ledger_hours_at_start": LEDGER.hours(), "prompt_note": PROMPT_NOTE, "dropout": DROP, "gate_key": GATE_KEY}, open(f"{a.out}/args.json", "w"), indent=1)
 
 
 def save(step, path):
     d = {"trainable": model.trainable_state(), "opt": opt.state_dict(), "step": step, "hours": LEDGER.hours(), "recipe": RECIPE, "cfg": CFG,
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "guide_version": GUIDE_VERSION,
-         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a), "overfit_eval0": OF0, "overfit_hist": OF_HIST,
+         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a), "overfit_eval0": OF0, "overfit_hist": OF_HIST, "gate_key": GATE_KEY,
          "rng": {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state(), "python": random.getstate(), "numpy": np.random.get_state()}}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
@@ -562,8 +572,7 @@ SIG = {"got": None}
 
 
 def _on_signal(signum, frame):  # Fable 07:30: time limit / preemption notice -> rolling save at the next update boundary
-    SIG["got"] = _signal.Signals(signum).name
-    print(f"received {SIG['got']}: saving at the next update boundary", flush=True)
+    SIG["got"] = _signal.Signals(signum).name  # flag only: no I/O in the handler (a reentrant print could lose the save)
 
 
 for _s in (_signal.SIGTERM, _signal.SIGUSR1):
@@ -646,7 +655,7 @@ for step in range(start, end):
 DONE_STEP = stopped if stopped is not None else end  # a signal / budget stop ends before `end`
 if a.overfit and DONE_STEP < OVERFIT_STEPS:
     print(f"OVERFIT_PENDING at update {DONE_STEP} (gates are read at {OVERFIT_STEPS}); resume with --resume", flush=True)
-    LEDGER.stop(); raise SystemExit(0)
+    LEDGER.stop(); raise SystemExit(7)  # non-zero: an afterok chain must not treat a stopped gate as success (Fable 08:30)
 if a.overfit:
     OFN = overfit_eval(end)
     from mrv import guide as GD
@@ -706,17 +715,22 @@ if a.overfit:
     loss_ok = OFN <= a.overfit_ratio * OF0
     rt_ok = f1["roundtrip"] > 0 and tp["roundtrip"][0] + tp["roundtrip"][2] > 0  # key cars exist and the codec keeps some
     f1_ok = rt_ok and f1["sample"] >= a.overfit_f1_frac * f1["roundtrip"]
-    status = WP.overfit_status(OF0, OF_HIST, loss_ok, f1_ok, rt_ok)
+    PRIOR_NR = WP.prior_not_reached(a.gates, GATE_KEY)
+    status = WP.overfit_status(loss_ok, f1_ok, rt_ok, f1["sample"], f1["none"], OF_HIST, PRIOR_NR)
     res = {"eval_loss_update0": OF0, "eval_loss_final": OFN, "ratio": OFN / OF0, "declared_ratio": a.overfit_ratio, "loss_pass": loss_ok,
            "car_f1_sample": f1["sample"], "car_f1_roundtrip": f1["roundtrip"], "declared_f1_frac": a.overfit_f1_frac, "f1_pass": f1_ok,
            "car_f1_controls": {"hybrid": f1["sample"], "tokens_only": f1["tokens_only"], "none": f1["none"]},
            "roundtrip_positive": rt_ok, "counts": tp, "eval_history": OF_HIST, "clips": [(k, list(d)) for k, d in OF], "updates": end,
-           "declared_updates": OVERFIT_STEPS, "status": status, "PASS": bool(end == OVERFIT_STEPS and status == "PASS"),
-           "preregistered": "loss ratio missed while placement passes or the eval loss is still falling = NOT_REACHED (rerun longer / "
-                            "lr 3e-4), not a bug; the gate verdict is read on hybrid only, tokens-only / none are informational"}
+           "declared_updates": OVERFIT_STEPS, "status": status, "PASS": bool(DONE_STEP == OVERFIT_STEPS and status == "PASS"),
+           "gate_key": GATE_KEY, "prior_not_reached": PRIOR_NR, "none_margin": WP.NONE_MARGIN,
+           "preregistered": "FAIL if hybrid car F1 <= no-inputs car F1 + 0.02 or the round trip has no cars; loss ratio missed while "
+                            "placement passes or the eval loss is still falling = NOT_REACHED (rerun longer / lr 3e-4), allowed ONCE per "
+                            "gate key (a second one = FAIL); tokens-only is informational"}
     from PIL import Image
     Image.fromarray(np.concatenate(strips, 0)).save(f"{a.out}/overfit_samples.png")
     json.dump(res, open(f"{a.out}/overfit.json", "w"), indent=1)
+    WP.gate_append(a.gates, {"kind": "overfit", "gate_key": GATE_KEY, "status": "PASS" if res["PASS"] else status, "out": a.out,
+                             "f1": res["car_f1_controls"], "ratio": res["ratio"], "job": os.environ.get("SLURM_JOB_ID")})
     print("OVERFIT_GATE", json.dumps(res), flush=True)
     LEDGER.stop(); raise SystemExit(0 if res["PASS"] else (6 if status.startswith("NOT_REACHED") else 4))
 LEDGER.stop()

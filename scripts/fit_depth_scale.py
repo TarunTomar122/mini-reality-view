@@ -33,9 +33,8 @@ t_start = time.time()
 res = tuple(int(x) for x in a.res.split("x"))
 L = json.load(open(a.lists))
 drives = G.drive_list(a.drives, a.lists)
-bad = [d for d in drives if d not in set(L["train"])]
-if bad:
-    raise SystemExit(f"scale must be fitted on TRAIN drives only; not train: {bad}")
+from mrv.wan_plan import check_split_membership  # scale is fitted on TRAIN drives only (explicit ids / list files checked too)
+drives = check_split_membership(drives, L, allowed=("train",))
 nusc = NuScenes(a.version, a.dataroot, verbose=False)
 R = G.GuideRenderer(scale_file=None, res=res, model_id=a.depth_model, allow_fallback=not a.no_fallback)
 rng = np.random.default_rng(0)

@@ -11,6 +11,7 @@ import torch
 
 p = argparse.ArgumentParser(); p.add_argument("a"); p.add_argument("b")
 p.add_argument("--rel", type=float, default=1e-3); p.add_argument("--abs", type=float, default=1e-6)
+p.add_argument("--gates", default="", help="append the verdict to this gate registry (MODE=train needs a resume_test PASS)")
 a = p.parse_args()
 A = torch.load(a.a, map_location="cpu", weights_only=False); B = torch.load(a.b, map_location="cpu", weights_only=False)
 res = {"step": (A["step"], B["step"]), "chain_equal": A["pick_chain"] == B["pick_chain"], "init_equal": A.get("init_sha") == B.get("init_sha")}
@@ -44,6 +45,12 @@ gates = [k for k in A["trainable"] if k.endswith(".attn2.gate")]
 res.update(tensors=len(A["trainable"]), gates_checked=len(gates), bitwise_weights=bit_w, bitwise_adam=bit_m,
            failing=(bad_w + bad_m)[:20], worst_weight_ratio=[(round(r, 3), k) for r, k, _, _ in worst_w],
            worst_adam_ratio=[(round(r, 3), k) for r, k, _, _ in worst_m], tol={"rel": a.rel, "abs": a.abs})
-res["PASS"] = bool(A["step"] == B["step"] and res["chain_equal"] and res["init_equal"] and sa == sb and not bad_w and not bad_m)
+res["gate_key"] = (A.get("gate_key"), B.get("gate_key"))
+res["PASS"] = bool(A["step"] == B["step"] and res["chain_equal"] and res["init_equal"] and sa == sb and not bad_w and not bad_m
+                   and A.get("gate_key") and A.get("gate_key") == B.get("gate_key"))
+if a.gates:
+    from mrv import wan_plan as WP
+    WP.gate_append(a.gates, {"kind": "resume_test", "gate_key": A.get("gate_key"), "status": "PASS" if res["PASS"] else "FAIL",
+                             "a": a.a, "b": a.b, "bitwise_weights": res["bitwise_weights"], "job": __import__("os").environ.get("SLURM_JOB_ID")})
 print("RESUME_CHECK", json.dumps(res))
 sys.exit(0 if res["PASS"] else 1)

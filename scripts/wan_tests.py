@@ -145,12 +145,34 @@ except ValueError:
     ok_ = True
 check("joint dropout: shares over 1 refused", ok_)
 H = [(i * 100, 1.0 - 0.01 * i) for i in range(21)]
-check("overfit: both gates -> PASS", WP.overfit_status(1.0, H, True, True, True) == "PASS")
-check("overfit: loss missed, still falling -> NOT_REACHED", WP.overfit_status(1.0, H, False, False, True).startswith("NOT_REACHED"))
-check("overfit: loss missed, placement passing -> NOT_REACHED", WP.overfit_status(1.0, [(0, 1.0), (100, 1.0)], False, True, True).startswith("NOT_REACHED"))
-check("overfit: loss flat and placement failing -> FAIL", WP.overfit_status(1.0, [(i * 100, 0.5) for i in range(10)], False, False, True) == "FAIL")
-check("overfit: loss ok but placement failing -> FAIL", WP.overfit_status(1.0, H, True, False, True) == "FAIL")
-check("overfit: no round-trip cars -> FAIL", WP.overfit_status(1.0, H, True, True, False).startswith("FAIL"))
+OS = lambda loss_ok, f1_ok, rt=True, fh=0.6, fn=0.1, hist=H, prior=0: WP.overfit_status(loss_ok, f1_ok, rt, fh, fn, hist, prior)
+check("overfit: both gates -> PASS", OS(True, True) == "PASS")
+check("overfit: loss missed, still falling -> NOT_REACHED", OS(False, False).startswith("NOT_REACHED"))
+check("overfit: loss missed, placement passing -> NOT_REACHED", OS(False, True, hist=[(0, 1.0), (100, 1.0)]).startswith("NOT_REACHED"))
+check("overfit: second NOT_REACHED for the same key -> FAIL", OS(False, True, prior=1).startswith("FAIL (second"))
+check("overfit: loss flat and placement failing -> FAIL", OS(False, False, hist=[(i * 100, 0.5) for i in range(10)]) == "FAIL")
+check("overfit: loss ok but placement failing -> FAIL", OS(True, False) == "FAIL")
+check("overfit: no round-trip cars -> FAIL", OS(True, True, rt=False).startswith("FAIL"))
+check("overfit: hybrid no better than no-inputs (+0.02) -> FAIL even with both gates", OS(True, True, fh=0.30, fn=0.29).startswith("FAIL (hybrid"))
+check("overfit: hybrid exactly none + 0.02 -> FAIL", OS(True, True, fh=0.32, fn=0.30).startswith("FAIL (hybrid"))
+check("overfit: hybrid clearly above none -> PASS", OS(True, True, fh=0.40, fn=0.30) == "PASS")
+with tempfile.TemporaryDirectory() as td:
+    gp = f"{td}/gates.jsonl"
+    rc_ = {"rank": 32, "tok_ticks": "last", "use_tokens": True, "shift": 2.0, "sigma_dist": "shifted_uniform", "lr": 1e-4, "warmup": 500,
+           "prompt_embed": "", "wan": "w", "batch": 8, "lists": "a", "p_drop_both": 0.1}
+    k1 = WP.gate_key("c1", rc_, "b", "v", {"g": 1})
+    check("gate key ignores lists / dropout", k1 == WP.gate_key("c1", {**rc_, "lists": "b", "p_drop_both": 0.0}, "b", "v", {"g": 1}))
+    check("gate key binds code / recipe / guide version", len({k1, WP.gate_key("c2", rc_, "b", "v", {"g": 1}), WP.gate_key("c1", {**rc_, "rank": 16}, "b", "v", {"g": 1}),
+                                                              WP.gate_key("c1", rc_, "b", "v", {"g": 2})}) == 4)
+    check("no gate records -> train refused", not WP.gates_ok(gp, k1)[0])
+    WP.gate_append(gp, {"kind": "overfit", "gate_key": k1, "status": "NOT_REACHED (x)"})
+    check("one NOT_REACHED counted", WP.prior_not_reached(gp, k1) == 1 and WP.prior_not_reached(gp, "other") == 0)
+    WP.gate_append(gp, {"kind": "overfit", "gate_key": k1, "status": "PASS"})
+    check("overfit PASS alone is not enough", not WP.gates_ok(gp, k1)[0])
+    WP.gate_append(gp, {"kind": "resume_test", "gate_key": "otherkey", "status": "PASS"})
+    check("resume PASS for another key does not count", not WP.gates_ok(gp, k1)[0])
+    WP.gate_append(gp, {"kind": "resume_test", "gate_key": k1, "status": "PASS"})
+    check("overfit + resume PASS for the key -> train allowed", WP.gates_ok(gp, k1)[0])
 
 # --- split membership (S1b item 2) --------------------------------------------------------------------------------------
 LS = {"train": ["scene-0001", "scene-0002"], "dev": ["scene-0010"], "decision": ["scene-0100"], "final": ["scene-0200"]}

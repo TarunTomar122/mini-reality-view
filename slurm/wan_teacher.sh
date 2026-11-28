@@ -5,9 +5,11 @@
 #   MODE=timing     : trainer timing sweep (global batch 8, microbatch 1/2/4/8, peak alloc / reserved, probe, save, window, VAE),
 #                     then one 81-tick dev rollout + the RGB scorer on it, each timed  -> runs/wan_timing_<job>/
 #   MODE=overfit    : bug gate: 8 distinct clips, 2,000 updates, fixed-noise eval + decoded placement check, hybrid + tokens-only
-#                     + none samples (exit 0 PASS, 6 NOT_REACHED = rerun longer / lr 3e-4, 4 FAIL)
+#                     + none samples (exit 0 PASS, 6 NOT_REACHED = rerun longer / lr 3e-4 (once per gate key), 4 FAIL,
+#                     7 PENDING = stopped before 2,000: resume); verdict appended to runs/wan_gates/gates.jsonl
 #   MODE=resume_test: 16 updates uninterrupted vs 8 + resume 8; scripts/wan_resume_check.py must pass
-#   MODE=train      : the S1 run, runs/wan_s1, resumable; stops when ledger + 2 h panel reserve reaches 24 h
+#   MODE=train      : the S1 run, runs/wan_s1, resumable; REFUSES to start without PASS overfit + PASS resume_test records for
+#                     its gate key (code / model recipe / base / VAE / guide version); stops when ledger + 2 h reserve reaches 24 h
 #   MODE=extend     : the one signed 12 h extension (budget 36 h), only after the 24 h panel said EXTEND
 # Submit (resubmit the same line to continue after a time limit; --resume picks up runs/wan_s1/ckpt.pt):
 #   sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=12:00:00 -J wan-s1 -o logs2/%x-%j.out \
@@ -69,12 +71,12 @@ P
     $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER
     rc=$? ;;
   overfit)
-    run_fg $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_both 0 --p_guide_only 0 --p_tok_only 0 --p_holes 0 \
+    run_fg $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_drop_both 0 --p_drop_guide_only 0 --p_drop_tokens_only 0 --p_holes 0 \
        --val_every 0 --save_every 500 "$@"; rc=$? ;;
   resume_test)
     A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
     run_fg $T --out $A $C "$@" && run_fg $T --out $B $C --max_steps_this_job 8 "$@" && run_fg $T --out $B $C --resume "$@" \
-      && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt; rc=$? ;;
+      && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt --gates runs/wan_gates/gates.jsonl; rc=$? ;;
   train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_hours 2 --resume "$@"; rc=$? ;;
   extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_hours 1 --resume "$@"; rc=$? ;;
   *) echo "unknown MODE=$MODE"; exit 2 ;;

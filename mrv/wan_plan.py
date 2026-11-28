@@ -43,35 +43,91 @@ def check_split_membership(drives, lists, allowed=("train", "dev"), unseal=False
 
 
 # ------------------------------------------------------------------------------------------------------------ dropout
-def drop_masks(u, p_both, p_guide_only, p_tok_only):
-    """JOINT input dropout (Fable 07:30 c1): one uniform u per clip picks exactly one of: both dropped (the unconditional
+def drop_masks(u, p_drop_both, p_drop_guide_only, p_drop_tokens_only):
+    """JOINT input dropout (Fable 07:30 c1): one uniform u per clip picks exactly one of: both inputs dropped (the unconditional
     branch CFG / S2 distillation need), guide dropped only, tokens dropped only, nothing dropped. Returns (gdrop, tdrop) lists.
-    Marginals: guide p_both + p_guide_only, tokens p_both + p_tok_only."""
-    if min(p_both, p_guide_only, p_tok_only) < 0 or p_both + p_guide_only + p_tok_only > 1:
+    Marginals: guide p_drop_both + p_drop_guide_only, tokens p_drop_both + p_drop_tokens_only."""
+    pb, pg, pt = p_drop_both, p_drop_guide_only, p_drop_tokens_only
+    if min(pb, pg, pt) < 0 or pb + pg + pt > 1:
         raise ValueError("drop shares must be >= 0 and sum to <= 1")
     g, t = [], []
     for x in u:
-        both = x < p_both
-        go = p_both <= x < p_both + p_guide_only
-        to = p_both + p_guide_only <= x < p_both + p_guide_only + p_tok_only
+        both = x < pb
+        go = pb <= x < pb + pg
+        to = pb + pg <= x < pb + pg + pt
         g.append(bool(both or go)); t.append(bool(both or to))
     return g, t
 
 
-def overfit_status(loss0, hist, loss_ok, f1_ok, rt_ok, falling_window=3):
-    """pre-registered overfit reading (Fable 07:30): PASS = both declared gates; NOT_REACHED (not a bug: rerun longer / lr 3e-4)
-    = the loss gate missed while the placement gate passed, or while the fixed-noise eval loss was still falling (each of the
-    last `falling_window` evals, 100 updates apart, below the one before); FAIL otherwise (and always if the round trip found
-    no cars: the check could not run)."""
+NONE_MARGIN = 0.02  # hybrid samples must place cars better than the no-inputs control by more than this (Fable 08:30)
+
+
+def overfit_status(loss_ok, f1_ok, rt_ok, f1_hybrid, f1_none, hist, prior_not_reached, falling_window=3, none_margin=NONE_MARGIN):
+    """pre-registered overfit reading (Fable 07:30, tightened 08:30). In order:
+      FAIL if the VAE round trip found no cars (the placement check cannot run);
+      FAIL if hybrid car F1 <= no-inputs car F1 + none_margin, whatever the loss says (the direct test that inputs are used);
+      PASS if both declared gates hold;
+      NOT_REACHED (rerun longer / lr 3e-4) if the loss gate missed while placement passed or the fixed-noise eval loss was still
+        falling (each of the last `falling_window` evals below the one before) -- allowed ONCE per gate key: with an earlier
+        NOT_REACHED record for the same code / recipe (prior_not_reached >= 1) it is FAIL;
+      FAIL otherwise."""
     if not rt_ok:
         return "FAIL (round trip found no cars: placement check invalid)"
+    if not (f1_hybrid > f1_none + none_margin):
+        return f"FAIL (hybrid car F1 {f1_hybrid:.3f} not above the no-inputs control {f1_none:.3f} + {none_margin}: inputs unused)"
     if loss_ok and f1_ok:
         return "PASS"
     vals = [v for _, v in hist]
     falling = len(vals) > falling_window and all(vals[-k] < vals[-k - 1] for k in range(1, falling_window + 1))
     if not loss_ok and (f1_ok or falling):
+        if prior_not_reached >= 1:
+            return "FAIL (second NOT_REACHED for the same code / recipe)"
         return "NOT_REACHED (loss ratio missed with " + ("placement passing" if f1_ok else "loss still falling") + "): rerun longer / lr 3e-4"
     return "FAIL"
+
+
+# ------------------------------------------------------------------------------------------------------------ gate registry
+GATE_RECIPE_KEYS = ("rank", "tok_ticks", "use_tokens", "shift", "sigma_dist", "lr", "warmup", "prompt_embed", "wan", "batch")
+
+
+def gate_key(code_sha, recipe, base_sha, vae_sha, guide_version):
+    """identity a gate verdict is bound to: trainer code, model recipe, frozen base, VAE, guide version. Data lists / caches /
+    dropout / steps are excluded on purpose (the gates may run on the 48 S0c drives with dropout off)."""
+    blob = json.dumps({"code_sha": code_sha, "recipe": {k: recipe.get(k) for k in GATE_RECIPE_KEYS}, "base_sha": base_sha,
+                       "vae_sha": vae_sha, "guide_version": guide_version}, sort_keys=True, default=str)
+    import hashlib
+    return hashlib.sha256(blob.encode()).hexdigest()[:16]
+
+
+def gate_records(path):
+    out = []
+    if path and os.path.exists(path):
+        for line in open(path):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                try:
+                    out.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+    return out
+
+
+def gate_append(path, rec):
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    with open(path, "a") as f:
+        f.write("\n" + json.dumps({**rec, "time": time.time()}, default=str) + "\n")
+
+
+def gates_ok(path, key):
+    """MODE=train / extend precondition: a PASS overfit record AND a PASS resume_test record for this gate key"""
+    recs = [r for r in gate_records(path) if r.get("gate_key") == key]
+    have = {k: any(r.get("kind") == k and r.get("status") == "PASS" for r in recs) for k in ("overfit", "resume_test")}
+    return all(have.values()), have
+
+
+def prior_not_reached(path, key):
+    return sum(1 for r in gate_records(path) if r.get("gate_key") == key and r.get("kind") == "overfit"
+               and str(r.get("status", "")).startswith("NOT_REACHED"))
 
 
 # ------------------------------------------------------------------------------------------------------------ segments

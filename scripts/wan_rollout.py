@@ -133,18 +133,23 @@ def load_drive(sc):
     G = torch.load(f"{a.guides}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
     WC.check_guide(f"{a.guides}/{sc}.pt", G, json.load(open(f"{a.guides}/{sc}.json")), E["ticks"].tolist(), E["hard"].tolist(), sc, GV)
     T = None
-    if USE_TOK:
+    if USE_TOK:  # S1b item 2: token file, its upstream guide / enc files and its completeness evidence verified per drive
         sj = json.load(open(f"{a.tokens}/{sc}.json"))
-        if not sj.get("complete") or sj.get("guide_version") != GV:
-            raise SystemExit(f"{a.tokens}/{sc}: token cache incomplete or from another guide version")
+        if not sj.get("complete") or sj.get("guide_version") != GV or not sj.get("shared_pass_ok") or not sj.get("weights_sha"):
+            raise SystemExit(f"{a.tokens}/{sc}: token cache incomplete, without shared-depth evidence, or from another guide version")
+        if WC.file_sha(f"{a.tokens}/{sc}.pt") != sj["sha256"]:
+            raise SystemExit(f"{a.tokens}/{sc}.pt does not match its sidecar")
+        if WC.file_sha(f"{a.guides}/{sc}.pt") != sj.get("guide_sha") or WC.file_sha(f"{a.enc}/{sc}.pt") != sj.get("enc_sha"):
+            raise SystemExit(f"{sc}: guide / enc file differs from the one the token cache was built from")
         T = torch.load(f"{a.tokens}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
         assert torch.equal(T["ticks"], E["ticks"]), f"{sc}: token ticks != enc ticks"
     return {"E": E, "G": G, "T": T, "sc": sc, "src_lr": WC.src_lowres(G["src"])}
 
 
 drives = json.load(open(a.lists))[a.split]; ALL = list(drives)
+WP.check_split_membership(drives, json.load(open(a.lists)), allowed=(a.split,), unseal=a.unseal)
 if a.drive_list:
-    want = set(open(a.drive_list).read().split())
+    want = set(WP.check_split_membership(open(a.drive_list).read().split(), json.load(open(a.lists)), allowed=(a.split,), unseal=a.unseal))
     if not want <= set(drives):
         raise SystemExit(f"--drive_list drives not in split {a.split}: {sorted(want - set(drives))}")
     drives = [d for d in drives if d in want]

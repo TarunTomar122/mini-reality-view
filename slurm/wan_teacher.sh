@@ -22,9 +22,12 @@ $PY scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
 T="$PY scripts/train_wan_teacher.py --ledger $LEDGER"
 case $MODE in
   timing)
-    O=runs/wan_timing_$J
-    $T --out $O --timing --verify_cache 0 "$@" || exit $?
+    O=runs/wan_timing_$J; mkdir -p $O
     DRV=$($PY -c "import json;print(sorted(json.load(open('data/temporal_lists.json'))['dev'])[0])"); echo $DRV > $O/one.txt
+    # S1b item 1: pinned token-geometry check (wrong-camera control) must pass before any timing
+    TK=$($PY -c "import torch;g=torch.load('data/guides_v1/$DRV.pt',map_location='cpu',weights_only=False,mmap=True);t=[int(x) for x,h in zip(g['ticks'].tolist(),g['hard'].tolist()) if not h];print(t[len(t)//2])")
+    $PY scripts/wan_token_check.py --scene $DRV --tick $TK --out $O/token_geom_${DRV}_t$TK || { echo "TOKEN_GEOM check failed: no timing"; exit 5; }
+    $T --out $O --timing --verify_cache 1 "$@" || exit $?
     t0=$(date +%s.%N)
     $PY scripts/wan_rollout.py --ckpt $O/ckpt.pt --split dev --drive_list $O/one.txt --seeds 0 --max_ticks 81 --allow_inert \
         --ledger $LEDGER --out $O/roll || exit $?

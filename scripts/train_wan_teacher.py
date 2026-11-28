@@ -55,6 +55,8 @@ p.add_argument("--out", required=True)
 p.add_argument("--cache", default="data/wan_cache_v1")
 p.add_argument("--tokens", default="data/wan_tok_v1")
 p.add_argument("--keys", default="data/sim/keys_tpv10")
+p.add_argument("--guides", default="data/guides_v1")
+p.add_argument("--enc", default="data/enc_tpv10")
 p.add_argument("--lists", default="data/temporal_lists.json")
 p.add_argument("--wan", default=WC.WAN_ID)
 p.add_argument("--prompt_embed", default="")
@@ -104,6 +106,7 @@ LEDGER = WP.Ledger(a.ledger, KIND).start()
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
 LISTS = json.load(open(a.lists))
 TRAIN, DEVL = sorted(LISTS["train"]), sorted(LISTS["dev"])
+WP.check_split_membership(TRAIN, LISTS, allowed=("train",)); WP.check_split_membership(DEVL, LISTS, allowed=("dev",))
 assert not set(TRAIN) & set(DEVL), "train / dev overlap"
 assert not (set(TRAIN) | set(DEVL)) & (set(LISTS.get("decision", [])) | set(LISTS.get("final", []))), "sealed drives in train / dev"
 NL = 5
@@ -133,11 +136,21 @@ def load_split(drives, verify):
         raise SystemExit(f"missing cache / token files for {len(miss)} drives, e.g. {miss[:3]}")
     for sc in drives:
         jc = sidecar(a.cache, sc, verify); shas.append(sc + ":" + jc["sha256"])
-        for j_ in [jc] + ([sidecar(a.tokens, sc, verify)] if a.use_tokens else []):
+        jt = sidecar(a.tokens, sc, verify) if a.use_tokens else None
+        for j_ in [jc] + ([jt] if jt else []):
             if GUIDE_VERSION is None:
                 GUIDE_VERSION = j_["guide_version"]
             if j_["guide_version"] != GUIDE_VERSION:
                 raise SystemExit(f"{sc}: mixed guide versions across drives / caches: {j_['guide_version']} vs {GUIDE_VERSION}")
+        # S1b item 2: the latent and token caches of a drive must come from the SAME guide and enc files (equal ticks and
+        # versions would admit a stale calibration), and with --verify_cache those files must still be the ones on disk
+        if jt is not None and (jt.get("guide_sha") != jc.get("guide_sha") or jt.get("enc_sha") != jc.get("enc_sha")):
+            raise SystemExit(f"{sc}: latent cache and token cache were built from different guide / enc files")
+        if jt is not None and not (jt.get("shared_pass_ok") and jt.get("weights_sha")):
+            raise SystemExit(f"{sc}: token cache lacks the shared-depth / weight-hash evidence")
+        if verify:
+            if WC.file_sha(f"{a.guides}/{sc}.pt") != jc.get("guide_sha") or WC.file_sha(f"{a.enc}/{sc}.pt") != jc.get("enc_sha"):
+                raise SystemExit(f"{sc}: guide / enc file on disk differs from the one the caches were built from")
         C[sc] = torch.load(f"{a.cache}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
         if a.use_tokens:
             shas.append(sc + ":tok:" + json.load(open(f"{a.tokens}/{sc}.json"))["sha256"])
@@ -366,49 +379,102 @@ log = open(f"{a.out}/log.jsonl", "a")
 
 # ------------------------------------------------------------------------------------------------- one update
 def update(step, bt, timing=False):
-    """forward / backward (accumulated) / clip / Adam on one global batch; returns loss, grad norm, timings"""
+    """forward / backward (accumulated) / clip on one global batch (Adam is the caller's). Returns loss, grad norm, total s and,
+    with timing=True, separately synchronised forward and backward seconds (summed over microbatches)."""
     for g_ in opt.param_groups:
         g_["lr"] = a.lr * min(1.0, (step + 1) / a.warmup)
-    torch.cuda.synchronize(); t0 = time.time()
+    torch.cuda.synchronize(); t0 = time.time(); tf = tb = 0.0
     opt.zero_grad(set_to_none=True)
     nacc = a.batch // a.micro; loss_v = 0.0
     for i in range(nacc):
+        if timing:
+            torch.cuda.synchronize(); ta = time.time()
         l_ = flow_loss(bt, slice(i * a.micro, (i + 1) * a.micro)) / nacc
-        l_.backward(); loss_v += l_.item()
+        if timing:
+            torch.cuda.synchronize(); tb_ = time.time(); tf += tb_ - ta
+        l_.backward()
+        if timing:
+            torch.cuda.synchronize(); tb += time.time() - tb_
+        loss_v += l_.item()
     gn = torch.nn.utils.clip_grad_norm_(params, 1.0)
     if not torch.isfinite(gn):
         raise SystemExit(f"non-finite grad norm at update {step + 1}")
     torch.cuda.synchronize(); t1 = time.time()
-    return loss_v, gn, t1 - t0
+    return (loss_v, gn, t1 - t0, tf, tb) if timing else (loss_v, gn, t1 - t0)
+
+
+def start_producer(s0, s1):
+    """the production prefetch: one thread assembles + pins batches s0..s1-1 into a 3-deep queue"""
+    Q_ = queue.Queue(maxsize=3)
+
+    def run():
+        try:
+            for s in range(s0, s1):
+                t0 = time.time(); bt = make_batch(s)
+                for k in ("key", "guide", "src", "eps", "tok", "ray"):
+                    if bt[k] is not None:
+                        bt[k] = bt[k].pin_memory()
+                bt["data_s"] = time.time() - t0
+                Q_.put((s, bt))
+        except BaseException as e:  # surface data errors instead of hanging on Q.get()
+            Q_.put((-1, e))
+    threading.Thread(target=run, daemon=True).start()
+    return Q_
+
+
+def qget(Q_, step):
+    s_, bt = Q_.get()
+    if s_ == -1:
+        raise SystemExit(f"data producer failed: {bt!r}")
+    assert s_ == step, (s_, step)
+    return bt
 
 
 # ------------------------------------------------------------------------------------------------- timing mode
 if a.timing and not a.overfit:
     rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "micro": {}}
     s_ = 0
+    # (1) microbatch sweep at global batch 8 (synchronous batches; forward / backward / Adam timed separately)
     for mb in [int(x) for x in a.timing_micro.split(",") if a.batch % int(x) == 0]:
         a.micro = mb; torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
         rows = []
         try:
             for k in range(6):  # 2 warm + 4 timed
                 tw = time.time(); bt = to_dev(make_batch(s_)); torch.cuda.synchronize(); tdata = time.time() - tw
-                loss_v, gn, tfb = update(s_, bt)
+                loss_v, gn, tfb, tf, tb = update(s_, bt, timing=True)
                 ta = time.time(); opt.step(); torch.cuda.synchronize(); tad = time.time() - ta
                 s_ += 1
                 if k >= 2:
-                    rows.append({"data_s": tdata, "fwd_bwd_s": tfb, "adam_s": tad, "wall_s": tdata + tfb + tad})
+                    rows.append({"sync_batch_s": tdata, "fwd_s": tf, "bwd_s": tb, "fwd_bwd_clip_s": tfb, "adam_s": tad, "gpu_s": tfb + tad})
             rep["micro"][mb] = {k: round(float(np.mean([r[k] for r in rows])), 3) for k in rows[0]}
             rep["micro"][mb].update(peak_alloc_gb=round(torch.cuda.max_memory_allocated() / 1e9, 2), peak_reserved_gb=round(torch.cuda.max_memory_reserved() / 1e9, 2))
         except torch.cuda.OutOfMemoryError as e:
-            rep["micro"][mb] = {"oom": str(e)[:200]}; opt.zero_grad(set_to_none=True); torch.cuda.empty_cache(); break
+            rep["micro"][mb] = {"oom": str(e)[:200]}
+        if "oom" in rep["micro"][mb]:  # free outside the except block (its traceback pins the failed step's tensors)
+            import gc
+            bt = None; opt.zero_grad(set_to_none=True); gc.collect(); torch.cuda.empty_cache()
+            print("TIMING micro", mb, "OOM", flush=True); break
         print("TIMING micro", mb, rep["micro"][mb], flush=True)
-    fits = {k: v for k, v in rep["micro"].items() if "wall_s" in v}
+    fits = {k: v for k, v in rep["micro"].items() if "gpu_s" in v}
     if not fits:
         raise SystemExit(f"no microbatch fits: {rep}")
-    best = min(fits, key=lambda k: fits[k]["wall_s"]); rep["best_micro"] = best
+    best = min(fits, key=lambda k: fits[k]["gpu_s"]); rep["best_micro"] = best
+    a.micro = best; torch.cuda.empty_cache()  # S1b item 4: everything below runs at the fastest FITTING microbatch, not the OOM one
+    # (2) production loop: the real prefetch thread + queue, best microbatch; queue wait = time blocked on Q.get
+    Qp = start_producer(s_, s_ + 10); torch.cuda.reset_peak_memory_stats(); prow = []
+    for k in range(10):
+        t0 = time.time(); bt = qget(Qp, s_); tw = time.time() - t0
+        bt = to_dev(bt); loss_v, gn, tfb = update(s_, bt); opt.step(); torch.cuda.synchronize()
+        if k >= 2:
+            prow.append({"queue_wait_s": tw, "producer_assembly_s": bt["data_s"], "wall_s": time.time() - t0})
+        s_ += 1
+    rep["production_loop"] = {k: round(float(np.mean([r[k] for r in prow])), 3) for k in prow[0]}
+    rep["production_loop"].update(micro=best, updates=len(prow), peak_alloc_gb=round(torch.cuda.max_memory_allocated() / 1e9, 2),
+                                  peak_reserved_gb=round(torch.cuda.max_memory_reserved() / 1e9, 2))
+    print("TIMING production loop", rep["production_loop"], flush=True)
     t = time.time(); probe(0) if PROBE else None; rep["probe_s"] = round(time.time() - t, 2)
     t = time.time(); save(s_, f"{a.out}/ckpt.pt"); rep["save_s"] = round(time.time() - t, 2)
-    # rollout pieces: one 30-step window (5 latents) at 1 and 2 rows, VAE encode / decode, SD encode
+    # (3) rollout pieces: one 30-step window (5 latents) at 1 and 2 rows, VAE encode / decode, SD encode
     model.eval(); bt = to_dev(make_batch(10 ** 6))
     for rows_ in (1, 2):
         z = torch.randn(rows_, 16, NL, 32, 64, device=dev); ex = torch.cat([bt["guide"][:rows_], bt["src"][:rows_]], 1)
@@ -429,8 +495,10 @@ if a.timing and not a.overfit:
         sdv.encode(v17[0].permute(1, 0, 2, 3)).latent_dist.mode()
     torch.cuda.synchronize(); rep["sd_encode_17f_s"] = round(time.time() - t, 3)
     rem = a.budget_hours - LEDGER.hours() - a.reserve_hours
-    ups = rem * 3600 / fits[best]["wall_s"]
-    rep["forecast"] = {"remaining_hours_after_reserve": round(rem, 2), "updates_in_remaining": int(ups), "floor_12k_reachable": ups >= WP.FLOOR_UPDATES,
+    wall = rep["production_loop"]["wall_s"]
+    ups = rem * 3600 / wall
+    rep["forecast"] = {"basis": "production-loop wall (prefetch queue wait included); provisional until slurm timing adds scorer and deductions",
+                       "remaining_hours_after_reserve": round(rem, 2), "updates_in_remaining": int(ups), "floor_12k_reachable": ups >= WP.FLOOR_UPDATES,
                        "max_s_per_update_for_12k": round(rem * 3600 / WP.FLOOR_UPDATES, 2), "ledger_by_kind": LEDGER.by_kind()}
     json.dump(rep, open(f"{a.out}/timing.json", "w"), indent=1)
     print("WAN_TIMING", json.dumps(rep), flush=True)
@@ -456,23 +524,7 @@ if a.overfit:
 
 # ------------------------------------------------------------------------------------------------ prefetch + loop
 end = a.steps if not a.max_steps_this_job else min(a.steps, start + a.max_steps_this_job)
-Q = queue.Queue(maxsize=3)
-
-
-def producer():
-    try:
-        for s in range(start, end):
-            t0 = time.time(); bt = make_batch(s)
-            for k in ("key", "guide", "src", "eps", "tok", "ray"):
-                if bt[k] is not None:
-                    bt[k] = bt[k].pin_memory()
-            bt["data_s"] = time.time() - t0
-            Q.put((s, bt))
-    except BaseException as e:  # surface data errors instead of hanging on Q.get()
-        Q.put((-1, e))
-
-
-threading.Thread(target=producer, daemon=True).start()
+Q = start_producer(start, end)
 SAVE = set(int(x) for x in a.save_at.split(","))
 T_WIN, N_WIN = time.time(), 0
 acc = {"data": 0.0, "gpu": 0.0, "wait": 0.0, "n": 0}
@@ -489,10 +541,7 @@ for step in range(start, end):
             print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
             break
     tstep = time.time()
-    tw = time.time(); s_, bt = Q.get()
-    if s_ == -1:
-        raise SystemExit(f"data producer failed: {bt!r}")
-    assert s_ == step
+    tw = time.time(); bt = qget(Q, step)
     acc["wait"] += time.time() - tw; acc["data"] += bt["data_s"]
     CHAIN = hashlib.sha1((CHAIN + "|" + bt["sha"]).encode()).hexdigest()
     bt = to_dev(bt)

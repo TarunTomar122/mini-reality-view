@@ -5,7 +5,9 @@ against the guide's) on the guide's exact preprocessing (mrv.guide.load_views at
 bilinear, ImageNet normalisation, fp16) is run ONCE per tick with output_hidden_states=True; tokens = backbone.layernorm(last
 hidden state) without CLS (21 x 37 = 777 x 384 per view). The same forward's predicted_depth is compared with
 mrv.guide.DepthNet.raw on the first batch of each drive (recorded: "shared_pass_max_abs_depth"), so live inference needs one
-encoder pass per view for depth AND tokens.
+encoder pass per view for depth AND tokens. A drive is marked complete only with a non-empty depth-weight hash equal to the
+guide's and a finite shared-depth difference <= 1e-3 m (S1b item 1). (Offline, the guide builder and this builder still run
+the network twice; the comparison is what binds the two passes.)
 Rays: per tick and camera from the guide file's K [n,6,3,3] (1600x900 px) and cam2tick [n,6,4,4] (each camera at its own capture
 pose, moved into the tick frame), patch centres of the 294x518 grid, Pluecker (d, o x d) in the chase-camera frame
 (mrv.guide.chase_cam_to_ego with the guide's chase_dz). scripts/wan_token_check.py verifies them on a pinned tick.
@@ -18,11 +20,12 @@ weights sha, code sha, guide_version, complete}. An existing drive is skipped ON
 match (else error; --rebuild re-encodes it). Disk: 3.7 MB per tick (~78 GB for the 21.3k train ticks).
   python scripts/wan_tokens.py --splits train,dev --out data/wan_tok_v1 --shard i/n
 """
-import argparse, hashlib, json, os, time
+import argparse, hashlib, json, math, os, time
 import numpy as np
 import torch
 from mrv import guide as GD
 from mrv import wan_cond as WC
+from mrv import wan_plan as WP
 
 p = argparse.ArgumentParser()
 p.add_argument("--splits", default="train,dev")
@@ -40,7 +43,8 @@ dev = "cuda"
 os.makedirs(a.out, exist_ok=True)
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py", "mrv/guide.py")
 man = json.load(open(a.manifest))
-drives = GD.drive_list(a.splits, a.lists)  # sealed decision / final drives refused
+drives = WP.check_split_membership(GD.drive_list(a.splits, a.lists), json.load(open(a.lists)))  # explicit ids / files too; sealed refused
+SHARED_TOL = 1e-3  # metres: same weights, same input, same dtype -> the shared pass must reproduce the guide's depth call
 si, sn = map(int, a.shard.split("/"))
 mine = drives[si::sn]
 
@@ -63,7 +67,7 @@ for sc in mine:
             raise SystemExit(f"{f} exists without a sidecar: --rebuild")
         sj = json.load(open(f"{a.out}/{sc}.json"))
         bad = {k: (sj.get(k), v) for k, v in {**up, "guide_version": VERSION}.items() if sj.get(k) != v}
-        if not sj.get("complete") or WC.file_sha(f) != sj.get("sha256") or bad:
+        if not sj.get("complete") or not sj.get("shared_pass_ok") or not sj.get("weights_sha") or WC.file_sha(f) != sj.get("sha256") or bad:
             raise SystemExit(f"{f}: stale or corrupt token cache ({list(bad)[:4]}); rerun with --rebuild")
         print("valid, skip", sc, flush=True); continue
     todo.append(sc)
@@ -73,8 +77,8 @@ if not todo:
 if tuple(VERSION["depth_res_hw"]) != WC.DEPTH_HW:
     raise SystemExit(f"guide depth resolution {VERSION['depth_res_hw']} != token grid source {WC.DEPTH_HW}")
 DN = GD.DepthNet(VERSION["depth_model_id"], device=dev, dtype=torch.float16, allow_fallback=False)
-if VERSION["depth_weights_sha"] and DN.info.get("weights_sha") != VERSION["depth_weights_sha"]:
-    raise SystemExit(f"depth weights {DN.info.get('weights_sha')} != the guide's {VERSION['depth_weights_sha']}")
+if not VERSION["depth_weights_sha"] or not DN.info.get("weights_sha") or DN.info["weights_sha"] != VERSION["depth_weights_sha"]:
+    raise SystemExit(f"depth weights must be hashed and equal: loaded {DN.info.get('weights_sha')!r}, guide {VERSION['depth_weights_sha']!r}")
 model, backbone = DN.model, DN.model.backbone
 H, W = WC.DEPTH_HW
 CH = GD.chase_cam_to_ego(float(VERSION["chase_dz"] or 0.0))
@@ -112,13 +116,16 @@ for sc in todo:
             if pdx.shape[-2:] != ref.shape[-2:]:
                 pdx = torch.nn.functional.interpolate(pdx[:, None].float(), size=ref.shape[-2:], mode="bilinear", align_corners=False)[:, 0]
             shared = float((pdx.float() - ref).abs().max())
+    if shared is None or not math.isfinite(shared) or shared > SHARED_TOL:  # nothing is written for a failing drive
+        raise SystemExit(f"{sc}: shared-pass depth check failed ({shared!r} vs tolerance {SHARED_TOL} m): tokens not from the guide's depth pass")
     out = {"scene": sc, "ticks": E["ticks"].clone(), "hard": E["hard"].clone(), "tokens": toks, "rays": rays, "grid": WC.TOK_GRID,
            "encoder": VERSION["depth_model_id"], "input_hw": WC.DEPTH_HW, "guide_version": VERSION,
            "tokens_from": "depth forward (output_hidden_states), backbone.layernorm(last), CLS dropped", "shared_pass_max_abs_depth": shared}
     f = f"{a.out}/{sc}.pt"
     torch.save(out, f + ".tmp"); os.replace(f + ".tmp", f)
-    json.dump({"scene": sc, "sha256": WC.file_sha(f), **up, "guide_version": VERSION, "weights_sha": DN.info.get("weights_sha"),
-               "ticks": n, "encoded": len(live), "shared_pass_max_abs_depth": shared, "complete": True}, open(f"{a.out}/{sc}.json.tmp", "w"))
+    json.dump({"scene": sc, "sha256": WC.file_sha(f), **up, "guide_version": VERSION, "weights_sha": DN.info["weights_sha"],
+               "ticks": n, "encoded": len(live), "shared_pass_max_abs_depth": shared, "shared_pass_tol_m": SHARED_TOL,
+               "shared_pass_ok": True, "complete": True}, open(f"{a.out}/{sc}.json.tmp", "w"))
     os.replace(f"{a.out}/{sc}.json.tmp", f"{a.out}/{sc}.json")
     print(sc, n, "ticks", len(live), "encoded", f"shared-pass depth diff {shared:.3g}", f"{time.time() - t0:.0f}s", flush=True)
 print("WAN_TOKENS_DONE", a.shard)

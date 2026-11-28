@@ -49,7 +49,7 @@ assert (a.frames - 1) % 4 == 0 and 1 + (a.frames - 1) // 4 == a.clip_latents
 dev = "cuda"
 os.makedirs(a.out, exist_ok=True)
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
-drives = GD.drive_list(a.splits, a.lists)
+drives = WP.check_split_membership(GD.drive_list(a.splits, a.lists), json.load(open(a.lists)))  # explicit ids / files too
 si, sn = map(int, a.shard.split("/"))
 mine = drives[si::sn]
 VERSION = json.load(open(a.expect_version)) if a.expect_version else None

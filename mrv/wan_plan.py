@@ -15,6 +15,33 @@ FLOOR_UPDATES = 12000         # A1: below this the S1 verdict is unresolved
 REL_BAR = -0.094              # ID and W each > 9.4 % better than A
 
 
+# ------------------------------------------------------------------------------------------------------------ splits
+SEALED = ("decision", "final")
+
+
+def check_split_membership(drives, lists, allowed=("train", "dev"), unseal=False):
+    """every RESOLVED scene id (explicit names and list files included) must belong to an allowed split; sealed splits
+    (decision / final) need unseal; a scene in no list is refused (Astra S1b item 2; mrv.guide.drive_list accepts any
+    scene-* name or file). Returns the drives unchanged or raises SystemExit."""
+    member = {}
+    for sp, v in lists.items():
+        if isinstance(v, list):
+            for d in v:
+                member.setdefault(d, set()).add(sp)
+    bad = {}
+    for d in drives:
+        sps = member.get(d, set())
+        if not sps:
+            bad[d] = "in no split list"
+        elif sps & set(SEALED) and not unseal:
+            bad[d] = f"sealed ({sorted(sps & set(SEALED))})"
+        elif not sps & (set(allowed) | (set(SEALED) if unseal else set())):
+            bad[d] = f"split {sorted(sps)} not allowed here ({list(allowed)})"
+    if bad:
+        raise SystemExit(f"drive split check failed for {len(bad)} drives: {dict(list(bad.items())[:5])}")
+    return list(drives)
+
+
 # ------------------------------------------------------------------------------------------------------------ segments
 def segments(ticks, hard):
     """maximal runs of non-hard ticks with consecutive tick ids (seq changes at soft rejects do NOT break a run)"""

@@ -87,6 +87,22 @@ d = WP.donor_following({"a": 0.5, "b": 0.4}, {"a": 0.2, "b": 0.1}, [0, 1, 1])
 check("donor following", d["ok"], d)
 check("not donor following (lag)", not WP.donor_following({"a": 0.5}, {"a": 0.1}, [3, 4, float("inf")])["ok"])
 
+# --- split membership (S1b item 2) --------------------------------------------------------------------------------------
+LS = {"train": ["scene-0001", "scene-0002"], "dev": ["scene-0010"], "decision": ["scene-0100"], "final": ["scene-0200"]}
+check("splits: train + dev accepted", WP.check_split_membership(["scene-0001", "scene-0010"], LS) == ["scene-0001", "scene-0010"])
+for bad_, why in ((["scene-0100"], "sealed decision"), (["scene-0200"], "sealed final"), (["scene-9999"], "unknown scene")):
+    try:
+        WP.check_split_membership(bad_, LS); ok_ = False
+    except SystemExit:
+        ok_ = True
+    check(f"splits: {why} refused", ok_)
+try:
+    WP.check_split_membership(["scene-0001"], LS, allowed=("dev",)); ok_ = False
+except SystemExit:
+    ok_ = True
+check("splits: train drive refused where only dev is allowed", ok_)
+check("splits: sealed allowed with unseal", WP.check_split_membership(["scene-0100"], LS, allowed=("dev",), unseal=True) == ["scene-0100"])
+
 # --- ledger --------------------------------------------------------------------------------------------------------------
 with tempfile.TemporaryDirectory() as td:
     path = f"{td}/ledger.jsonl"

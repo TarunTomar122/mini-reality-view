@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 02:18 UTC — vlive 16k copy warnings complete; vpriv 9,800 updates; 8k panel admitted at once (priority watcher works)
+- vlive 16k copy warnings (AGREED r1 reports): (1) per-tick latent change ratio vs A 3.01 (warn < 0.7) -> none; (2) long minus short memory (--reset_at 134, scripts/reset_gap.py, ticks 150-169, 10 runs / 5 drives with keys) LPIPS -0.0001 (warn > +0.01) -> none; (3) --swap lag (signed scorer, swap at tick 50): median start 2.5, centre 4.5, end 6.5 ticks -> the centre lag EXCEEDS the 3-tick warning line (start does not). No A baseline exists for the lag (A20k has no swap rollouts); the metric's 5-tick window alone adds ~2 ticks, so a memory-off swap run is needed before reading this as copying. Reported, not used for any decision (vlive is closed).
+- vpriv: ckpt_8000 saved ~02:03; the watcher submitted all 9 jobs of the 8k panel within the minute (one 4k shard went in at 01:56 before that). 2k metrics running; 8k rollouts running (shard 0 done in 13 min). Training at 9,800 updates at 02:18 (12k ~02:37).
+
 ## 2026-11-28 01:42 UTC — early continuation signed OK (Astra); vlive 16k latent-change copy warning: none
 - Early continuation went through three Astra checks (stale 8k decision, helper slot race, intent clearing): final form 98ec4f8 = the watcher itself runs the resume inline, once, only after the CURRENT 8k score job COMPLETED with safe == true; any sbatch failure keeps CONT_PENDING for manual reconciliation; the regular 12k path stays as fallback. Astra: OK. Watcher 3756105.
 - vlive 16k per-tick latent change vs A@20k: ratio 3.01 (warning only if < 0.7), falling change in 5 / 12 runs (A: 5 / 12) -> no copy (freeze) warning; consistent with a jumpier, not stuck, picture. Swap-lag and long-minus-short (reset_gap.py) still scoring.

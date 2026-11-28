@@ -68,6 +68,13 @@ pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothi
   local k ck out sh p dep missing=""
   alldone=1
   reconcile; check_chain
+  # early continuation (Fable 01:30): 12k saved and the 8k decision safe -> the 12k decision cannot stop the run -> resume now
+  if [ -f runs/vpriv/ckpt_12000.pt ] && [ -s runs/vpriv_gate/a1_8k.json ] && [ ! -s $S/12.early ] && [ ! -e runs/vpriv_gate/CONTINUED ]; then
+    if [ "$(.venv/bin/python -c "import json;print(json.load(open('runs/vpriv_gate/a1_8k.json')).get('safe') is True)")" = True ]; then
+      k=12; take || return 1
+      submit 12.early vcont --cpus-per-task=1 --mem=4G --time=0:30:00 -o logs2/%x-%j.out slurm/vpriv_score.sh early; return 0
+    fi
+  fi
   for k in 8 12 16 2 4; do
     [ -e $S/$k.done ] && continue
     alldone=0; ck=runs/vpriv/ckpt_${k}000.pt

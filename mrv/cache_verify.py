@@ -1,24 +1,43 @@
 """ONE verifier of an A5 cache_check record, shared by scripts/vclean_gate.py (passed state), scripts/train_clean.py (passed
 and pending states, before the first cache read and on every resume) and scripts/cache_check.py (self-check of its output)
-(council/codereview-vmix-astra.md items 1-3).
+(council/codereview-vmix-astra.md, codereview-vmix2-astra.md).
+
+Every file is read ONCE into memory; its digest is computed on those bytes and it is parsed from the same bytes (json.loads /
+torch.load(io.BytesIO(buf))), never reopened.
 
 A "bind" fixes what a record must prove, independently of the record: the trainer's ACTUAL A@20k file digest, the cache dir,
-the input paths (lists / enc / rays), the exact train and dev drive lists, and the reviewed sha256 of every file of the cache
-chain (builder, checker, matched rollout + its dependencies, this verifier). verify() accepts a record only if
+the input paths (lists / enc / rays), the exact train and dev drive lists, the six signed seed-0 dev reference digests, and the
+reviewed sha256 of every file of the cache chain (builder, checker, matched rollout + its dependencies, this verifier).
+verify(path, bind, data) accepts a record only if
   * it is a passing cache_check record (no failures) of that cache dir, checkpoint and inputs, written by the reviewed checker,
     and the reviewed files are the ones on disk now;
-  * its cache was rendered by the reviewed builder (roll_code) at rho 1.0, seed 0, unmerged, and covers EXACTLY the train drives;
-  * whole-drive parity against the unchanged causal_rollout (memory off, rho 1.0, A@20k, its roll_code) passed: matched ticks /
-    flags / amp, all ticks, max |diff| < 0.01;
-  * every train and dev cache-to-key MSE is present and finite;
-  * every cache file's current sha256 equals the record's; with data= (encodings' ticks / rays) every file is also loaded and
-    checked for shape (n, 4, 32, 64), fp16, ticks aligned with the encoding, its ray digest and its signed fields
-    (encoding digests are checked by cache_check; the trainer re-checks tick alignment).
+  * its cache was rendered by the reviewed builder (roll_code) at rho 1.0, seed 0, unmerged, and covers EXACTLY the 144 train
+    drives; every cache file matches its recorded digest, is fp16 (n, 4, 32, 64) with ticks aligned to the trainer's encoding,
+    carries its signed fields, and its ENCODING digest equals both the record's and the digest of the encoding bytes the caller
+    actually loaded (data["enc_sha"]); its ray digest equals the caller's rays;
+  * parity is RE-MEASURED: the bound reference artifact (the unchanged causal_rollout's output for the parity drive; digest in
+    the record) is re-loaded and compared with the cached drive: whole drive, ticks / source ticks / ok / hard / restart / amp
+    equal, same inputs, A@20k memory off at rho 1.0, seed-0 noise keys, max |diff| < 0.01;
+  * the six dev references are exactly the bound signed files (digests), A@20k independent renders, and seed 0 is MEASURED
+    (the files carry no seed field): the recorded seed-check artifact (causal_rollout --seeds 0 --max_ticks 5 on that dev drive,
+    seed-0 noise keys) matches the reference on its non-hard ticks (< 0.01);
+  * every train and dev cache-to-key MSE is present and finite.
+resume_identity() is the trainer's resume rule (gate approval and cache pin preserved across resumes).
 """
-import hashlib, json, math, os
+import hashlib, io, json, math, os
 
 REVIEWED = ["scripts/build_cache.py", "scripts/cache_check.py", "scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py", "mrv/cache_verify.py"]
 A_PATH = "runs/longA/ckpt_20000.pt"
+DEV_REF = "runs/troll/A20k_indep_dev"
+
+
+def read(f):
+    with open(f, "rb") as fh:
+        return fh.read()
+
+
+def hb(buf):
+    return hashlib.sha256(buf).hexdigest()
 
 
 def sha(f):
@@ -29,25 +48,31 @@ def sha(f):
     return h.hexdigest()
 
 
+def tload(buf):
+    import torch
+    return torch.load(io.BytesIO(buf), map_location="cpu")
+
+
 def file_code(files=REVIEWED):
     return {f: sha(f) for f in files}
 
 
 def builder_roll_code():  # == scripts/build_cache.py ROLL_CODE
-    return hashlib.sha256(b"".join(open(f, "rb").read() for f in ["scripts/build_cache.py", "mrv/sd.py"])).hexdigest()[:12]
+    return hashlib.sha256(b"".join(read(f) for f in ["scripts/build_cache.py", "mrv/sd.py"])).hexdigest()[:12]
 
 
 def rollout_roll_code():  # == scripts/causal_rollout.py ROLL_CODE
-    return hashlib.sha256(b"".join(open(f, "rb").read() for f in ["scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
+    return hashlib.sha256(b"".join(read(f) for f in ["scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py"])).hexdigest()[:12]
 
 
 def ray_sha(t):  # == build_cache / causal_rollout RAY_SHA
     return hashlib.sha256(t.float().numpy().tobytes()).hexdigest()[:16]
 
 
-def make_bind(ckpt, cache, lists, enc, rays, code):
-    L = json.load(open(lists))
+def make_bind(ckpt, cache, lists, enc, rays, code, dev_ref=DEV_REF):
+    L = json.loads(read(lists))
     return {"ckpt_sha": sha(ckpt)[:16], "cache": cache, "lists": lists, "enc": enc, "rays": rays, "train": sorted(L["train"]), "dev": list(L["dev"]),
+            "dev_ref": dev_ref, "dev_ref_sha256": {sc: (sha(f"{dev_ref}/{sc}_s0.pt") if os.path.isfile(f"{dev_ref}/{sc}_s0.pt") else None) for sc in L["dev"]},
             "code_sha256": {f: code[f] for f in REVIEWED}}
 
 
@@ -63,14 +88,20 @@ def _need(c, m):
         raise Bad(m)
 
 
-def verify(path, bind, data=None):
-    """-> (ok, reason, record sha256, {scene: fp16 latents} if data else None). data = {"ticks": {scene: tensor}, "rays": {scene: tensor}}"""
+def _maxdiff(u, v):
+    return (u.float() - v.float()).abs().max().item()
+
+
+def verify(path, bind, data):
+    """-> (ok, reason, record sha256, {scene: fp16 latents} or None).
+    data = {"ticks": {scene: tensor}, "rays": {scene: tensor}, "enc_sha": {scene: sha256(encoding bytes)[:16]}} from the caller's loads"""
+    import torch
     try:
-        _need(len(bind["train"]) == 144, f"bind has {len(bind['train'])} train drives, A5 fixes 144")
+        _need(len(bind["train"]) == 144 and len(bind["dev"]) == 6, f"bind has {len(bind['train'])} train / {len(bind['dev'])} dev drives (A5: 144 / 6)")
         _need(path and os.path.isfile(path), f"no cache record at {path or '(none given)'}")
-        rsha = sha(path); rec = json.load(open(path))
+        rbuf = read(path); rsha = hb(rbuf); rec = json.loads(rbuf)
         _need(rec.get("kind") == "cache_check" and rec.get("pass") is True and rec.get("failures") == [], f"not a passing cache_check record (failures {rec.get('failures')})")
-        for k in ("cache", "ckpt_sha", "lists", "enc", "rays"):
+        for k in ("cache", "ckpt_sha", "lists", "enc", "rays", "dev_ref"):
             _need(rec.get(k) == bind[k], f"record {k} {rec.get(k)!r} != bound {bind[k]!r}")
         cur = file_code()
         for f in REVIEWED:
@@ -80,27 +111,78 @@ def verify(path, bind, data=None):
         b = rec.get("build", {})
         _need(b.get("merge") is False and isinstance(b.get("batch"), int) and b.get("amp"), f"build settings {b}")
         _need(sorted(rec.get("files", {})) == bind["train"] and rec.get("n_files") == 144, "record does not cover exactly the 144 train drives")
-        pa = rec.get("parity", {})
-        _need(pa.get("drive") in bind["train"] and pa.get("exit") == 0 and pa.get("fields_equal") is True and pa.get("whole") is True
-              and fin(pa.get("max_diff")) and pa["max_diff"] < 0.01, f"parity not passed on a whole train drive: {pa}")
-        _need(pa.get("ref_ckpt_sha") == bind["ckpt_sha"] and pa.get("ref_rho") == 1.0 and pa.get("ref_method") == "causal_off"
-              and pa.get("ref_roll_code") == rollout_roll_code(), "parity reference is not the unchanged causal_rollout of A@20k off at rho 1.0")
+        _need(sorted(rec.get("enc_sha", {})) == bind["train"], "record lacks per-drive encoding digests")
         m = rec.get("mse", {})
         _need(sorted(m.get("train_per_drive", {})) == bind["train"] and all(fin(v) for v in m["train_per_drive"].values()), "train MSE missing / non-finite")
         _need(sorted(m.get("dev_per_drive", {})) == sorted(bind["dev"]) and all(fin(v) for v in m["dev_per_drive"].values()), "dev MSE missing / non-finite")
         _need(fin(m.get("train_mean")) and fin(m.get("dev_mean")), "MSE means non-finite")
-        lat = {} if data else None
+        # ---- every cache file: digest of the bytes parsed, shape / dtype / ticks, signed fields, encoding + ray digests ----
+        lat, files = {}, {}
         for sc in bind["train"]:
             f = f"{bind['cache']}/{sc}_s0.pt"
-            _need(os.path.isfile(f) and sha(f) == rec["files"][sc], f"cache file {f} missing or its digest differs from the record")
-            if data:
-                import torch
-                c = torch.load(f, map_location="cpu"); x = c["lat"]; tk = data["ticks"][sc]
-                _need(x.dtype == torch.float16 and tuple(x.shape) == (len(tk), 4, 32, 64) and torch.equal(c["ticks"], tk), f"{f}: shape / dtype / ticks")
-                _need(c.get("ckpt_sha") == bind["ckpt_sha"] and c.get("roll_code") == rec["roll_code"] and c.get("method") == "cache_off"
-                      and c.get("rho") == 1.0 and c.get("seed") == 0 and c.get("merge") is False, f"{f}: signed fields")
-                _need(c.get("ray_sha") == ray_sha(data["rays"][sc]), f"{f}: rays changed since the cache was built")
-                lat[sc] = x
+            _need(os.path.isfile(f), f"cache file {f} missing")
+            buf = read(f)
+            _need(hb(buf) == rec["files"][sc], f"cache file {f}: digest differs from the record")
+            c = tload(buf); del buf
+            x, tk = c["lat"], data["ticks"][sc]
+            _need(x.dtype == torch.float16 and tuple(x.shape) == (len(tk), 4, 32, 64) and torch.equal(c["ticks"], tk), f"{f}: shape / dtype / ticks")
+            _need(c.get("ckpt_sha") == bind["ckpt_sha"] and c.get("roll_code") == rec["roll_code"] and c.get("method") == "cache_off"
+                  and c.get("rho") == 1.0 and c.get("seed") == 0 and c.get("merge") is False, f"{f}: signed fields")
+            _need(c.get("enc_sha") == rec["enc_sha"][sc] == data["enc_sha"][sc], f"{f}: built from encoding {c.get('enc_sha')}, record {rec['enc_sha'][sc]}, "
+                  f"trainer loaded {data['enc_sha'][sc]}")
+            _need(c.get("ray_sha") == ray_sha(data["rays"][sc]), f"{f}: rays changed since the cache was built")
+            lat[sc] = x; files[sc] = c
+        # ---- parity re-measured from the bound reference artifact ----
+        pa = rec.get("parity", {}); drv = pa.get("drive")
+        _need(drv in bind["train"] and pa.get("ref_file") and os.path.isfile(pa["ref_file"]), f"parity reference artifact missing ({pa.get('ref_file')})")
+        pbuf = read(pa["ref_file"])
+        _need(hb(pbuf) == pa.get("ref_file_sha256"), "parity reference artifact differs from the record's digest")
+        xr, c = tload(pbuf), files[drv]; del pbuf
+        _need(xr.get("ckpt_sha") == bind["ckpt_sha"] and xr.get("rho") == 1.0 and xr.get("method") == "causal_off" and xr.get("roll_code") == rollout_roll_code()
+              and xr.get("salt_from", -1) == -1 and xr.get("start_tick", 0) == 0 and not xr.get("swap", False),
+              "parity reference is not the unchanged causal_rollout of A@20k memory off at rho 1.0")
+        _need(all(k_.startswith(f"{drv}|0|") for k_ in xr.get("noise_key", [""])) and xr.get("noise_key"), "parity reference is not seed 0")
+        _need(xr.get("enc_sha") == c.get("enc_sha") and xr.get("ray_sha") == c.get("ray_sha"), "parity reference and cache saw different inputs")
+        n = len(data["ticks"][drv])
+        _need(len(xr["lat"]) == len(c["lat"]) == n, f"parity not whole-drive ({len(xr['lat'])}/{len(c['lat'])}/{n} ticks)")
+        _need(all(torch.equal(xr[k_], c[k_]) for k_ in ("ticks", "src_ticks", "ok", "hard", "restart")) and xr.get("amp") == c.get("amp"), "parity: ticks / flags / amp differ")
+        d = _maxdiff(xr["lat"], c["lat"])
+        _need(math.isfinite(d) and d < 0.01, f"parity recomputed: max |diff| {d:.4g} >= 0.01")
+        # ---- six bound dev references: digests, signature, measured seed 0 ----
+        for sc in bind["dev"]:
+            f = f"{bind['dev_ref']}/{sc}_s0.pt"
+            _need(bind["dev_ref_sha256"].get(sc) and os.path.isfile(f), f"dev reference {f} missing / unbound")
+            dbuf = read(f)
+            _need(hb(dbuf) == bind["dev_ref_sha256"][sc] == rec.get("dev_files", {}).get(sc), f"dev reference {f}: digest differs from the bound signed file")
+            dr = tload(dbuf); del dbuf
+            _need(str(dr.get("snapshot", "")).endswith(A_PATH) and dr.get("snapshot_step") == 20000 and dr.get("method") == "independent"
+                  and dr.get("swap_from", -1) == -1 and dr.get("seed", 0) == 0, f"{f}: not the signed A@20k independent seed-0 render")
+            sk = rec.get("dev_seed", {}).get(sc, {})
+            _need(sk.get("file") and os.path.isfile(sk["file"]), f"{sc}: dev seed-check artifact missing")
+            sbuf = read(sk["file"])
+            _need(hb(sbuf) == sk.get("sha256"), f"{sc}: dev seed-check artifact differs from the record's digest")
+            s_ = tload(sbuf); del sbuf
+            _need(s_.get("ckpt_sha") == bind["ckpt_sha"] and s_.get("rho") == 1.0 and s_.get("method") == "causal_off" and s_.get("roll_code") == rollout_roll_code()
+                  and s_.get("noise_key") and all(k_.startswith(f"{sc}|0|") for k_ in s_["noise_key"]), f"{sc}: seed-check artifact is not causal_rollout seed 0")
+            k = len(s_["lat"]); nh = [i for i in range(k) if not bool(s_["hard"][i])]
+            _need(nh and torch.equal(s_["ticks"], dr["ticks"][:k]), f"{sc}: seed-check ticks misaligned / all hard")
+            ds = _maxdiff(s_["lat"][nh], dr["lat"][nh])
+            _need(math.isfinite(ds) and ds < 0.01, f"{sc}: dev reference is not seed 0 (first ticks differ by {ds:.4g})")
         return True, "", rsha, lat
     except Bad as e:
         return False, str(e), None, None
+
+
+def resume_identity(saved, cur, mix_from, start):
+    """saved / cur: {"gate": gate record sha256 or None, "approved": approved cache record sha256 or None}; saved also "pin".
+    -> "" if the checkpoint may resume under the current gate, else the reason"""
+    s8 = lambda x: (x or "none")[:12]
+    if saved.get("gate") != cur.get("gate"):
+        return f"checkpoint was made under gate record {s8(saved.get('gate'))}, not {s8(cur.get('gate'))}"
+    if saved.get("approved") != cur.get("approved"):
+        return f"approved cache record changed ({s8(saved.get('approved'))} -> {s8(cur.get('approved'))}): passed vs pending or a different record"
+    if mix_from and start > mix_from and not saved.get("pin"):
+        return f"checkpoint at update {start} > mix_from {mix_from} has no pinned cache record"
+    if saved.get("approved") and saved.get("pin") and saved["pin"] != saved["approved"]:
+        return "pinned cache record is not the approved one"
+    return ""

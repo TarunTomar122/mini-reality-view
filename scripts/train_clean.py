@@ -16,7 +16,11 @@ Cache admission (council/codereview-vmix-astra.md): ONE verifier (mrv/cache_veri
 bound to the trainer's actual A@20k file, the reviewed builder / checker / rollout / dependency hashes, exactly the 144 train
 drives and the whole-drive parity result. A passed gate admits only its approved record digest; a pending run re-checks
 --cache_record when it reaches update mix_from (a record that arrived during training is picked up without a resume), and the
-first record it uses is PINNED in every later checkpoint and re-verified on every resume.
+first record it uses is PINNED in every later checkpoint and re-verified on every resume. Resume identity (codereview-vmix2):
+the checkpoint's gate record digest and approved cache record must equal the current ones (a passed-gate checkpoint cannot
+resume under a pending gate or another record), and a checkpoint past mix_from must carry a pin. Every record / encoding /
+cache file is hashed on the bytes that are parsed; each cache drive's encoding digest must equal the digest of the encoding
+bytes this trainer loaded.
 
 Recipe = vpriv (scripts/train_causal.py with --private_clips 2) except where the past comes from. Only the 16 new temporal
 blocks (mrv/clean_video.py) train; the SD 1.5 UNet, A's LoRA and A's CameraAdapter are frozen (asserted). Each update:
@@ -50,7 +54,8 @@ from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
 from mrv.clean_video import add_clean_temporal, set_mode, set_memory, collect_inputs
 from mrv.noise import build_eps
-from mrv.cache_verify import make_bind, verify, file_code, sha as fsha
+import io
+from mrv.cache_verify import make_bind, verify, file_code, resume_identity, read, hb, DEV_REF, sha as fsha
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -71,6 +76,7 @@ p.add_argument("--arm", default="vmix", choices=["vmix", "vclean"], help="A5 vmi
 p.add_argument("--jitter", default="", help="memory timesteps (comma list); default vmix 1,41,81 / vclean t*")
 p.add_argument("--mix_from", type=int, default=-1, help="vmix: cached source for one clip per update from update mix_from+1 (default 2000); vclean: 0 (never)")
 p.add_argument("--cache", default="runs/cache/A20k_off_rho1_train", help="cached A@20k memory-off rho-1 train rollouts (<cache>/<scene>_s0.pt)")
+p.add_argument("--dev_ref", default=DEV_REF, help="signed seed-0 A@20k dev renders (bound by digest; tests / timing bind)")
 p.add_argument("--cache_record", default="", help="passing scripts/cache_check.py record; required before update mix_from+1 (else the job holds)")
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
@@ -89,10 +95,11 @@ GATE, GATE_SHA = None, None
 if not a.timing:  # production: the gate record must re-verify now and bind this exact code and gate rho
     if not a.gate_record:
         raise SystemExit("production training needs --gate_record (scripts/vclean_gate.py)")
-    _r = subprocess.run([sys.executable, "scripts/vclean_gate.py", "--verify", a.gate_record], capture_output=True, text=True)
-    if _r.returncode != 0:
-        raise SystemExit(f"gate record does not verify now: {_r.stdout[-800:]} {_r.stderr[-800:]}")
-    GATE = json.load(open(a.gate_record)); GATE_SHA = hashlib.sha256(open(a.gate_record, "rb").read()).hexdigest()
+    _gb = read(a.gate_record); GATE_SHA = hb(_gb)  # read ONCE: the gate verifies exactly these bytes (stdin) and we parse them
+    _r = subprocess.run([sys.executable, "scripts/vclean_gate.py", "--verify", "-"], input=_gb, capture_output=True)
+    if _r.returncode != 0 or f"sha256 {GATE_SHA}" not in _r.stdout.decode():
+        raise SystemExit(f"gate record does not verify now: {_r.stdout.decode()[-800:]} {_r.stderr.decode()[-800:]}")
+    GATE = json.loads(_gb)
     if GATE.get("arm") != a.arm:
         raise SystemExit(f"gate record is for arm {GATE.get('arm')}, not {a.arm}")
     if not GATE.get("valid") or GATE.get("rho_gate") not in (1.0, 0.95) or GATE["rho_gate"] != a.rho_gate:
@@ -125,13 +132,14 @@ if not a.timing and a.arm == "vmix" and (JITTER != [1, 41, 81] or MIX_FROM != 20
 print(f"arm {a.arm}: memory timesteps {JITTER}, cached source from update {MIX_FROM + 1 if MIX_FROM else 'never'}", flush=True)
 TRAIN = json.load(open(a.lists))["train"]
 assert not set(TRAIN) & set(json.load(open(a.lists))["dev"]), "train / dev overlap"
-RAYS = torch.load(a.rays)
+RAYS = torch.load(io.BytesIO(read(a.rays)))
 Fn = a.frames
 
 # ---------- clips: Fn consecutive usable ticks, one sequence, no hard break (as vpriv) ----------
-E, starts = {}, []
+E, starts, ENC_SHA = {}, [], {}
 for sc in sorted(TRAIN):
-    e = torch.load(f"{a.enc}/{sc}.pt"); E[sc] = e
+    _eb = read(f"{a.enc}/{sc}.pt"); ENC_SHA[sc] = hb(_eb)[:16]  # the digest of the encoding bytes actually used
+    e = torch.load(io.BytesIO(_eb)); E[sc] = e; del _eb
     ok, seq, ticks, hard = e["ok"].tolist(), e["seq"].tolist(), e["ticks"].tolist(), e["hard"].tolist()
     for i in range(len(ticks) - Fn + 1):
         if all(ok[i + k] and not hard[i + k] and seq[i + k] == seq[i] and ticks[i + k] == ticks[i] + k for k in range(Fn)):
@@ -152,12 +160,12 @@ if MIX_FROM:
         if not (st_ == "passed" or st_.startswith("pending")):
             raise SystemExit(f"gate cache status {st_!r}")
     else:  # timing / tests: the same verifier against the files on disk
-        BIND = make_bind(a.init, a.cache, a.lists, a.enc, a.rays, file_code())
+        BIND = make_bind(a.init, a.cache, a.lists, a.enc, a.rays, file_code(), a.dev_ref)
 
 
 def try_cache(pin):
     """shared verifier + approval / pin identity -> ({scene: fp16 latents}, record sha256, "") or (None, None, reason)"""
-    ok, why, rsha, lat = verify(a.cache_record, BIND, {"ticks": {sc: E[sc]["ticks"] for sc in TRAIN}, "rays": RAYS})
+    ok, why, rsha, lat = verify(a.cache_record, BIND, {"ticks": {sc: E[sc]["ticks"] for sc in TRAIN}, "rays": RAYS, "enc_sha": ENC_SHA})
     if not ok:
         return None, None, why
     if APPROVED and rsha != APPROVED:
@@ -242,6 +250,10 @@ if os.path.exists(ck):
     opt.load_state_dict(s_["opt"]); start = s_["step"]
     G_JIT.set_state(s_["rng"]["jitter"]); G_SRC.set_state(s_["rng"]["source"])  # resumable jitter / source streams
     PIN = s_.get("cache_record_sha256")  # the record this run first used (pinned)
+    why_ = resume_identity({"gate": s_.get("gate_record_sha256"), "approved": s_.get("cache_approved_sha256"), "pin": PIN},
+                           {"gate": GATE_SHA, "approved": APPROVED}, MIX_FROM, start)
+    if why_:
+        raise SystemExit(f"incompatible resume: {why_}")
     print("resumed at", start, "pinned cache record", PIN, flush=True)
 if MIX_FROM:
     CACHE, CACHE_SHA, CACHE_WHY = try_cache(PIN)
@@ -261,7 +273,7 @@ def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K, "frames": Fn,
          "arm": a.arm, "recipe": RECIPE, "jitter": JITTER, "mix_from": MIX_FROM, "cache": a.cache, "cache_record_sha256": PIN,
          "rng": {"jitter": G_JIT.get_state(), "source": G_SRC.get_state()}, "memory": "tstar_final_call", "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
-         "gate_record_sha256": GATE_SHA,
+         "gate_record_sha256": GATE_SHA, "cache_approved_sha256": APPROVED,
          "noise_policy": "one t per clip (t* excluded); fully private eps per tick; memory = features at the clip's memory timestep of the source latents",
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "init_sha": INIT_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
          "args": {**ck0["args"], "clean": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}

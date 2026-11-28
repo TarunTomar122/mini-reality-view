@@ -26,7 +26,7 @@ Exit 0 + record (mode "x") only when everything holds. --verify recomputes a rec
   python scripts/vclean_gate.py --verify runs/vclean_gate/record.json
 """
 import argparse, hashlib, json, math, os, subprocess, sys
-from mrv.cache_verify import make_bind, verify, A_PATH
+from mrv.cache_verify import make_bind, verify, A_PATH, read, hb
 
 SUITE_FILES = sorted(["mrv/clean_video.py", "mrv/noise.py", "mrv/sd.py", "scripts/train_clean.py", "scripts/clean_rollout.py", "scripts/clean_tests.py",
                       "scripts/clean_probe.py", "scripts/vclean_gate.py", "scripts/det_run.py", "slurm/clean_tests.sh",
@@ -48,23 +48,31 @@ sha = lambda f: hashlib.sha256(open(f, "rb").read()).hexdigest()
 fin = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
 
+def jload(f):
+    """read a JSON file ONCE: (parsed, sha256 of the same bytes)"""
+    need(os.path.isfile(f), f"missing {f}")
+    b = read(f)
+    return json.loads(b), hb(b)
+
+
 def last_line(log, prefix, d):
+    """-> (FAILS, sha256 of the same log bytes)"""
     need(os.path.isfile(log), f"missing log {log}")
-    lines = open(log).read().rstrip("\n").splitlines()
+    b = read(log); lines = b.decode().rstrip("\n").splitlines()
     need(lines, f"{log} is empty")
     ln = lines[-1].strip()
     need(ln.startswith(prefix + " FAILS=") and ln.endswith(f" dir={d}"), f"{log}: last line '{ln[:120]}' is not '{prefix} FAILS=<n> dir={d}'")
-    return int(ln.split("FAILS=")[1].split()[0])
+    return int(ln.split("FAILS=")[1].split()[0]), hb(b)
 
 
 def manifest(path, want_files):
     need(os.path.isfile(path), f"missing manifest {path}")
-    rows = [l_.split() for l_ in open(path).read().splitlines() if l_.strip()]
+    b = read(path); rows = [l_.split() for l_ in b.decode().splitlines() if l_.strip()]
     got = {f_: h_ for h_, f_ in rows}
     need(len(got) == len(rows) and sorted(got) == want_files, f"{path}: file set {sorted(got)} != reviewed {want_files}")
     for f_, h_ in got.items():
         need(os.path.isfile(f_) and sha(f_) == h_, f"{path}: {f_} changed since it was tested")
-    return got
+    return got, hb(b)
 
 
 CACHE_DIR, LISTS, ENC, RAYS_F = "runs/cache/A20k_off_rho1_train", "data/temporal_lists.json", "data/enc_tpv10", "data/calib_rays.pt"
@@ -82,27 +90,25 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
         f = f"runs/vpriv_gate/a1_{k}k.json"
         if not os.path.exists(f):
             continue
-        d = json.load(open(f))
+        d, dsha = jload(f)
         r = subprocess.run([PY, "scripts/a1_decide.py", str(k)], capture_output=True, text=True)
         need(r.returncode == 0 and "existing, verified" in r.stdout, f"{f} does not re-verify against its comparator: {r.stdout[-300:]} {r.stderr[-300:]}")
         need(isinstance(d.get("joint_pass"), bool) and isinstance(d.get("stop"), bool), f"{f}: malformed")
         need(d["joint_pass"] is False, f"vpriv JOINT PASS at {k}k: its exam takes precedence (N1); no vclean launch")
-        out[f"{k}k"] = {"file": f, "sha256": sha(f), "joint_pass": False, "safe": d.get("safe"), "stop": d["stop"]}
+        out[f"{k}k"] = {"file": f, "sha256": dsha, "joint_pass": False, "safe": d.get("safe"), "stop": d["stop"]}
     need("8k" in out and "12k" in out, "vpriv 8k / 12k A1 decisions missing: outcome not final")
     final = "16k" in out or out["12k"]["stop"] is True
     need(final, "vpriv outcome not final (no 16k decision and no A1 stop at 12k)")
     rec["vpriv"] = {"decisions": out, "outcome": "A1 stop at 12k" if "16k" not in out else "no joint pass through 16k"}
     # 3. suite (first: the probe's code must be the tested code)
     sdir = f"runs/ctest_clean_{suite}"
-    fails = last_line(f"logs2/cleantests-{suite}.out", "CLEAN_TESTS_SH", sdir)
+    fails, lsha = last_line(f"logs2/cleantests-{suite}.out", "CLEAN_TESTS_SH", sdir)
     need(fails == 0, f"clean suite {suite}: FAILS={fails}")
-    code = manifest(f"{sdir}/code_sha256.txt", SUITE_FILES)
+    code, msha = manifest(f"{sdir}/code_sha256.txt", SUITE_FILES)
     tf = f"{sdir}/timing.json"
-    need(os.path.isfile(tf), f"missing timing record {tf}")
-    tm = json.load(open(tf))
+    tm, tsha = jload(tf)
     need(tm.get("updates") == 100 and all(fin(tm.get(k_)) for k_ in ("step_s", "mem_s", "peak_gb")) and tm.get("frozen_check") is True, f"{tf}: incomplete {tm}")
-    rec["suite"] = {"job": suite, "dir": sdir, "log_sha256": sha(f"logs2/cleantests-{suite}.out"), "manifest_sha256": sha(f"{sdir}/code_sha256.txt"),
-                    "timing": tm, "timing_sha256": sha(tf)}
+    rec["suite"] = {"job": suite, "dir": sdir, "log_sha256": lsha, "manifest_sha256": msha, "timing": tm, "timing_sha256": tsha}
     rec["code_sha256"] = code
     if arm == "vmix":  # 2'. A5: the cache check replaces the probe predicate
         need(not probe, "vmix: the probe predicate is replaced by the cache check (no --probe)")
@@ -112,11 +118,14 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
             need(not cache_record, "--cache_pending and --cache_record are exclusive")
             rec["cache"] = {"status": "pending: the trainer verifies a record against cache_bind at update 2000 (mrv/cache_verify), holds without one, pins the first"}
         else:
-            import torch
-            data = {"ticks": {sc_: torch.load(f"{ENC}/{sc_}.pt")["ticks"] for sc_ in bind["train"]}, "rays": torch.load(RAYS_F)}
+            import io, torch
+            data = {"ticks": {}, "enc_sha": {}, "rays": torch.load(io.BytesIO(read(RAYS_F)))}
+            for sc_ in bind["train"]:  # encodings read once: digest and ticks from the same bytes
+                eb = read(f"{ENC}/{sc_}.pt"); data["enc_sha"][sc_] = hb(eb)[:16]; data["ticks"][sc_] = torch.load(io.BytesIO(eb))["ticks"]; del eb
             ok, why, rsha, _ = verify(cache_record, bind, data)
             need(ok, f"cache record refused by the shared verifier: {why}")
-            cr = json.load(open(cache_record))
+            cr, csha = jload(cache_record)
+            need(csha == rsha, "cache record changed during verification")
             rec["cache"] = {"status": "passed", "record": cache_record, "sha256": rsha, "parity": cr.get("parity"),
                             "mse": {k_: cr["mse"].get(k_) for k_ in ("train_mean", "dev_mean")}}
         return finish(rec, t2)
@@ -126,7 +135,7 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
     # 2. probe (vclean)
     need(not cache_record and not cache_pending, "vclean: no cache flags")
     need(os.path.isfile(probe), f"missing probe record {probe}")
-    pr = json.load(open(probe)); rd = pr.get("a4_reading", {})
+    pr, psha = jload(probe); rd = pr.get("a4_reading", {})
     need(rd.get("valid") is True and rd.get("decision") == "LAUNCH" and rd.get("launch") is True, f"probe reading is {rd.get('decision')} (valid {rd.get('valid')}): no launch")
     for f_, h_ in pr.get("code_sha256", {}).items():
         need(code.get(f_) == h_, f"probe code {f_} is not the suite-tested code")
@@ -134,7 +143,7 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
     for path, v in pr["ckpts"].items():
         need(v.get("valid") is True and os.path.isfile(path) and sha(path) == v.get("ckpt_sha256"), f"probe checkpoint {path} invalid or changed")
     need(sorted(pr["ckpts"]) == ["runs/vpriv/ckpt_12000.pt", "runs/vpriv/ckpt_8000.pt"], "probe checkpoints are not vpriv 8k / 12k")
-    rec["probe"] = {"file": probe, "sha256": sha(probe), "decision": "LAUNCH", "jitter_allowed": rd.get("jitter_allowed"),
+    rec["probe"] = {"file": probe, "sha256": psha, "decision": "LAUNCH", "jitter_allowed": rd.get("jitter_allowed"),
                     "ckpt_sha256": {p_: v["ckpt_sha256"] for p_, v in pr["ckpts"].items()}}
     return finish(rec, t2)
 
@@ -142,11 +151,11 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
 def finish(rec, t2):
     # 4. T2 -> gate rho (both arms)
     tdir = f"runs/ctest_clean_t2_{t2}"
-    tfails = last_line(f"logs2/cleant2-{t2}.out", "CLEAN_T2", tdir)
+    tfails, t2lsha = last_line(f"logs2/cleant2-{t2}.out", "CLEAN_T2", tdir)
     manifest(f"{tdir}/code_sha256.txt", T2_FILES)
     jf = f"{tdir}/t2.json"
     need(os.path.isfile(jf), f"missing T2 result {jf} (render or comparison did not complete): rho undecided")
-    t = json.load(open(jf))
+    t, t2sha = jload(jf)
     need(t.get("complete") is True and t.get("fields_equal") is True and fin(t.get("max_diff")), f"T2 not on matched inputs / incomplete {t}: rho undecided")
     need(t.get("rho") == 1.0 and t.get("method") == "clean_off" and t.get("ckpt_sha") == rec["a_sha"], f"T2 is not clean memory-off of A@20k at rho 1.0 ({t.get('method')}, {t.get('rho')})")
     if t["max_diff"] < 1e-2 and tfails == 0:
@@ -155,7 +164,7 @@ def finish(rec, t2):
         rho = 0.95
     else:
         raise Refuse(f"T2 log FAILS={tfails} inconsistent with max |diff| {t['max_diff']}: rho undecided")
-    rec["t2"] = {"job": t2, "dir": tdir, "result": t, "sha256": sha(jf), "log_sha256": sha(f"logs2/cleant2-{t2}.out")}
+    rec["t2"] = {"job": t2, "dir": tdir, "result": t, "sha256": t2sha, "log_sha256": t2lsha}
     rec["rho_gate"] = rho
     rec["valid"] = True
     return rec
@@ -170,10 +179,11 @@ p.add_argument("--control", action="store_true", help="with --arm vclean: the A5
 a = p.parse_args()
 try:
     if a.verify:
-        old = json.load(open(a.verify)); i = old["inputs"]
+        vb = sys.stdin.buffer.read() if a.verify == "-" else read(a.verify)  # "-": the caller's exact bytes
+        old = json.loads(vb); i = old["inputs"]
         new = build(i["suite"], i["t2"], i["probe"], i.get("arm", "vclean"), i.get("cache_record", ""), i.get("cache_pending", False), i.get("control", False))
         need(json.dumps(new, sort_keys=True) == json.dumps(old, sort_keys=True), "record differs from what its inputs give now")
-        print("VCLEAN_GATE OK rho_gate", new["rho_gate"], a.verify)
+        print("VCLEAN_GATE OK rho_gate", new["rho_gate"], "sha256", hb(vb), a.verify)
     else:
         need(a.suite.isdigit() and a.t2.isdigit() and a.out and (a.probe or a.arm == "vmix" or a.control), "need --suite <job id> --t2 <job id> [--probe <json>] --out <record>")
         rec = build(a.suite, a.t2, a.probe, a.arm, a.cache_record, a.cache_pending, a.control)

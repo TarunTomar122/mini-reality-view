@@ -154,6 +154,22 @@ report("T4 block stream == clip", worst < 1e-4 and ring_len == K and first_after
        f"{F0} ticks x {B0} rows x 2 reads max |diff| {worst:.2e} (<1e-4), ring holds {ring_len} (=K); reset: first tick {first_after:.3g} (=0), "
        f"suffix vs clip from the cut {d_reset:.2e}, vs unreset {d_hist:.2e} (>1e-3); alone vs interleaved {d_iso:.2e}; cond-row slice {d_slice:.2e}")
 
+# ---------- T8 resume identity (mrv/cache_verify.resume_identity; council/codereview-vmix2-astra.md item 1) ----------
+from mrv.cache_verify import resume_identity
+G1, G2, R1, R2 = "a" * 64, "b" * 64, "c" * 64, "d" * 64
+cases = [  # (saved, current, mix_from, start, may resume)
+    ({"gate": G1, "approved": R1, "pin": R1}, {"gate": G1, "approved": R1}, 2000, 2400, True),    # same passed gate, pinned approved record
+    ({"gate": G1, "approved": R1, "pin": R1}, {"gate": G2, "approved": None}, 2000, 2400, False),  # passed -> pending gate
+    ({"gate": G1, "approved": R1, "pin": R1}, {"gate": G1, "approved": R2}, 2000, 2400, False),    # different approved record
+    ({"gate": G1, "approved": None, "pin": None}, {"gate": G1, "approved": None}, 2000, 2000, True),  # pending, held at mix_from (no pin yet)
+    ({"gate": G1, "approved": None, "pin": None}, {"gate": G1, "approved": None}, 2000, 2001, False),  # past mix_from without a pin
+    ({"gate": G1, "approved": None, "pin": R2}, {"gate": G1, "approved": None}, 2000, 3000, True),    # pending gate, pinned first record
+    ({"gate": G1, "approved": R1, "pin": R2}, {"gate": G1, "approved": R1}, 2000, 3000, False),       # pin is not the approved record
+    ({"gate": None, "approved": None, "pin": None}, {"gate": G1, "approved": None}, 2000, 100, False),  # ungated (test) checkpoint under a gate
+]
+res8 = [(resume_identity(sv, cu, m, st) == "") == want for sv, cu, m, st, want in cases]
+report("T8 resume identity rule", all(res8), f"{sum(res8)}/{len(cases)} cases as expected (passed->pending, other record, missing pin past mix_from refused)")
+
 # ================= part 1: whole UNet =================
 try:
     from diffusers import UNet2DConditionModel

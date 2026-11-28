@@ -89,3 +89,9 @@ per-tick still mode is no longer required (kept only as an S0a measurement). S1 
 - S0a reading (Fable 06:30): the informative comparison is Wan round trip vs the SD round trip / the key itself scored DIRECTLY on
   RGB (scripts/score_rgb.py, unchanged signed scorer): a Wan drop of > 0.03 car F1 or more flicker vs the key = problem.
 - S0c is not a launch gate for S1 (S1 trains both inputs with input dropout).
+
+## C9 dropout amendment (28 Nov ~08:40 UTC; Fable proposed 07:30, Astra + Fable accepted 08:30)
+Input dropout is one draw per clip after the two guard updates: both inputs dropped 10%, guide only dropped 10%, tokens only
+dropped 10%, hybrid 70% (flags --p_drop_both / --p_drop_guide_only / --p_drop_tokens_only). Marginals: guide dropped 20% (as
+signed), tokens dropped 20% (was 10%) so the guide-only ablation and the unconditional branch have direct training examples. Both
+20% marginals are recorded with every comparison.

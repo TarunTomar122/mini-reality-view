@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 11:58 UTC — Astra T3: 11 of 14 closed; last three fixed by the main thread (9b8c3f1); Astra T3b re-check running
+- T3 (council/codereview-wan-t3-astra.md) closed 3, 4, 5, 7, 9, 11, rehearsal inputs, 14, 15, Neon A, Neon B. Open: item 8 (a failed memory read after the rehearsal could mark coverage), Neon C (forecast priced 8 renders per drive at a half-miss rate: 880 s vs the true 820 s in Astra's example), item 12 (panel intake admitted a shard marked bound_before_scoring=False).
+- Fixed myself (small): sample_once records t_valid and coverage needs a successful read after the rehearsal; panel intake requires bound_before_scoring; the rehearsal records the guide-encoding fill cost (miss run minus hit run) and the cache-hit per-tick rate and refuses unless the cache filled then hit; the forecast prices repeat work at the hit rate plus one fill per distinct frame sequence per drive. Astra's exact cases as repros; WAN_TESTS FAILS=0 locally and in the cluster venv. Scorer parity (3757143-47) unaffected (its binding is score_rgb / wan_score / scorer / weights) and still running.
+
 ## 2026-11-28 11:51 UTC — manifest PASS; Neon round-3 additions landed (cc2b640) and deployed; fresh bound parity running; Astra T3 (last pre-GPU review)
 - verify_manifest 3757117 PASS: data/wan_manifest_v1.json (read-only), 1,057 files of 150 drives + 7 Wan files, 132.0 GB, sha a0412b42f4cc, 1,232 s on 8 processes; every file equals its sidecar.
 - cc2b640 (Neon A / B / C): memory request = (staged + 45 GB) / 0.80 -> `mrv.wan_stage need` = 170G for the current data; source page cache dropped after each copy; scoring ledger rows matched by Slurm job id (proc- or alloc-); guide-encoding cache per drive in the load-once rollout. WAN_TESTS FAILS=0 locally (3.14) and in the cluster venv (3.11; a first cluster run hit the 500 s timeout on the busy login node, the rerun passed).

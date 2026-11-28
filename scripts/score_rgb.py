@@ -3,7 +3,8 @@
 AutoencoderKL.from_pretrained is replaced (for this process only) by a stand-in whose decode() returns the stored RGB frame whose
 index is written into the pseudo-rollout latent (lat[t] = t + 1 at [0, 0, 0], zeros elsewhere). Everything else (segmentation,
 matching, ID / W / F1 / road / ghosts) runs from the signed file as is. Input: <rgb_dir>/<scene>_s0.pt with "rgb" uint8 [T,3,256,512]
-plus the template rollout fields (ticks / ok / hard ...), as written by scripts/s0_vae_roundtrip.py --save_rgb.
+plus the template rollout fields (ticks / ok / hard ...), as written by scripts/s0_vae_roundtrip.py --save_rgb or
+scripts/wan_rollout.py. Seeds: every <scene>_s<n>.pt. NOT usable with --cold / --lag_ref (only the plain --roll path).
   python scripts/score_rgb.py --rgb runs/s0/wanfull_rgb --out runs/s0/m_wanfull_rgb.json
 """
 import argparse, glob, os, runpy, sys
@@ -13,7 +14,7 @@ p = argparse.ArgumentParser(); p.add_argument("--rgb", required=True); p.add_arg
 a = p.parse_args()
 roll = a.rgb.rstrip("/") + "_roll"; os.makedirs(roll, exist_ok=True)
 TABLE = {}
-for f in sorted(glob.glob(f"{a.rgb}/*_s0.pt")):
+for f in sorted(glob.glob(f"{a.rgb}/*_s[0-9]*.pt")):  # all seeds (the signed --compare needs seeds 0 and 1)
     R = torch.load(f, map_location="cpu", weights_only=False); sc = os.path.basename(f)[:-3]
     rgb = R.pop("rgb"); T = rgb.shape[0]; base = len(TABLE)
     lat = torch.zeros(T, 4, 32, 64)
@@ -36,5 +37,6 @@ class FakeVAE(torch.nn.Module):
 
 
 diffusers.AutoencoderKL.from_pretrained = classmethod(lambda cls, *args, **kw: FakeVAE())
+# plain --roll path only: --cold / --lag_ref would decode OTHER rollouts through the stand-in and silently get wrong frames (Fable)
 sys.argv = ["scripts/temporal_metrics.py", "--roll", roll, "--out", a.out]
 runpy.run_path("scripts/temporal_metrics.py", run_name="__main__")

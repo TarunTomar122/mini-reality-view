@@ -10,7 +10,7 @@
 # the same name; anything else -> stop loudly). Dependencies on old ids are checked: running / pending -> kept, COMPLETED ->
 # dropped, failed / unknown / never satisfiable -> stop loudly. A failed 8k / 12k score job stops the watcher with its id.
 # If training dies, saved checkpoints are still drained before the watcher reports the missing one.
-#   sbatch --cpus-per-task=1 --mem=2G --time=9:00:00 -J vpriv-watch -o logs2/%x-%j.out slurm/vpriv_checks.sh
+#   sbatch --cpus-per-task=1 --mem=8G --time=9:00:00 -J vpriv-watch -o logs2/%x-%j.out slurm/vpriv_checks.sh
 cd $HOME/mini-reality-view
 G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --cpus-per-task=4 --mem=48G --exclude=damnii10"  # damnii10: broken GPU (Neon 01:30)
 S=runs/vpriv_gate/watch; mkdir -p $S || exit 1

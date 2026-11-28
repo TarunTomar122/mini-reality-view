@@ -7,11 +7,12 @@
 #   sbatch -d afterok:<metrics> --cpus-per-task=1 --mem=4G --time=0:30:00 -J pcmp<k>k -o logs2/%x-%j.out slurm/vpriv_score.sh <k>
 cd $HOME/mini-reality-view; set -o pipefail
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD
+mkdir -p $PWD/runs/tmp && export TMPDIR=$PWD/runs/tmp  # /tmp on saxa filled up (Neon 02:30: LODO ENOSPC)
 PY=.venv/bin/python
 cont() {  # stage-2 resume 12k -> 16k (caller holds the gate lock and has checked A1_STOPPED / CONTINUED / CONT_PENDING)
     Q=$(squeue -u $USER -h -n vpriv -o %i) || { echo "SCORE_FAIL squeue"; exit 1; }
     [ -z "$Q" ] || { echo "SCORE_FAIL vpriv job $Q still queued at the continuation"; exit 1; }
-    STEP=$($PY -c "import torch;print(torch.load('runs/vpriv/ckpt.pt',map_location='cpu',weights_only=False)['step'])") || exit 1
+    STEP=$($PY -c "import torch;print(torch.load('runs/vpriv/ckpt.pt',map_location='cpu',weights_only=False,mmap=True)['step'])") || exit 1
     [ "$STEP" = 12000 ] || { echo "SCORE_FAIL runs/vpriv/ckpt.pt step $STEP != 12000"; exit 1; }
     PRIV=$(grep -o "private_clips=[12]" $G2/SUBMITTED | cut -d= -f2); [[ "$PRIV" =~ ^[12]$ ]] || { echo "SCORE_FAIL no private_clips in SUBMITTED"; exit 1; }
     echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING && [ -s $G2/CONT_PENDING ] || { echo "SCORE_FAIL cannot write the continuation intent"; exit 1; }

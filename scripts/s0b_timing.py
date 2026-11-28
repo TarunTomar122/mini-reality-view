@@ -49,7 +49,7 @@ with torch.no_grad():
     res["vae_encode_5frames_ms"] = round(timed(lambda: vae.encode(v5).latent_dist.mode(), n=10)[0], 1)
 del vae; torch.cuda.empty_cache()
 
-for name, rid in (("depth_metric_vkitti_small", "depth-anything/Depth-Anything-V2-Metric-VKITTI-Small-hf"), ("depth_small", "depth-anything/Depth-Anything-V2-Small-hf")):
+for name, rid in (("depth_metric_outdoor_small", "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf"), ("depth_small", "depth-anything/Depth-Anything-V2-Small-hf")):
     m = AutoModelForDepthEstimation.from_pretrained(rid, torch_dtype=torch.float16, local_files_only=True).to(dev).eval()
     x = torch.randn(6, 3, 294, 518, device=dev, dtype=torch.float16)  # 6 views, multiple of 14
     with torch.no_grad():

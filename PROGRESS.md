@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 06:20 UTC — pivot round: backbone answers converge on Wan 2.1 T2V-1.3B; Neon fact check; stage 0 prep
+- Astra and Fable (council/pivot-video-r1-{astra,fable}.md) both propose Wan2.1-T2V-1.3B (Apache-2.0; nearly all open causal / streaming work — CausVid, Self-Forcing and successors — is built on it). Plan shape (Fable): bidirectional camera-conditioned teacher first, then a few-step Self-Forcing-style causal student with KV cache.
+- Neon fact check (pivot-video-r1-neon.md): no official Wan 2.2 1.3B (smallest 5B) and no Wan 2.1 I2V-1.3B (1.3B = T2V and VACE only); LTX-Video 2B weights under a revenue-capped licence and an 8-frame (0.8 s) temporal VAE group; Cosmos-Predict2 2B gated, ~32.5 GB VRAM, no public causal recipe; CausVid (9.4 FPS H100) and Self-Forcing (~17 FPS H100, ~10 FPS RTX 4090) are real and built on Wan 1.3B, streaming in latent chunks (Wan VAE: 4x temporal compression, so 1 latent frame = 4 ticks = 0.4 s at 10 Hz). A 2080 Ti (no bf16 tensor cores, no FlashAttention-2) should not be promised 10 Hz; state the live target on a 4090-class GPU / the H200, 2080 Ti as a measured stretch.
+- Open owner decision (later, with stage 0 numbers): a fixed ~0.3-0.5 s chunk lag at 10 Hz playback vs per-tick response at higher cost.
+- Conditioning round (pivot-cond-r1): Astra proposes depth-based projection of the 6 views into the chase view + attention to the raw views for what projection misses, with a ~4 GPU-h comparison vs attention alone; Fable / Neon pending.
+- Stage 0 prep: diffusers on the cluster has AutoencoderKLWan; downloading Wan2.1-T2V-1.3B VAE + configs on the login node (hf/). Planned kill test (Fable): dev keys round-tripped through the Wan VAE, scored with the signed scorer; if car F1 already drops below A's there, stop and re-council.
+
 ## 2026-11-28 06:14 UTC — owner: choose the best image-to-video-model connection on merit, no reuse for its own sake
 - Owner (verbatim): "make sure we find the best way to connect our images to the video model dont try to reuse and loose". Added as an addendum to council/pivot-video-r1.md; a dedicated conditioning round (6 cameras -> video model) follows r1, comparing geometric warping / unprojection into the chase view, multi-view cross-attention with camera (Plücker) embeddings, stronger per-view encoders, BEV / 3D lifting, ControlNet-style branches and rendered-guide concatenation, judged by evidence on car placement and smoothness. CameraAdapter / DINOv2-small tokens are reused only if they win on merit.
 

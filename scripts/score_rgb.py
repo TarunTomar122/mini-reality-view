@@ -82,12 +82,15 @@ for f in sorted(glob.glob(f"{SRC}/*_s[0-9]*.pt")):
         # S1b item 8: the donor-keyed and receiver-keyed scores must use the SAME frames: keep as accepted only positions whose
         # receiver tick AND donor tick are placement ticks (% 5 == 0) with both key files present; everything else ok = False
         rt_, dt_ = R["ticks"].tolist(), R["src_ticks"].tolist()
-        common = [i >= sf and int(rt_[i]) % 5 == 0 and int(dt_[i]) % 5 == 0 and bool(R["ok"][i]) and not bool(R["hard"][i])
+        if "recv_ok" not in R:
+            raise SystemExit(f"{b}: swap rollout lacks the receiver's own ok / hard flags (re-render with the current wan_rollout.py)")
+        rok, rhd = R["recv_ok"].tolist(), R["recv_hard"].tolist()  # accepted for the RECEIVER too (Astra S1c item 2)
+        common = [i >= sf and int(rt_[i]) % 5 == 0 and int(dt_[i]) % 5 == 0 and bool(R["ok"][i]) and not bool(R["hard"][i]) and rok[i] and not rhd[i]
                   and os.path.exists(f"{a.keys}/{sc}/t{int(rt_[i]):04d}.jpg") and os.path.exists(f"{a.keys}/{R['other']}/t{int(dt_[i]):04d}.jpg")
                   for i in range(len(rt_))]
         R["ok"] = torch.tensor(common, dtype=torch.bool)
         R["common_frames"] = int(sum(common))
-        for k in PER_TICK:
+        for k in PER_TICK + ("recv_ok", "recv_hard"):
             if k in R and torch.is_tensor(R[k]):
                 R[k] = R[k][sf:].clone()
         rgb = rgb[sf:]

@@ -29,7 +29,15 @@ roll_tick, roll_start = inner / a.ticks, max(0.0, a.rollout_s - inner)
 score_tick = a.score_s / a.ticks
 dev = json.load(open(a.lists))["dev"]
 dev_ticks = sum(len(torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)["ticks"]) for d in dev)
-panel_h = WP.panel_cost_h(2 * dev_ticks, roll_tick, roll_start, score_tick, 0.0)
+panel_base_h = WP.panel_cost_h(2 * dev_ticks, roll_tick, roll_start, score_tick, 0.0)
+# shared-mode donors need one extra unswapped same-length rollout each (Astra S1c item 4): price them from the real donor plan
+import os
+_drv = {}
+for d in dev:
+    E_ = torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)
+    _drv[d] = {"ticks": [int(t) for t in E_["ticks"].tolist()], "ok": [bool(x) for x in E_["ok"].tolist()], "hard": [bool(x) for x in E_["hard"].tolist()]}
+PLAN = WP.plan_donors(_drv, 5, 50, lambda sc, t: os.path.exists(f"data/sim/keys_tpv10/{sc}/t{int(t):04d}.jpg"))
+panel_h = WP.panel_with_shared_h(panel_base_h, {k: v for k, v in PLAN["donors"].items() if v}, roll_tick, roll_start)
 L = WP.Ledger(a.ledger, "forecast", write=False)
 kinds = L.by_kind()
 # overfit verdict (Astra / Neon 08:30): 8 clips sampled in THREE modes (hybrid, tokens-only, none; 30 steps, batch-1 window cost
@@ -44,13 +52,15 @@ prod_train = len(json.load(open(a.lists))["train"])
 startup = J["startup_s"] * max(1.0, prod_train / max(1, J.get("train_drives", prod_train)))
 # a gate is finished only with a PASS record (a failed or pending allocation will run again)
 recs = WP.gate_records(a.gates)
-done = {k for k in ("overfit", "resume_test") if any(r.get("kind") == k and r.get("status") == "PASS" for r in recs)}
+GK = J.get("gate_key")  # the production gate key (timing runs the production model recipe and code): Astra S1c item 5
+done = {k for k in ("overfit", "resume_test") if GK and any(r.get("kind") == k and r.get("status") == "PASS" and r.get("gate_key") == GK for r in recs)}
 t = {"budget_h": a.budget_hours, "used_h": L.hours(live=False), "done_kinds": done, "wall_s": J["production_loop"]["wall_s"],
      "startup_s": startup, "probe_s": J["probe_s"], "val_every": a.val_every, "save_s": J["save_s"], "save_every": a.save_every,
      "n_numbered": a.n_numbered, "job_h": a.job_h, "panel_h": panel_h, "n_panels": a.n_panels, "overfit_updates": 2000,
      "resume_updates": 32, "overfit_verdict_h": verdict_h, "overfit_evals_h": evals_h}
 fc = WP.forecast_s1(t)
 fc.update(inputs={k: (sorted(v) if isinstance(v, set) else v) for k, v in t.items()}, dev_ticks=dev_ticks, panel_h=round(panel_h, 3),
+          gate_key=GK, panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3), donor_plan=PLAN["donors"], donor_plan_ok=PLAN["ok"],
           startup_measured_s=J["startup_s"], startup_scaled_s=round(startup, 1), timing_train_drives=J.get("train_drives"), prod_train_drives=prod_train,
           roll_tick_s=round(roll_tick, 3), roll_start_s=round(roll_start, 1), score_tick_s=round(score_tick, 3), ledger_by_kind=kinds)
 J["forecast_final"] = fc

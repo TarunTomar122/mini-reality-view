@@ -128,6 +128,21 @@ check("swap: non-recoveries count as infinity", WP.donor_following(nr)["median_l
 check("swap: margin 0.10 not met", not WP.donor_following({k: swaprun(df=0.29, rf=0.2) for k in RUNS})["ok"])
 check("swap: margin met with room", WP.donor_following({k: swaprun(df=0.31, rf=0.20) for k in RUNS})["ok"])
 
+# --- Astra S1c repro fixtures ----------------------------------------------------------------------------------------
+c_inel = {**cmp(0.46), "ID": {"rel": -0.2, "can_pass": False}}
+check("S1c repro 1: complete swap, passing F1, finite ID gain but ID can_pass False -> INVALID, not STOP",
+      DS(c_inel, 12000, "24h", SW_OK)["verdict"].startswith("INVALID") and "eligible" in DS(c_inel, 12000, "24h", SW_OK)["verdict"])
+check("S1c: W can_pass False -> INVALID", DS({**cmp(0.40), "W": {"rel": -0.2, "can_pass": False}}, 14000, "24h", SW_OK)["verdict"].startswith("INVALID"))
+rcv = {"name": "r", "ticks": list(range(150)), "ok": [True] * 150, "hard": [False] * 150}
+dnr = {"name": "d", "ticks": list(range(150)), "ok": [i >= 77 for i in range(150)], "hard": [False] * 150}
+pfr = WP.swap_preflight(rcv, dnr, W=5, swap_at=50)
+check("S1c repro 2: swap at 57, donor accepted only from the next restart (77) -> 0 scorer lag windows, preflight fails",
+      pfr["swap_pos"] == 57 and pfr["first_reset"] == 77 and pfr["lag_windows"] == 0 and not pfr["ok"], pfr)
+pfo = WP.swap_preflight(rcv, {**dnr, "ok": [True] * 150}, W=5, swap_at=50)
+check("S1c: scorer lag range = (swap, first restart) exclusive of restarts: 15 windows between 57 and 77", pfo["lag_windows"] == 15 and pfo["ok"], pfo)
+pfa = WP.swap_preflight({**rcv, "ok": [i < 57 for i in range(150)]}, {**dnr, "ok": [True] * 150}, W=5, swap_at=50)
+check("S1c: receiver not accepted after the swap -> no common frames -> fails", pfa["common_frames"] == 0 and not pfa["ok"], pfa)
+
 # --- swap donor preflight (Astra / Neon 08:30) ---------------------------------------------------------------------------
 mk = lambda n_, hard_at=(): {"ticks": list(range(n_)), "ok": [True] * n_, "hard": [i in hard_at for i in range(n_)]}
 DRV = {"scene-0043": mk(109), "scene-0393": mk(200), "scene-0234": mk(200), "scene-0396": mk(200), "scene-0285": mk(190), "scene-0468": mk(200)}

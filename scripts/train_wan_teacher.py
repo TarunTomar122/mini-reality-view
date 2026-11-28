@@ -30,7 +30,8 @@ Recipe
   pick_chain = sha1(prev | batch_sha) is saved and continued, so a resumed run must end on the uninterrupted run's chain.
 - budget (item 11): ONE ledger (--ledger, jsonl heartbeats every 60 s) is debited by every S1 job: timing, overfit, resume test,
   training, panels (scripts/wan_panel.py); a job's charge = last beat - start, so preempted work is still debited. Before
-  every update: stop (save) if used + this update + --reserve_hours (panel time) >= --budget_hours. Verdicts: below 12k updates
+  every update: stop (save) if used + this update + the panel reserve >= --budget_hours; the reserve is the MEASURED panel
+  cost (timing.json forecast_final.panel_h_total, incl. shared-mode references) x --reserve_panels, never a fixed number. Verdicts: below 12k updates
   unresolved; 24 h read -> pass / one 12 h extension only for car F1 in [0.4156, 0.4456) with every other gate passed / stop;
   after the extension the bar stays 0.4456 (mrv.wan_plan.decide_s1, applied by scripts/wan_panel.py).
 - saves: numbered ckpt_<k>.pt (--save_at) FIRST, then the rolling ckpt.pt every 500 updates; atomic; trainable weights,
@@ -93,7 +94,13 @@ p.add_argument("--seed", type=int, default=0)
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0)
 p.add_argument("--budget_hours", type=float, default=24.0, help="S1 slice-hour cap over ALL S1 jobs in --ledger")
-p.add_argument("--reserve_hours", type=float, default=2.0, help="kept free for the dev panels (scripts/wan_panel.py)")
+p.add_argument("--reserve_hours", type=float, default=None, help="override; default = measured panel cost (timing.json forecast_final."
+               "panel_h_total, incl. shared-mode references) x --reserve_panels (Astra S1c item 4)")
+p.add_argument("--reserve_panels", type=int, default=1, help="panels still to run inside this budget (train: the 24 h read; extend: the final)")
+p.add_argument("--timing_json", default="", help="default: newest runs/wan_timing_*/timing.json")
+p.add_argument("--a_metrics", default="runs/troll/m_A20k_indep_dev.json")
+p.add_argument("--a_roll", default="runs/troll/A20k_indep_dev")
+p.add_argument("--parity_record", default="runs/wroll/a20k_rgbpath_parity.json", help="MODE=train needs this bound A@20k parity PASS")
 p.add_argument("--ledger", default="runs/wan_s1_ledger.jsonl")
 p.add_argument("--kind", default="", help="ledger label (default: timing / overfit / train from the flags)")
 p.add_argument("--overfit", type=int, default=0)
@@ -126,6 +133,18 @@ assert not set(TRAIN) & set(DEVL), "train / dev overlap"
 assert not (set(TRAIN) | set(DEVL)) & (set(LISTS.get("decision", [])) | set(LISTS.get("final", []))), "sealed drives in train / dev"
 NL = 5
 S_SLOTS = WC.SLOTS[a.tok_ticks]
+if a.reserve_hours is None:
+    if KIND == "train":  # the MEASURED panel cost, not a fixed number of hours (Astra S1c item 4)
+        import glob as _glob
+        _tj = a.timing_json or (sorted(_glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
+        try:
+            _fc = json.load(open(_tj))["forecast_final"]
+            a.reserve_hours = float(_fc.get("panel_h_total", _fc["panel_h"])) * a.reserve_panels
+        except Exception as _e:  # noqa: BLE001
+            raise SystemExit(f"MODE=train needs the measured panel cost for its reserve ({_tj!r}: {type(_e).__name__}); run MODE=timing")
+        print(f"panel reserve {a.reserve_hours:.2f} h = {a.reserve_panels} x measured panel cost from {_tj}", flush=True)
+    else:
+        a.reserve_hours = 0.0
 if KIND == "train" and LEDGER.hours() + a.reserve_hours >= a.budget_hours:
     raise SystemExit(f"S1 budget exhausted: {LEDGER.hours():.2f} h used + {a.reserve_hours} h reserve >= {a.budget_hours} h")
 
@@ -305,6 +324,10 @@ if KIND == "train" and a.budget_hours > 24.0 + 1e-9:  # Astra 08:30: more than 2
     v_ = json.load(open(MK)).get("verdict", "") if os.path.exists(MK) else ""
     if not v_.startswith("EXTEND"):
         raise SystemExit(f"--budget_hours {a.budget_hours} > 24 refused: {MK} missing or not an EXTEND verdict ({v_!r})")
+if KIND == "train":  # Astra S1c item 6: the bound A@20k RGB-path replay parity must have PASSED before production starts
+    if not WP.parity_ok(a.parity_record, WP.parity_binding(a.a_metrics, a.a_roll)):
+        raise SystemExit(f"MODE=train refused: no A@20k replay-parity PASS bound to the current references / adapter / scorer / decoder "
+                         f"({a.parity_record}); run slurm/wan_panel.sh parity")
 if KIND == "train":  # Fable 08:30: production needs PASS overfit AND PASS resume-test records for this code / recipe
     ok_g, have_g = WP.gates_ok(a.gates, GATE_KEY)
     if not ok_g:
@@ -471,7 +494,7 @@ def qget(Q_, step):
 # ------------------------------------------------------------------------------------------------- timing mode
 if a.timing and not a.overfit:
     rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "micro": {},
-           "startup_s": round(time.time() - LEDGER.t0, 1), "train_drives": len(TRAIN)}  # process start -> ready to train (loads, hashes, parity)
+           "startup_s": round(time.time() - LEDGER.t0, 1), "train_drives": len(TRAIN), "gate_key": GATE_KEY}  # process start -> ready to train (loads, hashes, parity)
     s_ = 0
     # (1) microbatch sweep at global batch 8 (synchronous batches; forward / backward / Adam timed separately)
     for mb in [int(x) for x in a.timing_micro.split(",") if a.batch % int(x) == 0]:

@@ -279,6 +279,7 @@ for di, sc in enumerate(drives):
                "swap_boundaries_matched": (segs == segs0 and windows == exp_windows) if D2 is not None else None,
                "windows_match_unswapped": windows == exp_windows, "truncated_by_donor": n < n_full, "sensitivity": SENS,
                "swap_mode": swap_mode if D2 is not None else None, "swap_ref_ticks": n_full if D2 is not None else None,
+               "recv_ok": E["ok"][:n].clone(), "recv_hard": E["hard"][:n].clone(),  # the receiver's own flags (post-swap common frames)
                "train_dropout": {k: (ck.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")},
                "code_sha": ck.get("code_sha"), "base_sha": ck.get("base_sha"), "batch": 1, **SETTINGS}
         if sdv is not None:

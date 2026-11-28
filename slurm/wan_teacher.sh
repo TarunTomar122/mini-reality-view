@@ -10,7 +10,8 @@
 #                     verdict appended to runs/wan_gates/gates.jsonl
 #   MODE=resume_test: 16 updates uninterrupted vs 8 + resume 8; scripts/wan_resume_check.py must pass
 #   MODE=train      : the S1 run, runs/wan_s1, resumable; REFUSES to start without PASS overfit + PASS resume_test records for
-#                     its gate key (code / model recipe / base / VAE / guide version); stops when ledger + 2 h reserve reaches 24 h
+#                     its gate key (code / model recipe / base / VAE / guide version) and the bound A@20k replay-parity PASS
+#                     (slurm/wan_panel.sh parity); stops when ledger + the MEASURED panel reserve reaches 24 h
 #   MODE=extend     : the one signed 12 h extension (budget 36 h); refuses (exit 8) before using the allocation unless
 #                     runs/wan_s1/S1_24H_DECISION.json holds an EXTEND verdict
 # Submit (resubmit the same line to continue after a time limit; --resume picks up runs/wan_s1/ckpt.pt):
@@ -83,10 +84,14 @@ P
        --val_every 0 --save_every 500 "$@"; rc=$? ;;
   resume_test)
     A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
-    run_fg $T --out $A $C "$@" && run_fg $T --out $B $C --max_steps_this_job 8 "$@" && run_fg $T --out $B $C --resume "$@" \
+    # Astra S1c item 7: leg B must really have saved update 8 (a signal stop at 6 would otherwise test 6 + 10)
+    ck8() { $PY -c "import torch,sys;s=torch.load('$B/ckpt.pt',map_location='cpu',weights_only=False,mmap=True)['step'];print('leg B saved step',s);sys.exit(0 if s==8 else 1)"; }
+    run_fg $T --out $A $C "$@" && run_fg $T --out $B $C --max_steps_this_job 8 "$@" \
+      && { ck8 || { echo "RESUME_TEST invalid: leg B did not stop at update 8"; false; }; } \
+      && run_fg $T --out $B $C --resume "$@" \
       && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt --gates runs/wan_gates/gates.jsonl; rc=$? ;;
-  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_hours 2 --resume "$@"; rc=$? ;;
-  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_hours 1 --resume "$@"; rc=$? ;;
+  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_panels 1 --resume "$@"; rc=$? ;;
+  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_panels 1 --resume "$@"; rc=$? ;;
   *) echo "unknown MODE=$MODE"; exit 2 ;;
 esac
 echo "end $(date -u) rc=$rc"

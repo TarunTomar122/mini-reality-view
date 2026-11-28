@@ -269,6 +269,27 @@ verdict. The trainer also refuses `--budget_hours` above 24 without that marker.
 **Dropout marginals.** Both 20% drop marginals (guide, tokens) are recorded with every mode comparison and with the swap in
 `<name>_panel.json`, and in each rollout file (`train_dropout`).
 
+## Astra S1c fixes
+
+1. **Eligibility.** ID and W `can_pass` (from the signed comparator) are part of the evidence. `can_pass=False` gives
+   INVALID with no marker, never STOP.
+2. **Scorer-exact preflight.** Lag windows are counted exactly as `temporal_metrics.py` counts them. The range runs from the
+   swap to the first restart after it. Every position must be accepted and have a donor key, donor ticks must be consecutive,
+   and no restart may fall inside a window (the swap position is itself a restart). Common placement frames also need the
+   receiver's own acceptance. The rollout stores `recv_ok` / `recv_hard`, and `score_rgb.py` applies the same rule.
+3. **Preflight first.** The panel runs the preflight before parity and before any rendering, using the rollout's actual
+   `--window_latents`. All six assignments must pass.
+4. **Panel price and trainer reserve.**
+   - The panel price is the measured base cost plus one unswapped same-length rollout (2 seeds) per shared-mode receiver.
+   - The forecast records `panel_base_h` and `panel_h_total` from the real donor plan.
+   - Train and extend reserve `panel_h_total × --reserve_panels`, not a fixed 2 h / 1 h.
+   - The cap is checked again right before the 24 h marker is published.
+5. **Forecast gate filter.** Gate costs are skipped only for PASS records whose gate key equals the production key (recorded
+   by timing).
+6. **Parity before training.** `MODE=train` requires the bound A@20k replay-parity PASS. Produce it with
+   `slurm/wan_panel.sh parity`.
+7. **Resume test.** It checks that leg B saved update 8 before leg three runs.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

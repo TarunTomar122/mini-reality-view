@@ -27,11 +27,12 @@ unswapped receiver run of that length, rendered here). Any blocked or missing sw
 Writes <wroot>/<name>_panel.json. Dev only.
   python scripts/wan_panel.py --ckpt runs/wan_s1/ckpt_12000.pt --name s1_12k --stage check
 """
-import argparse, glob, hashlib, json, os, subprocess, sys, time
+import argparse, glob, json, os, subprocess, sys, time
 from mrv import wan_plan as WP
 
 p = argparse.ArgumentParser()
-p.add_argument("--ckpt", required=True); p.add_argument("--name", required=True)
+p.add_argument("--ckpt", default=""); p.add_argument("--name", default="")
+p.add_argument("--parity_only", action="store_true", help="only (re)establish the bound A@20k RGB-path parity record (MODE=train needs it)")
 p.add_argument("--stage", default="check", choices=["check", "24h", "final"])
 p.add_argument("--wroot", default="runs/wroll")
 p.add_argument("--a_metrics", default="runs/troll/m_A20k_indep_dev.json")
@@ -46,7 +47,10 @@ p.add_argument("--poll_s", type=float, default=30.0, help="ledger deadline check
 p.add_argument("--swap_at", type=int, default=50)
 p.add_argument("--rollout_args", default="", help="extra flags for wan_rollout.py, e.g. '--steps 30 --cfg 1.0' (no --max_ticks)")
 a = p.parse_args()
+if not a.parity_only and not (a.ckpt and a.name):
+    raise SystemExit("--ckpt and --name are required (or --parity_only)")
 PY = sys.executable
+PARITY_RECORD = f"{a.wroot}/a20k_rgbpath_parity.json"
 MODES = ["hybrid", "guide", "tokens", "none"]
 roll_extra = a.rollout_args.split() if a.rollout_args else []
 if any(x.startswith("--max_ticks") or x in ("--swap", "--split", "--cond", "--seeds", "--drive_list") for x in roll_extra):
@@ -93,18 +97,6 @@ def run(cmd, what):
     return out
 
 
-def sha_file(f):
-    h = hashlib.sha256()
-    with open(f, "rb") as fh:
-        for b in iter(lambda: fh.read(1 << 24), b""):
-            h.update(b)
-    return h.hexdigest()
-
-
-def sha_files(fs):
-    return hashlib.sha256("".join(os.path.basename(f) + sha_file(f) for f in sorted(fs)).encode()).hexdigest()
-
-
 def tcompare(m):
     out = run([PY, "scripts/temporal_compare.py", "--compare", m, a.a_metrics, "--count_list", a.count_list, "--floor", "0", "--cold_ref", "B"], f"compare {m}")
     d = json.loads(out.split("TCOMPARE ", 1)[1].splitlines()[0])
@@ -116,11 +108,47 @@ def tcompare(m):
 
 
 import torch
+
+
+def ensure_parity():
+    """(re)establish the A@20k replay parity through the real-SD-to-RGB path, bound to references / adapter / scorer / decoder"""
+    BIND = WP.parity_binding(a.a_metrics, a.a_roll)
+    if not WP.parity_ok(PARITY_RECORD, BIND):
+        out = run([PY, "scripts/score_rgb.py", "--from_lat", a.a_roll, "--parity_ref", a.a_metrics, "--out", f"{a.wroot}/m_A20k_rgbpath.json"], "a20k_parity")
+        ok = "RGB_PATH_PARITY PASS" in out
+        json.dump({"pass": ok, "binding": BIND, "log": out[-500:], "when": time.time()}, open(PARITY_RECORD, "w"), indent=1)
+        if not ok:
+            fail("A@20k replay through the real-SD-to-RGB path differs from the signed metrics", "parity")
+    return BIND
+
+
+if a.parity_only:
+    B_ = ensure_parity(); print("A20K_PARITY PASS", json.dumps(B_)); LEDGER.stop(); raise SystemExit(0)
+
+# 0. swap preflight FIRST (Astra S1c item 3): all six real assignments must pass, with the rollout's actual window size, before
+#    any GPU work or budget is spent
+WIN = 5
+for i_, x_ in enumerate(roll_extra):
+    if x_ == "--window_latents" and i_ + 1 < len(roll_extra):
+        WIN = int(roll_extra[i_ + 1])
+    elif x_.startswith("--window_latents="):
+        WIN = int(x_.split("=", 1)[1])
+DJ = f"{a.wroot}/{a.name}_swap_donors.json"
+run([PY, "scripts/wan_swap_preflight.py", "--lists", a.lists, "--enc", a.enc, "--swap_at", str(a.swap_at), "--window_latents", str(WIN), "--out", DJ],
+    "swap preflight")
+PLAN = json.load(open(DJ)); DON = PLAN["donors"]
+if len(DON) != 6 or not PLAN.get("ok") or any(v is None for v in DON.values()):
+    fail(f"swap preflight: need six qualifying assignments, got {DON}")
+
+# 1. budget: the measured panel cost + one extra unswapped same-length rollout (2 seeds) per shared-mode donor (Astra S1c item 4)
 used = LEDGER.hours()
-if a.panel_estimate_h is None:  # the TIMED reserve (wan_forecast.py), never a zero default (Astra 08:30)
+FC = None
+if a.panel_estimate_h is None:  # the TIMED reserve (wan_forecast.py), never a zero default
     tj = a.timing_json or (sorted(glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
     try:
-        EST = float(json.load(open(tj))["forecast_final"]["panel_h"])
+        FC = json.load(open(tj))["forecast_final"]
+        # base panel cost (without shared references) + the shared references of THIS run's actual donor plan
+        EST = WP.panel_with_shared_h(float(FC.get("panel_base_h", FC["panel_h"])), DON, float(FC["roll_tick_s"]), float(FC["roll_start_s"]))
     except Exception as e:  # noqa: BLE001
         fail(f"no measured panel cost ({tj!r}: {type(e).__name__}); run MODE=timing or pass --panel_estimate_h")
 else:
@@ -137,24 +165,13 @@ if a.stage == "24h" and prior is not None:
 if a.stage == "final" and not (prior or "").startswith("EXTEND"):
     fail(f"final read without a qualifying 24 h EXTEND verdict (marker: {prior})")
 
-# 1. RGB-path parity, bound to references, adapter, scorer and decoder
-from huggingface_hub import snapshot_download
-sd_dir = snapshot_download("stabilityai/sd-vae-ft-mse", local_files_only=True)
-BIND = {"a_metrics": sha_file(a.a_metrics), "a_roll": sha_files(glob.glob(f"{a.a_roll}/*_s[0-9]*.pt")), "score_rgb": sha_file("scripts/score_rgb.py"),
-        "temporal_metrics": sha_file("scripts/temporal_metrics.py"), "sd_vae": sha_files([f for f in glob.glob(f"{sd_dir}/**", recursive=True) if os.path.isfile(f)])}
-par = f"{a.wroot}/a20k_rgbpath_parity.json"
-cached = json.load(open(par)) if os.path.exists(par) else {}
-if not (cached.get("pass") and cached.get("binding") == BIND):
-    out = run([PY, "scripts/score_rgb.py", "--from_lat", a.a_roll, "--parity_ref", a.a_metrics, "--out", f"{a.wroot}/m_A20k_rgbpath.json"], "a20k_parity")
-    ok = "RGB_PATH_PARITY PASS" in out
-    json.dump({"pass": ok, "binding": BIND, "log": out[-500:], "when": time.time()}, open(par, "w"), indent=1)
-    if not ok:
-        fail("A@20k replay through the real-SD-to-RGB path differs from the signed metrics", "parity")
+# 2. RGB-path parity, bound to references, adapter, scorer and decoder
+BIND = ensure_parity()
 DROPM = {k: (CK.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")}
 if all(v is not None for v in DROPM.values()):
     DROPM.update(guide_dropped=DROPM["p_drop_both"] + DROPM["p_drop_guide_only"], tokens_dropped=DROPM["p_drop_both"] + DROPM["p_drop_tokens_only"])
 res = {"ckpt": a.ckpt, "name": a.name, "stage": a.stage, "step": step, "production": PROD, "parity_binding": BIND, "modes": {},
-       "panel_estimate_h": EST, "train_dropout_marginals": DROPM}
+       "panel_estimate_h": EST, "train_dropout_marginals": DROPM, "window_latents": WIN, "swap_preflight": DJ}
 
 # 2-3. the four modes at fixed noise, full length
 dev = sorted(json.load(open(a.lists))["dev"])
@@ -177,11 +194,8 @@ for cond in MODES:
         CMP = d_
 MODES_OK = {"ok": not mode_why and set(res["modes"]) == set(MODES), "why": mode_why}
 
-# 4. camera swap on paired evidence: CPU preflight of the six donor assignments first (Astra / Neon 08:30)
+# 4. camera swap on paired evidence (donor plan from step 0)
 rd, hyb = f"{a.wroot}/{a.name}_swap_dev", f"{a.wroot}/{a.name}_hybrid_dev"
-DJ = f"{a.wroot}/{a.name}_swap_donors.json"
-run([PY, "scripts/wan_swap_preflight.py", "--lists", a.lists, "--enc", a.enc, "--swap_at", str(a.swap_at), "--out", DJ], "swap preflight")
-DON = json.load(open(DJ))["donors"]
 run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--split", "dev", "--seeds", "0,1", "--cond", "hybrid", "--swap", "--swap_at", str(a.swap_at),
      "--donors", DJ, "--out", rd, "--ledger", ""] + roll_extra, "rollout swap")
 REF = {}  # receiver -> folder of its unswapped reference run (full-length hybrid, or a same-length run for shared mode)
@@ -225,6 +239,9 @@ res["decision"] = WP.decide_s1(CMP, step, a.stage, SWAP, PROD, MODES_OK, prior)
 res["timing_s"] = timing; res["panel_hours"] = round((time.time() - T0) / 3600, 3)
 res["ledger_hours"] = round(LEDGER.hours(), 3); res["ledger_by_kind"] = LEDGER.by_kind()
 json.dump(res, open(f"{a.wroot}/{a.name}_panel.json", "w"), indent=1, default=str)
+if LEDGER.hours() > a.budget_hours:  # Astra S1c item 4: the last step may have finished between deadline polls
+    res["decision"]["verdict"] = f"INVALID (S1 budget exceeded at publication: {LEDGER.hours():.2f} h > {a.budget_hours} h; no marker)"
+    json.dump(res, open(f"{a.wroot}/{a.name}_panel.json", "w"), indent=1, default=str)
 if a.stage == "24h" and step >= WP.FLOOR_UPDATES and not res["decision"]["verdict"].startswith(("INVALID", "unresolved")):
     json.dump({"verdict": res["decision"]["verdict"], "panel": f"{a.wroot}/{a.name}_panel.json", "step": step, "ckpt": a.ckpt},
               open(MARK, "w"), indent=1)

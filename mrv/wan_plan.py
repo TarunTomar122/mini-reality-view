@@ -281,13 +281,16 @@ def decide_s1(cmp, step, stage, swap, prod=None, modes=None, prior_24h=None):
     # incomplete or non-finite panel, a non-production checkpoint or missing mode panels -> INVALID (no 24 h marker), never STOP
     swap_evidence = isinstance(swap, dict) and not swap.get("blocked") and _num(swap.get("donor_f1")) and _num(swap.get("receiver_f1"))
     g["swap_evidence"] = bool(swap_evidence)
-    evidence = all(g[k] for k in ("complete", "finite", "production", "modes", "swap_evidence"))
+    # Astra S1c item 1: ID / W must be ELIGIBLE (temporal_compare can_pass: every counting drive paired with a shared transition);
+    # can_pass False is incomplete evidence -> INVALID, never a threshold miss
+    g["eligible"] = vals["ID"][1] is True and vals["W"][1] is True
+    evidence = all(g[k] for k in ("complete", "finite", "production", "modes", "swap_evidence", "eligible"))
     others = evidence and all(g[k] for k in ("road_iou", "ID", "W", "swap"))
     all_pass = others and g["car_f1"]
     in_band = finite and EXT_LOW <= vals["car_f1"][0] < PASS_CAR_F1
     if stage not in ("check", "24h", "final"):
         raise ValueError(stage)
-    missing = [k for k in ("complete", "finite", "production", "modes", "swap_evidence") if not g[k]]
+    missing = [k for k in ("complete", "finite", "production", "modes", "swap_evidence", "eligible") if not g[k]]
     if step < FLOOR_UPDATES:
         verdict = "unresolved (below the 12k-update floor; A1)"
     elif stage == "check":
@@ -362,10 +365,15 @@ def swap_segments(rt, rh, dt, dh, swap_pos):
 
 
 def swap_preflight(recv, donor, W=5, swap_at=50, has_key=None):
-    """CPU preflight of one receiver / donor assignment (Astra / Neon 08:30). recv / donor: {"name", "ticks", "ok", "hard"}.
-    Checks: donor at least as long as the receiver (no truncation); the swapped run's segments and windows identical to the
-    unswapped full-length receiver's; common placement frames after the swap (receiver AND donor tick % 5 == 0, accepted, keys
-    present); structurally lag-eligible 5-tick windows (consecutive accepted donor ticks with keys, no restart inside).
+    """CPU preflight of one receiver / donor assignment (Astra / Neon 08:30; scorer-exact per Astra S1c item 2).
+    recv / donor: {"name", "ticks", "ok", "hard"}. Checks:
+      full_length       : donor at least as long as the receiver (no truncation);
+      windows_identical : the swapped run's segments / windows / noise keys == the unswapped receiver's (scripts/wan_rollout.py);
+      common_frames     : post-swap positions the two post-swap scores share (scripts/score_rgb.py --post_swap_only): receiver
+                          AND donor tick % 5 == 0, accepted for BOTH drives (ok and not hard), both keys present;
+      lag_windows       : windows the signed scorer can use (temporal_metrics.py lag block, exactly): i in [swap, first_reset - 4)
+                          with first_reset = the first restart after the swap; all 5 positions accepted with a donor key,
+                          consecutive donor ticks, no restart inside (the swap position itself is a restart: a window start).
     Lag eligibility also needs a nonzero cold car F1 on those ticks, which only scoring shows."""
     hk = has_key or (lambda sc, t: True)
     rt, rh, ro = recv["ticks"], recv["hard"], recv["ok"]
@@ -383,20 +391,26 @@ def swap_preflight(recv, donor, W=5, swap_at=50, has_key=None):
     segs = swap_segments(rt, rh, dt, dh, sp)
     win = lambda sg_: [[rt[g_[0]], w0, w1, n0] for g_ in sg_ for w0, w1, n0 in plan_windows(1 + -(-(len(g_) - 1) // 4), W)]
     res["windows_identical"] = segs == segs0 and win(segs) == win(segs0)
-    acc = lambda i: (ro[i] if i < sp else do[i]) and not (rh[i] if i < sp else dh[i])
-    res["common_frames"] = sum(1 for i in range(sp, n) if rt[i] % 5 == 0 and dt[i] % 5 == 0 and acc(i)
+    src_ok = [ro[i] if i < sp else do[i] for i in range(n)]       # the rollout's ok / hard = the source drive's
+    src_hard = [rh[i] if i < sp else dh[i] for i in range(n)]
+    acc = lambda i: src_ok[i] and not src_hard[i]
+    res["common_frames"] = sum(1 for i in range(sp, n) if rt[i] % 5 == 0 and dt[i] % 5 == 0 and acc(i) and ro[i] and not rh[i]
                                and hk(recv["name"], rt[i]) and hk(donor["name"], dt[i]))
-    restarts = set()
+    rst = [bool(h) for h in src_hard]  # the rollout's restart flags: hard ticks + every window's first new tick
     for g_ in segs:
         L = 1 + -(-(len(g_) - 1) // 4)
-        restarts |= {g_[f] for f in window_first_frames(L, W) if f < len(g_)}
+        for f in window_first_frames(L, W):
+            if f < len(g_):
+                rst[g_[f]] = True
+    first_reset = next((q for q in range(sp + 1, n) if rst[q]), n)
+    kseg = {j for j in range(n) if acc(j) and hk(donor["name"], dt[j])}  # positions the scorer has key masks for
     lag_w = 0
-    for i in range(sp, n - 4):
-        w = list(range(i, i + 5))
-        if all(acc(j) and hk(donor["name"], dt[j]) for j in w) and all(dt[w[q + 1]] == dt[w[q]] + 1 for q in range(4)) \
-                and not any(j in restarts for j in w[1:]):
-            lag_w += 1
-    res["lag_windows"] = lag_w
+    for i in range(sp, min(n, first_reset) - 4):
+        w = [j for j in range(i, i + 5) if j in kseg]
+        if len(w) < 5 or any(dt[w[q + 1]] != dt[w[q]] + 1 for q in range(4)) or any(rst[j] for j in w):
+            continue
+        lag_w += 1
+    res["lag_windows"] = lag_w; res["first_reset"] = first_reset
     res["ok"] = bool(res["windows_identical"] and res["common_frames"] > 0 and lag_w > 0)
     return res
 
@@ -431,6 +445,40 @@ def plan_donors(drives, W=5, swap_at=50, has_key=None):
                     chosen = {"donor": d, "mode": "shared", "n": n}; checks[r] = {**c, "mode": "shared"}; break
         out[r] = chosen
     return {"donors": out, "checks": checks, "ok": all(v is not None for v in out.values())}
+
+
+# ------------------------------------------------------------------------------------------------------------ replay parity
+def _sha_file(f):
+    import hashlib
+    h = hashlib.sha256()
+    with open(f, "rb") as fh:
+        for b in iter(lambda: fh.read(1 << 24), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def _sha_files(fs):
+    import hashlib
+    return hashlib.sha256("".join(os.path.basename(f) + _sha_file(f) for f in sorted(fs)).encode()).hexdigest()
+
+
+def parity_binding(a_metrics, a_roll):
+    """what the A@20k RGB-path replay parity is bound to (Astra S1b 7): the signed metrics file, every reference rollout file,
+    the RGB adapter (scripts/score_rgb.py), the signed scorer (scripts/temporal_metrics.py) and the SD VAE files"""
+    import glob
+    from huggingface_hub import snapshot_download
+    sd_dir = snapshot_download("stabilityai/sd-vae-ft-mse", local_files_only=True)
+    return {"a_metrics": _sha_file(a_metrics), "a_roll": _sha_files(glob.glob(f"{a_roll}/*_s[0-9]*.pt")),
+            "score_rgb": _sha_file("scripts/score_rgb.py"), "temporal_metrics": _sha_file("scripts/temporal_metrics.py"),
+            "sd_vae": _sha_files([f for f in glob.glob(f"{sd_dir}/**", recursive=True) if os.path.isfile(f)])}
+
+
+def parity_ok(record_path, binding):
+    """True iff the recorded replay parity PASSED under exactly this binding"""
+    if not os.path.exists(record_path):
+        return False
+    r = json.load(open(record_path))
+    return bool(r.get("pass")) and r.get("binding") == binding
 
 
 # ------------------------------------------------------------------------------------------------------------ forecast
@@ -469,6 +517,12 @@ def panel_cost_h(dev_ticks_x_seeds, roll_tick_s, roll_start_s, score_tick_s, sco
 
 
 # ------------------------------------------------------------------------------------------------------------- budget
+def panel_with_shared_h(panel_h, donors, roll_tick_s, roll_start_s):
+    """measured panel cost + one extra UNSWAPPED same-length hybrid rollout (2 seeds) per shared-mode receiver (Astra S1c item 4)"""
+    extra = sum(roll_start_s + 2 * int(v["n"]) * roll_tick_s for v in donors.values() if v and v.get("mode") == "shared")
+    return panel_h + extra / 3600
+
+
 class Ledger:
     """S1 slice-hour ledger (Astra items 11 / S1b 10). ONE jsonl file of heartbeats {"job", "kind", "t0", "t"[, "note"]}.
     Whole allocation: slurm/wan_teacher.sh and slurm/wan_panel.sh start ONE outer heartbeat for the entire allocation

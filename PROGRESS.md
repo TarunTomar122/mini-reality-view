@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 05:29 UTC — clean suite PASS on final hashes; control "vctl" TRAINING; cache 57 / 144
+- Clean suite 3756357: CLEAN_TESTS_SH FAILS=0 (CPU tests, full-model T1 / T3a / T4 with first tick vs A exactly 0 on H200, T5, T6, T7 frozen guard / resume / recipe refusal, T7b vmix jitter / coin / pin / hold / pickup fixtures). 100-update timing on the H200-3g slice: 0.614 s / update (memory pass 0.150 s, data 0.022 s).
+- launch-vctl 3756388 passed its gate (--arm vclean --control) and started the A5 key + jitter control on the slice: 300 updates at 05:29 (loss ~0.006).
+- Cache batch-1 rebuild 57 / 144 at 05:29; cache check 3756387 after. Hourly review 05:30 dispatched.
+
 ## 2026-11-28 04:59 UTC — batch-1 cache: parity EXACT on the pinned drive (max |diff| 0, 162 / 162 ticks)
 - scene-0005 re-rendered by the unchanged builder at batch 1 vs the pinned causal_rollout reference: max |latent diff| 0.0 on all 162 ticks -> the batch-8 failure was entirely batch-layout fp16 divergence. Full rebuild (12 shards) continues (~06:35); cache check 3756387 runs after it. Then vmix takes the slice (the control yields).
 

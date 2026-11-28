@@ -1,0 +1,84 @@
+#!/bin/bash
+# Signed compares for one vmix check (CPU). Copy of slurm/vpriv_score.sh (unchanged) adapted to vmix:
+#   candidate runs/troll/m_X<k>k_dev.json vs signed A@20k (runs/troll/m_A20k_indep_dev.json, A-derived k=3 count list
+#   runs/count/count_A20k_dev_k3.json, floor 0, cold_ref B). At rollout rho 1.0 the memory-off cold IS signed A@20k, so the
+#   "own cold" compare uses the SAME A@20k files (written as cmp_X<k>k__own_cold_A20k.json; there is no Aoff_rho0.95 cold for
+#   this arm). Both outputs must contain a complete panel (6 drives, 12 runs) or the job FAILS; then the A1 decision at 8k / 12k
+#   / 16k (scripts/a1_decide_vmix.py: signed bars + A4 ghost / road pass conditions; stop logic unchanged), and at 12k the
+#   stage-2 resume to 16k unless A1 says stop; leave-one-drive-out last (report only, cannot mask a failure above).
+# 'vmix_score.sh early <8k score job id>': resume to 16k right after stage 1 if the 8k decision is safe (then the 12k decision
+#   cannot stop the run); only after that 8k score job COMPLETED.
+# The continuation resumes scripts/train_clean.py --resume --steps 16000 with the SAME gate record, rho and cache record as the
+# launch receipt (runs/vmix_gate/SUBMITTED); the trainer re-verifies both and its resume identity (gate digest, approved record,
+# pin) itself.
+#   sbatch -d afterok:<metrics> --cpus-per-task=1 --mem=4G --time=0:30:00 -J xcmp<k>k -o logs2/%x-%j.out slurm/vmix_score.sh <k>
+cd $HOME/mini-reality-view; set -o pipefail
+export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1
+mkdir -p $PWD/runs/tmp && export TMPDIR=$PWD/runs/tmp  # /tmp on saxa filled up (Neon 02:30: LODO ENOSPC)
+PY=.venv/bin/python
+cont() {  # stage-2 resume 12k -> 16k (caller holds the gate lock and has checked A1_STOPPED / CONTINUED / CONT_PENDING)
+    Q=$(squeue -u $USER -h -n vmix -o %i) || { echo "SCORE_FAIL squeue"; exit 1; }
+    [ -z "$Q" ] || { echo "SCORE_FAIL vmix job $Q still queued at the continuation"; exit 1; }
+    STEP=$($PY -c "import torch;print(torch.load('runs/vmix/ckpt.pt',map_location='cpu',weights_only=False,mmap=True)['step'])") || exit 1
+    [ "$STEP" = 12000 ] || { echo "SCORE_FAIL runs/vmix/ckpt.pt step $STEP != 12000"; exit 1; }
+    RHO=$(grep -o " rho=[0-9.]*" $G2/SUBMITTED | cut -d= -f2); GREC=$(grep -o " gate=[^ ]*" $G2/SUBMITTED | cut -d= -f2)
+    CREC=$(grep -o " cache_record=[^ ]*" $G2/SUBMITTED | cut -d= -f2)
+    case "$RHO" in 1.0|0.95) ;; *) echo "SCORE_FAIL no rho in SUBMITTED"; exit 1;; esac
+    [ -s "$GREC" ] && [ -s "$CREC" ] || { echo "SCORE_FAIL gate / cache record from SUBMITTED missing ($GREC, $CREC)"; exit 1; }
+    echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING && [ -s $G2/CONT_PENDING ] || { echo "SCORE_FAIL cannot write the continuation intent"; exit 1; }
+    J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=3:00:00 -J vmix -o logs2/%x-%j.out \
+        slurm/py.sbatch scripts/train_clean.py --arm vmix --init runs/longA/ckpt_20000.pt --out runs/vmix --rho_gate $RHO \
+        --gate_record $GREC --cache_record $CREC --steps 16000 --resume 2>$G2/cont_sbatch.err)
+    if ! [[ "$J" =~ ^[0-9]+$ ]]; then
+      echo "SCORE_FAIL continuation sbatch failed ('$J', $(head -1 $G2/cont_sbatch.err)); CONT_PENDING kept: reconcile by hand (sacct -n -X --name=vmix)"; exit 1; fi
+    echo "job=$J resume 12000->16000 rho=$RHO gate=$GREC cache_record=$CREC" > $G2/CONTINUED && grep -q "job=$J" $G2/CONTINUED || { echo "SCORE_FAIL receipt"; exit 1; }
+    echo "CONTINUED vmix to 16k: job $J"
+}
+G2=runs/vmix_gate
+if [ "$1" = early ]; then  # resume without waiting for the 12k score: allowed only if the 8k A1 decision is safe (JSON true)
+  # and was written by the CURRENT 8k score job ($2), which must have COMPLETED
+  [[ "$2" =~ ^[0-9]+$ ]] || { echo "SCORE_FAIL early needs the 8k score job id"; exit 1; }
+  ST=$(sacct -n -X -P -S now-3days -j $2 -o State | head -1) || { echo "SCORE_FAIL sacct"; exit 1; }
+  [ "$ST" = COMPLETED ] || { echo "SCORE_FAIL 8k score job $2 is '$ST', not COMPLETED: no early continuation"; exit 1; }
+  exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }
+  flock -w 600 9 || { echo "SCORE_FAIL gate lock not acquired"; exit 1; }
+  SAFE=$($PY -c "import json,sys;s=json.load(open('$G2/a1_8k.json'))['safe'];sys.exit(1) if not isinstance(s,bool) else print('safe' if s else 'unsafe')") \
+      || { echo "SCORE_FAIL reading a1_8k (safe must be a JSON boolean)"; exit 1; }
+  [ "$SAFE" = safe ] || { echo "8k not safe: no early continuation (the 12k decision decides)"; exit 0; }
+  [ -e $G2/A1_STOPPED ] && { echo "SCORE_FAIL A1_STOPPED exists although 8k is safe"; exit 1; }
+  if [ -e $G2/CONTINUED ]; then echo "already continued ($(cat $G2/CONTINUED))"; exit 0; fi
+  [ -e $G2/CONT_PENDING ] && { echo "SCORE_FAIL ambiguous continuation ($(cat $G2/CONT_PENDING)): reconcile by hand"; exit 1; }
+  for i in $(seq 1 20); do Q=$(squeue -u $USER -h -n vmix -o %i) || { echo "SCORE_FAIL squeue"; exit 1; }; [ -z "$Q" ] && break; sleep 30; done
+  cont; echo "EARLY_CONTINUE_DONE (8k safe)"; exit 0
+fi
+k=$1; M=runs/troll/m_X${k}k_dev.json
+[[ "$k" =~ ^[0-9]+$ ]] || { echo "SCORE_FAIL bad k '$k'"; exit 1; }
+[ -s $M ] || { echo "SCORE_FAIL missing $M"; exit 1; }
+o=runs/s_lock/cmp_X${k}k__A20k_indep_dev.json
+$PY scripts/temporal_compare.py --compare $M runs/troll/m_A20k_indep_dev.json --count_list runs/count/count_A20k_dev_k3.json --floor 0 \
+    --cold_ref B > $o || { echo "SCORE_FAIL compare vs A20k_indep_dev"; exit 1; }
+$PY -c "import json,sys;d=json.loads(open('$o').read().split('TCOMPARE ',1)[1]);sys.exit(0 if d['drives']==6 and d['runs']==12 and not d['unpaired_drives'] else 1)" \
+    || { echo "SCORE_FAIL incomplete panel $o"; exit 1; }
+echo "compare vs A20k_indep_dev ok"
+# own cold at rho 1.0 = signed A@20k memory-off: the same comparator inputs, recorded under the own-cold name for the report
+cp $o runs/s_lock/cmp_X${k}k__own_cold_A20k.json || { echo "SCORE_FAIL own-cold record"; exit 1; }
+echo "own cold == A20k_indep_dev (rollout rho 1.0, memory off = signed A@20k)"
+case $k in 8|12|16) $PY scripts/a1_decide_vmix.py $k || { echo "SCORE_FAIL A1 decision"; exit 1; };; esac
+if [ $k = 12 ]; then  # stage 2: resume 12k -> 16k only if the 12k A1 decision allows (training paused at 12k by design)
+  exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }
+  flock -w 600 9 || { echo "SCORE_FAIL gate lock not acquired"; exit 1; }
+  STOP=$($PY -c "import json,sys;s=json.load(open('$G2/a1_12k.json'))['stop'];sys.exit(1) if not isinstance(s,bool) else print('stop' if s else 'continue')") \
+      || { echo "SCORE_FAIL reading a1_12k (stop must be a JSON boolean)"; exit 1; }
+  case "$STOP" in stop|continue) ;; *) echo "SCORE_FAIL bad A1 stop value '$STOP'"; exit 1;; esac
+  if [ "$STOP" = "stop" ]; then
+    touch $G2/A1_STOPPED && [ -e $G2/A1_STOPPED ] || { echo "SCORE_FAIL cannot write the A1 stop marker"; exit 1; }
+    echo "A1 STOP at 12k (two consecutive safety misses): vmix is NOT continued"
+  elif [ -e $G2/CONTINUED ]; then echo "already continued ($(cat $G2/CONTINUED))"
+  elif [ -e $G2/CONT_PENDING ]; then echo "SCORE_FAIL ambiguous continuation ($(cat $G2/CONT_PENDING)): reconcile by hand"; exit 1
+  else
+    cont
+  fi
+  exec 9>&-
+fi
+$PY scripts/lodo.py $M runs/troll/m_A20k_indep_dev.json --out runs/s_lock/lodo_X${k}k_vs_A20k.json || echo "LODO failed (report only)"
+echo "SCORE_DONE ${k}k"

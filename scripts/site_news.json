@@ -102,5 +102,9 @@
  {
   "when": "28 Nov, 03:10",
   "text": "Private-noise version at 8k (the first check that counts): car jumps are 10% below A, but wobble is level with A, and car accuracy and drift both crossed their safety limits, with more fake cars lingering (18 vs 4 per drive). One more safety miss at 12k stops this version. The next design (memory that reads the finished picture of past frames) is coded and passing its first tests."
+ },
+ {
+  "when": "28 Nov, 03:30",
+  "text": "Private-noise version stopped at 12k under the pre-agreed rule (two safety misses in a row): car accuracy and drift were both over their limits at 8k and 12k, although smoothness kept improving (12k: 15% fewer car jumps and 7% less wobble than A; the bar is 9.4% on both). The next design's first test also missed, so the council is designing round 2."
  }
 ]

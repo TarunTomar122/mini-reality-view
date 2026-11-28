@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 03:29 UTC — vpriv 12k GATED: second consecutive safety miss -> A1 STOP; vpriv CLOSED at 12k
+- P12k signed panel vs A@20k: ID 0.0876 vs 0.1030 (-14.9%, CI of diff -0.029..-0.006), W 27.01 vs 28.96 (-6.7%, CI -3.17..-0.47) -> smaller reduction 6.7% (bar > 9.4%): no smoothness pass (closest of any causal arm so far); car F1 0.406 vs 0.4456 (-0.0392, CI -0.081..-0.009; floor -0.03) MISS; late gap +0.0332 (CI +0.029..+0.038; cap +0.03) MISS; road IoU -0.021 (CI -0.039..-0.010); lingering ghosts 16.3 vs 4.33.
+- A1 (runs/vpriv_gate/a1_12k.json): safe false, prev_safe false -> stop true; A1_STOPPED written; stage 2 NOT submitted (training ended at 12k by design, nothing to cancel). The 16k check is skipped. Trend 8k -> 12k: smoothness better (W +0.5% -> -6.7%), safety slightly better but still over both limits.
+- vclean's pre-launch probe said R2 -> next arm needs council round r2 (folded into the 03:30 hourly review). H200 slice now idle; clean suite 3756259 stays held until a signed arm exists.
+
 ## 2026-11-28 03:18 UTC — vclean pre-launch probe: R2 (valid miss); clean T2 PASS (gate rho 1.0 admissible); vpriv 8k LODO robust
 - A4 probe (scripts/clean_probe.py, 2080 Ti, ~5 min per checkpoint incl. setup, all admission checks passed; runs/probe/clean_probe_8k12k.json): vpriv blocks reading FINAL-call (t* = 1) features of genuinely generated prefixes at rho 1.0, recipient eps-MSE, paired, drive means:
   8k:  t300 donor-true -0.0038 (true WORSE than a stranger's past; 1 / 6 drives positive), off-true -0.0311 (true ~30% worse than memory off; 0 / 6), t700 off-true -0.0063 (0 / 6); teacher-forced (real key latents at t*) gain +0.0198.

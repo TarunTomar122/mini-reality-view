@@ -156,9 +156,14 @@
    "jumpier than A at every check (16k: +58% car jumps, +15% wobble) -> no pass; car accuracy just inside its limit, drift near zero"
   ],
   [
+   "done",
+   "Private-noise version (stopped at 12k)",
+   "smoother each check (12k: -15% car jumps, -7% wobble vs A) but car accuracy and drift over their limits at 8k and 12k -> stopped by the agreed rule"
+  ],
+  [
    "now",
-   "Live model, private-noise version (training)",
-   "each training frame gets its own noise so it must use what the past shows; trains to 12k, pauses for the 12k check, then to 16k if safe; checks at 2k / 4k (look only), 8k / 12k / 16k (count)"
+   "Next design (council round 2)",
+   "memory that reads the finished picture of past frames: real past frames help, but frames the model drew itself hurt so far; council redesigning"
   ],
   [
    "later",

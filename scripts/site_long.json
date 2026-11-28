@@ -153,7 +153,7 @@
   [
    "done",
    "Trained the live model (16k steps)",
-   "cars accurate and no drift, but jumpier than A at every check (16k: +58% car jumps, +15% wobble) -> no pass"
+   "jumpier than A at every check (16k: +58% car jumps, +15% wobble) -> no pass; car accuracy just inside its limit, drift near zero"
   ],
   [
    "now",

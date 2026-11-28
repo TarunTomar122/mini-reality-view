@@ -137,7 +137,7 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <section class="now" id="now">
     <h2>Right now</h2>
     <p class="goal">Goal: a smooth video that can run LIVE (frame by frame, never looking ahead), with cars in the right place.</p>
-    <p>The first live video model (A frozen + small time layers that look back 4 frames) finished all 16,000 training steps. Cars stayed accurate and nothing drifted, but it was JUMPIER than A at every check, so it did not pass. That triggers the fix the council agreed in advance: train the same thing again, but give every frame its own private noise while training, so the time layers have to learn from what the past frames show instead of copying the shared noise pattern. It starts as soon as the last test run passes and Astra signs the code. The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
+    <p>The first live video model (A frozen + small time layers that look back 4 frames) finished all 16,000 training steps. Car accuracy stayed just inside its limit and the picture barely drifted, but it was JUMPIER than A at every check, so it did not pass. That triggers the fix the council agreed in advance: train the same thing again, but give every frame its own private noise while training, so the time layers have to learn from what the past frames show instead of copying the shared noise pattern. It starts as soon as the last test run passes and Astra signs the launch code; it trains to 12k, pauses while 12k is scored, and continues to 16k only if the safety bars allow. The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
 
     <h3>Closed: the memory version (one past frame) vs A</h3>
     <div class="race" id="race"></div>
@@ -152,14 +152,14 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
 
     <h3>Live model, all checks (noise mix 0.95)</h3>
     <img src="figs/vlive_2k_16k.png" alt="Live video model vs A at 2k to 16k: jumpier than A at every check; car accuracy and drift fine" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
-    <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k were look-only; 8k, 12k and 16k counted: no pass on smoothness at any of them, while cars stayed accurate (16k: 0.435 vs A 0.446, allowed down to 0.416) and drift stayed at zero. Dropping any one drive does not change this.</p>
+    <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k were look-only; 8k, 12k and 16k counted: no pass on smoothness at any of them, Car accuracy stayed just inside its limit (16k: 0.435 vs A 0.446, allowed down to 0.416, but the error margin reaches below the limit) and it found slightly fewer real cars; drift was near zero (+0.002, limit +0.03). Dropping any one drive does not change the verdict.</p>
 
-    <h3>Watch it</h3>
+    <h3>Watch it (live model at 16k)</h3>
     <div class="vids">
-      <figure><video src="videos/scene-0234_fix15k.mp4" controls muted loop playsinline preload="metadata"></video>
-        <figcaption>Turn past parked cars at 15k. Panels: game answer key | A (no memory) | old recipe with memory | fix 2 with memory.</figcaption></figure>
-      <figure><video src="videos/scene-0396_fix15k.mp4" controls muted loop playsinline preload="metadata"></video>
-        <figcaption>Busy street at 15k, same panels. Old recipe piles up cars on the horizon; fix 2 is much closer to the key but a small grey patch and an extra car start to appear on the right late in the drive.</figcaption></figure>
+      <figure><video src="videos/scene-0396_vlive16k.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Road lined with parked cars. Panels: game answer key | A (no memory) | A with memory off at the same noise | live model at 16k. The live model's cars come out paler and it drops the person on the left; look for flicker between frames.</figcaption></figure>
+      <figure><video src="videos/scene-0234_vlive16k.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Turn past parked cars, same panels.</figcaption></figure>
     </div>
     <p class="small">Parked for now: the car map (placing cars more exactly). It only ever got 1,000-2,000 training steps, so it is not ruled out.</p>
   </section>

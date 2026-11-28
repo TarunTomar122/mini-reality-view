@@ -12,7 +12,7 @@
 #    the 3.14 h scoring cap): 7 jobs, one per scoring:
 #      for W in hybrid guide tokens none swap_full swap_postdonor swap_postrecv; do
 #        sbatch $G --time=4:00:00 -J wsc-$W -o logs2/%x-%j.out slurm/wan_score.sh panel s1_24h $W 0/1; done
-#    then slurm/wan_panel.sh decide <ckpt> s1_12k <stage> (CPU).
+#    then slurm/wan_panel.sh decide <ckpt> s1_24h <stage> (CPU).
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp
 mkdir -p $TMPDIR logs2

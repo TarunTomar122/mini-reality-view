@@ -24,3 +24,8 @@ a99309e3d39ae08f9bc8d567a3c318974f9b4bfd14638e2ccfeea52b714a6d7f  scripts/score_
 ```
 fa6af9ae37619e796916cf641dcc4fda86675729aaed39a410024629cbe07fde  scripts/wan_gate_adjudicate.py
 ```
+
+## Resume-test checker (14:35 UTC; Neon 14:30): used by MODE=resume_test, now frozen and read-only on both sides
+```
+4126c768e8b02909071aaa2c9fcf930a8c7700637b6115c54ce6cac258b7c2f4  scripts/wan_resume_check.py
+```

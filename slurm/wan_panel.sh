@@ -4,11 +4,11 @@
 #      wan_rollout.py --plan process (Wan loaded once) renders hybrid / guide / tokens / none + swap + shared references, writes
 #      runs/wroll/<name>_rgb_manifest.json (+ .sha256); debits the S1 ledger; the slice is released afterwards.
 #      sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=4:00:00 -J wan-panel -o logs2/%x-%j.out \
-#             slurm/wan_panel.sh runs/wan_s1/ckpt_12000.pt s1_12k 24h
+#             slurm/wan_panel.sh runs/wan_s1/ckpt.pt s1_24h 24h   (the budget-stop rolling checkpoint, >= 12,000 updates; council 13:30)
 #   2. SCORE on 2080 Ti jobs (slurm/wan_score.sh panel <name> <what> <i/n>; own ledger + cap, reported separately).
 #   3. DECIDE on CPU (no slice time; needs the bound 2080 Ti scorer-parity PASS and complete score shards of THIS render):
 #      sbatch --cpus-per-task=2 --mem=16G --time=1:00:00 -J wan-decide -o logs2/%x-%j.out \
-#             slurm/wan_panel.sh decide runs/wan_s1/ckpt_12000.pt s1_12k 24h
+#             slurm/wan_panel.sh decide runs/wan_s1/ckpt.pt s1_24h 24h   (the budget-stop rolling checkpoint, >= 12,000 updates; council 13:30)
 #   The A@20k replay parity moved off the slice: slurm/wan_score.sh parity (+ parity_check).
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp

@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 04:59 UTC — batch-1 cache: parity EXACT on the pinned drive (max |diff| 0, 162 / 162 ticks)
+- scene-0005 re-rendered by the unchanged builder at batch 1 vs the pinned causal_rollout reference: max |latent diff| 0.0 on all 162 ticks -> the batch-8 failure was entirely batch-layout fp16 divergence. Full rebuild (12 shards) continues (~06:35); cache check 3756387 runs after it. Then vmix takes the slice (the control yields).
+
 ## 2026-11-28 04:53 UTC — launch order decided: the signed key + jitter CONTROL trains now; vmix after the batch-1 cache passes
 - Council: Astra first A (vmix with --cache_pending now), Fable B (control now: A buys only updates 1-2000 then holds ~1.5 h, and gets nothing if batch 1 also fails parity); after the swap the votes crossed (Astra final B; Fable final A with conditions: vmix banks updates 1-2000 first because the trainer exits at the hold, the control fills the freed slice, parity of scene-0005 first). Both seats endorsed B at some point and B meets all of Fable's conditions with one slice handoff instead of two; the cost is ~0.3 h on vmix. Builder kept B (already queued). Deviation logged (Fable): A5 said the control runs "only if attribution is needed"; running it early is justified by the idle slice alone; it is not a new arm and its 2k / 4k checks carry no verdict. vmix keeps priority: when the batch-1 cache passes, the control saves, yields the slice and resumes after vmix.
 - launch-vctl 3756388 (afterok clean suite 3756357; gate record vclean_gate.py --arm vclean --control + --verify; train_clean.py --arm vclean --jitter 1,41,81 --out runs/vctl, one H200-3g slice). launch_vmix.sh gained a pending mode (not used now).

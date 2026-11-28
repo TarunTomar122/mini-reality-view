@@ -48,7 +48,7 @@ Staging + trust (council/s1-timing-r1-CONVERGED.md items 2, 3, 5; mrv/wan_stage.
   as a CHANGE ALARM only (mismatch -> refuse, "re-run verify_manifest"). Caches are memory-mapped from the stage dir. The
   manifest sha goes into the gate key and every run record beside DATA_SHA; the per-start re-hash (--verify_cache) is gone.
   Start-up (process start / allocation -> first update) and stage-in seconds / bytes are recorded (args.json "stage",
-  log.jsonl "startup"). The cgroup limit must hold staged bytes + 48 GB (refused otherwise; slurm/wan_teacher.sh too).
+  log.jsonl "startup"). The Slurm request must be >= (staged bytes + 45 GB RSS) / 0.80 (refused otherwise; slurm/wan_teacher.sh too).
 - F5: --micro and --grad_ckpt are REQUIRED in every mode (slurm: MICRO / GRAD_CKPT), recorded in the recipe and the gate key;
   overfit / resume test / train / extend refuse unless they equal the newest timing.json "selected_setting" and its
   "retime_pass" (scripts/wan_forecast.py) passed every rule, and the timing ran with the same gate key.

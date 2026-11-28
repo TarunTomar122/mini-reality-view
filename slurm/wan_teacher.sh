@@ -24,10 +24,11 @@ export MRV_ALLOC_T0=$(date +%s.%N)  # start-up is measured from here (allocation
 #     re-time's selected_setting, and refuse unless timing.json retime_pass passed every rule)
 # Staging: the trainer copies the token + latent caches it uses and the Wan weights to /dev/shm/mrv_<job> (8 streams, hashed on
 # copy against the manifest); the EXIT trap below removes it. Files in /dev/shm count against the job's memory cgroup:
-#   --mem = staged bytes + 48 GB = $(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)   [train / timing]
-#           ($(... need --manifest ... --no_dev) for overfit / resume_test, which open no dev drives); with ~86 GB of tokens
-#           (150 drives) + ~2.4 GB latents + the Wan folder this is about 145G. The script refuses (exit 9) when it can read a
-#           cgroup limit below that.
+#   --mem >= (staged bytes + 45 GB measured trainer RSS) / 0.80, rounded up to 10 G
+#         = $(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)   [train / timing]
+#           ($(... need --manifest ... --no_dev) for overfit / resume_test, which open no dev drives); staged 97.56 GB (tokens
+#           86.59 + latents 4.78 + Wan 6.18, measured) -> (97.56 + 45) / 0.80 = 178 GB -> 170G. The script refuses (exit 9) when
+#           the Slurm request (or a readable cgroup limit) is below that.
 # Submit (resubmit the same line to continue after a time limit; --resume picks up runs/wan_s1/ckpt.pt):
 #   M=$(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)
 #   sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=$M --time=2:00:00 -J wan-timing -o logs2/%x-%j.out \
@@ -56,7 +57,7 @@ fi
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 sha256sum mrv/wan_cond.py mrv/wan_plan.py mrv/wan_stage.py scripts/train_wan_teacher.py scripts/wan_rollout.py scripts/wan_panel.py slurm/wan_teacher.sh $MANIFEST
 echo "start $(date -u) on $(hostname) mode=$MODE micro=$MICRO grad_ckpt=$GRAD_CKPT manifest=$MANIFEST stage=$STAGE"
-# F1: staged files count against this job's memory cgroup: refuse before any work if the limit cannot hold them + 48 GB
+# F1: staged files count against this job's memory cgroup: refuse before any work if the request < (staged + 45 GB) / 0.80
 ND=; case $MODE in overfit|resume_test) ND=--no_dev ;; esac
 $PY -m mrv.wan_stage memcheck --manifest $MANIFEST $ND || { echo "memory request too small for the stage-in (see MEMCHECK above)"; exit 9; }
 # S1b item 10: ONE heartbeat charges the WHOLE allocation (every step below, the timing scorer and the shell included);

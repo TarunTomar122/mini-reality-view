@@ -739,6 +739,13 @@ def merge_score_shards(parts, what, manifest, manifest_sha, parity_rec, receipts
     return out, why
 
 
+def ledger_slurm_id(jid):
+    """Slurm job id of a ledger job key "<alloc|proc>-<SLURM_JOB_ID>-<pid>-<t0>" (Neon 11:30 P0: the 2080 Ti heartbeats of
+    slurm/wan_score.sh were written as "proc-<job>-..." with kind score_*; both prefixes are one allocation's charge) or None"""
+    parts = str(jid).split("-")
+    return parts[1] if len(parts) >= 4 and parts[0] in ("alloc", "proc") else None
+
+
 def active_reserved_h(reservations, jobs, kind, now=None, exclude=None):
     """Astra t1 item 14: hours still reserved by OTHER live scoring workers of this panel: per reservation {job, est_h}, if that
     Slurm job's ledger entry (kind) is still beating, its estimate minus what it has already been charged"""
@@ -748,7 +755,7 @@ def active_reserved_h(reservations, jobs, kind, now=None, exclude=None):
         if exclude is not None and str(r.get("job")) == str(exclude):
             continue
         for jid, j in jobs.items():
-            if j.get("kind") == kind and jid.startswith(f"alloc-{r.get('job')}-") and not j.get("ended") and now - j["t"] <= 2 * j.get("beat_s", 60.0):
+            if j.get("kind") == kind and ledger_slurm_id(jid) == str(r.get("job")) and not j.get("ended") and now - j["t"] <= 2 * j.get("beat_s", 60.0):
                 # Astra t2 item 14: the reservation holds its estimate from the moment it was MADE (not the allocation start)
                 tot += max(0.0, float(r.get("est_h", 0.0)) - (now - float(r.get("t", now))) / 3600)
                 break
@@ -760,7 +767,7 @@ def reconcile_scoring(receipts, jobs, kind, cap_h, now=None):
     the score ledger, no worker of the kind may still be live, and the total charge must be within the cap -> (ok, why, spent)"""
     why = []
     kj = {jid: j for jid, j in jobs.items() if j.get("kind") == kind}
-    ids = {jid.split("-")[1] for jid in kj if jid.startswith("alloc-")}
+    ids = {ledger_slurm_id(jid) for jid in kj} - {None}
     if not kj:
         why.append(f"no {kind} charges in the score ledger")
     miss = sorted({str(r.get("job")) for r in receipts} - ids)
@@ -1261,7 +1268,8 @@ class Ledger:
         s.path, s.kind, s.beat_s = path, kind, beat_s
         s.t0 = time.time()
         s.write = (not os.environ.get("WAN_LEDGER_OUTER")) if write is None else write
-        s.job = f"{'alloc' if kind.startswith('alloc') else 'proc'}-{os.environ.get('SLURM_JOB_ID', 'local')}-{os.getpid()}-{int(s.t0)}"
+        # an allocation-wide outer heartbeat: alloc_* (slice) and score_* (slurm/wan_score.sh, 2080 Ti) kinds (Neon 11:30 P0)
+        s.job = f"{'alloc' if kind.startswith(('alloc', 'score_')) else 'proc'}-{os.environ.get('SLURM_JOB_ID', 'local')}-{os.getpid()}-{int(s.t0)}"
         s._stop = threading.Event()
         if path:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)

@@ -162,6 +162,7 @@ def sample(z, extra, tok, ray):
 
 
 _DRIVES = {}
+_ENC = {}  # (drive, tick index) frame sequence of a segment -> guide latents + folded source planes (reused across seeds / modes)
 
 
 def load_drive(sc):
@@ -312,11 +313,20 @@ def render():
                 Ls = len(seg); Lz = 1 + -(-(Ls - 1) // 4); Fv = 4 * Lz - 3
                 fr = seg + [seg[-1]] * (Fv - Ls)  # tail padded by repeating the last tick's inputs (outputs discarded)
                 torch.cuda.synchronize(); t0 = time.time()
-                gvid = torch.stack([src[i][0]["G"]["rgb"][src[i][1]] for i in fr], 1).float().div(127.5).sub(1)[None].to(dev)
-                zg = WC.wan_encode(vae, gvid)
-                slr = torch.stack([src[i][0]["src_lr"][src[i][1]] for i in fr])  # [Fv, 2, 32, 64]
                 spans = WP.latent_spans(Lz, first_single=True)
-                extra = torch.cat([zg, WC.fold_src(slr, spans)[None].to(dev)], 1)
+                # Neon 11:30: the guide's Wan-VAE encoding + folded source planes depend only on WHICH (drive, tick) frames feed the
+                # segment, never on the seed or the conditioning mode: computed once per exact frame sequence in this process and
+                # reused bit-for-bit (the rehearsal's load-once vs fresh-load byte equality checks it)
+                ekey = tuple((src[i][0]["sc"], int(src[i][1])) for i in fr)
+                extra = _ENC.get(ekey)
+                if extra is None:
+                    gvid = torch.stack([src[i][0]["G"]["rgb"][src[i][1]] for i in fr], 1).float().div(127.5).sub(1)[None].to(dev)
+                    zg = WC.wan_encode(vae, gvid)
+                    slr = torch.stack([src[i][0]["src_lr"][src[i][1]] for i in fr])  # [Fv, 2, 32, 64]
+                    extra = torch.cat([zg, WC.fold_src(slr, spans)[None].to(dev)], 1)
+                    _ENC[ekey] = extra; tm["encode_cache_miss"] = tm.get("encode_cache_miss", 0) + 1
+                else:
+                    tm["encode_cache_hit"] = tm.get("encode_cache_hit", 0) + 1
                 tok = ray = None
                 if USE_TOK:
                     tl, rl = [], []

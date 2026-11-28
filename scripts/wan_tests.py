@@ -471,7 +471,8 @@ with _tf.TemporaryDirectory() as td:
           _refused(WS.stage_files, WS.stage_plan(man, ["scene-0002"], roots, st + "3")[0]))
     check("F2: a drive missing from the manifest is refused", _refused(WS.stage_plan, man, ["scene-9999"], roots, st + "4"))
     sb = WS.staged_bytes(man, ["scene-0001", "scene-0002"], roots)
-    check("F1: memory need = staged bytes + 48 GB; --mem rounded up in G", WS.need_bytes(sb) == sb + 48 * 10 ** 9 and WS.mem_request_g(sb) * (1 << 30) >= WS.need_bytes(sb))
+    check("F1: memory need = (staged + 45 GB) / 0.80; --mem rounded up to 10 G", WS.need_bytes(sb) >= (sb + 45 * 10 ** 9) / 0.80
+          and WS.mem_request_g(sb) * (1 << 30) >= WS.need_bytes(sb) and WS.mem_request_g(sb) % 10 == 0)
 
 # cgroup readers (fake v2 / v1 trees) and the memory rules
 with _tf.TemporaryDirectory() as td:
@@ -493,9 +494,9 @@ _vals = iter([5, 9, 7, None, 3])
 _ps = WS.PeakSampler(0.01, reader=lambda: next(_vals, None)).start(); time.sleep(0.2)
 check("F1: the sampled peak keeps the maximum of the cgroup usage (memory.peak missing on old kernels)", _ps.stop() == 9 and _ps.n >= 4, (_ps.max, _ps.n))
 ok_, msg_ = WS.mem_check(90 * 10 ** 9, 96 * 10 ** 9)
-check("F1 repro: the timing job's 96 GB cannot hold ~90 GB staged + 48 GB -> refused with the --mem to request", ok_ is False and "--mem=" in msg_, msg_)
-check("F1: a limit >= staged + 48 GB passes; an unreadable limit is UNKNOWN (not refused)",
-      WS.mem_check(90 * 10 ** 9, 140 * 10 ** 9)[0] is True and WS.mem_check(90 * 10 ** 9, None)[0] is None)
+check("F1 repro: the timing job's 96 GB cannot hold ~90 GB staged + RSS -> refused with the --mem to request", ok_ is False and "--mem=" in msg_, msg_)
+check("F1: a request >= (staged + 45 GB) / 0.80 passes; an unreadable request is UNKNOWN (not refused)",
+      WS.mem_check(90 * 10 ** 9, 170 * 10 ** 9)[0] is True and WS.mem_check(90 * 10 ** 9, None)[0] is None)
 check("re-time: peak incl. staged files <= 85 % of the request", WS.peak_rule(85, 100) == (True, 0.85) and WS.peak_rule(86, 100)[0] is False
       and WS.peak_rule(None, 100) == (None, None))
 _tsh = open("slurm/wan_teacher.sh").read()
@@ -1078,5 +1079,56 @@ check("T2 item 15: render reads the plan / checkpoint once, pins those bytes and
       'DJP = pin(_draw' in _pan and 'CKP = pin(_craw' in _pan and '"--donors", DJP' in _pan and '"--ckpt", CKP' in _pan
       and '"ckpt_sha256": CKPT_SHA256' in _rol and "DONORS_SHA256 = hashlib.sha256(_draw).hexdigest(); DONORS = json.loads(_draw)" in _rol)
 check("T2 item 15: decide loads the checkpoint from the verified pinned bytes", 'CK = torch.load(io.BytesIO(_cr)' in _pan)
+
+# ---- Neon 11:30 (round 3) A: memory request formula + source page-cache drop
+_st = int(97.56e9)  # measured: tokens 86.59 + latents 4.78 + Wan snapshot 6.18 GB
+_rss = 38.5 * (1 << 30)  # timing 3756964 trainer RSS
+check("Neon A repro: the old staged + 48 GB request (~136G) puts staged + measured RSS above 85 % -> must be refused now",
+      WS.mem_check(_st, 136 * (1 << 30))[0] is False and (_st + _rss) / (136 * (1 << 30)) > 0.85)
+_g = WS.mem_request_g(_st)
+check("Neon A: need = (97.56 GB + 45 GB) / 0.80 rounded up to 10 G = 170G, and the measured peak stays under 85 % of it",
+      _g == 170 and WS.mem_check(_st, _g * (1 << 30))[0] is True and (_st + _rss) / (_g * (1 << 30)) < 0.85, (_g, (_st + _rss) / (_g * (1 << 30))))
+_calls = []
+_had = (hasattr(os, "posix_fadvise"), hasattr(os, "POSIX_FADV_DONTNEED"))
+_orig = (getattr(os, "posix_fadvise", None), getattr(os, "POSIX_FADV_DONTNEED", None))
+os.posix_fadvise = lambda fd, off, ln, adv: _calls.append((fd, off, ln, adv)); os.POSIX_FADV_DONTNEED = 4
+try:
+    with _tf.TemporaryDirectory() as td:
+        open(f"{td}/src.bin", "wb").write(b"x" * 100000)
+        _sha, _n = WS.copy_hash(f"{td}/src.bin", f"{td}/dst/out.bin")
+finally:
+    for _nm, _hv, _ov in (("posix_fadvise", _had[0], _orig[0]), ("POSIX_FADV_DONTNEED", _had[1], _orig[1])):
+        if _hv:
+            setattr(os, _nm, _ov)
+        else:
+            delattr(os, _nm)
+check("Neon A repro: copy_hash drops the SOURCE file's page cache (posix_fadvise DONTNEED on the read fd, whole file)",
+      len(_calls) == 1 and _calls[0][1:] == (0, 0, 4) and _n == 100000, _calls)
+check("Neon A: slurm usage and docstring state the formula", "(staged bytes + 45 GB measured trainer RSS) / 0.80, rounded up to 10 G" in open("slurm/wan_teacher.sh").read()
+      and "(staged bytes + 45 GB measured trainer RSS allowance) / 0.80" in open("mrv/wan_stage.py").read())
+# ---- Neon 11:30 B: score ledger rows exactly as the cluster wrote them ("proc-<job>-..." with kind score_*)
+now_ = time.time()
+_CL = {"proc-3757121-48211-1764329000": {"kind": "score_parity", "t0": now_ - 1800, "t": now_ - 20, "ended": False, "beat_s": 60.0}}
+check("Neon B repro: a live 2080 Ti worker written as proc-3757121-... holds its reservation (headroom not a no-op)",
+      abs(WP.active_reserved_h([{"job": "3757121", "est_h": 1.0, "t": now_}], _CL, "score_parity", now_) - 1.0) < 1e-3)
+_CL2 = {"proc-3757121-48211-1764329000": {"kind": "score_x", "t0": 0, "t": 3600, "ended": True, "beat_s": 60.0}}
+check("Neon B repro: decide reconciles a receipt of job 3757121 with the cluster's proc-3757121-... charge",
+      WP.reconcile_scoring([{"job": "3757121"}], _CL2, "score_x", 5.0)[0])
+with _tf.TemporaryDirectory() as td:
+    _lp = f"{td}/score_ledger.jsonl"
+    with open(_lp, "w") as f_:  # the rows as written on the cluster (old Ledger naming)
+        f_.write(json.dumps({"job": "proc-3757121-48211-1764329000", "kind": "score_parity", "t0": now_ - 600, "t": now_ - 30, "beat_s": 60.0}) + "\n")
+    _jobs = WP.Ledger.read(_lp)
+    _lsi = getattr(WP, "ledger_slurm_id", None)
+    check("Neon B: Ledger.read of cluster rows + ledger_slurm_id", _lsi is not None and _lsi(next(iter(_jobs))) == "3757121" and _lsi("bogus") is None)
+    os.environ["SLURM_JOB_ID"] = "3799999"
+    _L = WP.Ledger(_lp, "score_s1_12k", write=True)
+    del os.environ["SLURM_JOB_ID"]
+    check("Neon B: an outer score_* heartbeat is named as an allocation from now on (alloc-<job>-...)", _L.job.startswith("alloc-3799999-"), _L.job)
+# ---- Neon 11:30 C: guide encoding cached per frame sequence inside the load-once rollout process
+_rol = open("scripts/wan_rollout.py").read()
+check("Neon C: the guide Wan-VAE encoding + fold_src are cached per exact (drive, tick) frame sequence and reused across seeds / modes",
+      'ekey = tuple((src[i][0]["sc"], int(src[i][1])) for i in fr)' in _rol and "extra = _ENC.get(ekey)" in _rol and "_ENC[ekey] = extra" in _rol
+      and _rol.find("extra = _ENC.get(ekey)") < _rol.find("zg = WC.wan_encode(vae, gvid)"))
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

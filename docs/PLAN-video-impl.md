@@ -53,9 +53,9 @@ ledger, `runs/wan_score_ledger.jsonl`, reported separately (council/s1-timing-r1
    sbatch -d afterok:<ids> --cpus-per-task=1 --mem=8G --time=0:30:00 -J wsc-pchk -o logs2/%x-%j.out slurm/wan_score.sh parity_check 3
    ```
    It writes `runs/wroll/score_parity_2080.json` with the measured 2080 Ti seconds per scored tick.
-4. **Re-time** (`MODE=timing`, 144 drives, cold allocation). The memory request is the staged bytes + 48 GB:
+4. **Re-time** (`MODE=timing`, 144 drives, cold allocation). The memory request is (staged bytes + 45 GB trainer RSS) / 0.80, rounded up to 10 G (staged 97.56 GB -> 170G):
    ```
-   M=$(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)    # about 145G
+   M=$(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)    # 170G for 97.56 GB staged
    sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=$M --time=2:00:00 -J wan-timing -o logs2/%x-%j.out \
           --export=ALL,MODE=timing,MICRO=1,GRAD_CKPT=1 slurm/wan_teacher.sh
    ```
@@ -368,7 +368,7 @@ manifest. Caches are memory-mapped from there and Wan loads from the staged copy
 key does not change with the path). Guide and enc files are never opened by the trainer; their size / mtime is a change
 alarm only (a mismatch refuses: re-run the manifest job). The resume-test legs of one allocation reuse what that allocation
 staged (receipt with the job id and manifest sha). The slurm EXIT trap deletes the stage dir. Staged files count against the
-memory cgroup: the request is staged bytes + 48 GB (`python -m mrv.wan_stage need`), and both the script (exit 9) and the
+memory cgroup: the request is (staged bytes + 45 GB RSS) / 0.80, rounded up to 10 G (`python -m mrv.wan_stage need`; the copy drops the Lustre source pages), and both the script (exit 9) and the
 trainer refuse when they can read a smaller limit.
 
 **F5, explicit settings.** `--micro` and `--grad_ckpt` have no defaults and are required in every mode (`MICRO` /
@@ -456,6 +456,12 @@ hashes the input / reference bytes it parses; reservations hold their estimate f
 reconciles every accepted shard's receipt with a finished charge in the score ledger (no live workers, total within the cap);
 the render reads the checkpoint and donor plan once, pins those bytes (read-only copies) and the rollouts read the pinned
 copies and record the digests of what they consumed, which the decision verifies.
+
+Neon 11:30 (round 3): the memory request is (staged + 45 GB measured trainer RSS) / 0.80, rounded up to 10 G (97.56 GB staged
+-> 170G) and the copy drops each Lustre source file's page cache (`posix_fadvise DONTNEED`), so memory.peak counts the staged
+tmpfs + process memory only; score-ledger rows are matched by Slurm job id whatever the prefix (the cluster wrote
+`proc-<job>-...` for `score_*` heartbeats; new outer `score_*` beats are named `alloc-<job>-...`); the load-once rollout caches
+each segment's guide Wan-VAE encoding + folded source planes per exact (drive, tick) frame sequence across seeds and modes.
 
 ## Open points
 

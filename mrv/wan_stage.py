@@ -9,15 +9,20 @@ One rule (F2): a byte is trusted only if it was hashed.
     hashing while it copies (stage_files, 8 streams); each hash must equal the manifest or the job refuses.
   - files a job never opens (guide / enc in the trainer) are covered by the CPU job; the trainer checks their size / mtime as a
     CHANGE ALARM only (mismatch -> refuse, "re-run verify_manifest"); a match is never proof.
-Memory (F1): files in /dev/shm count against the job's memory cgroup: request = staged bytes + 48 GB (need_bytes), peak read from
-memory.peak (v2) / memory.max_usage_in_bytes (v1).
+Memory (F1, Neon 11:30 P0): files in /dev/shm count against the job's memory cgroup. The request is
+    --mem >= (staged bytes + 45 GB measured trainer RSS allowance) / 0.80, rounded UP to a multiple of 10 G   (need_bytes / mem_request_g)
+(timing 3756964: trainer RSS ~38.5 GiB; staged 97.56 GB -> 178 GB -> --mem=170G, so peak ~139 GB stays under the 85 % rule).
+copy_hash drops the SOURCE file's page cache after each copy, so memory.peak counts only the staged tmpfs + process memory.
+Peak read from memory.peak (v2) / memory.max_usage_in_bytes (v1).
   python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json [--lists data/temporal_lists.json] [--no_dev]  -> e.g. 142G
-  python -m mrv.wan_stage memcheck --manifest data/wan_manifest_v1.json  (exit 9 if the cgroup limit < staged bytes + 48 GB)
+  python -m mrv.wan_stage memcheck --manifest data/wan_manifest_v1.json  (exit 9 if the request < (staged + 45 GB) / 0.80)
 """
 import hashlib, json, os, threading, time
 from concurrent.futures import ThreadPoolExecutor
 
-MARGIN_GB = 48.0      # trainer RSS + pinned queue + CUDA host allocations on top of the staged files (timing peak RSS 40 GB)
+RSS_ALLOW_GB = 45.0   # measured trainer RSS allowance (timing 3756964: ~38.5 GiB = 41.3 GB) on top of the staged files
+REQUEST_FRAC = 0.80   # staged + RSS must fit in 80 % of the request (the re-time rule allows 85 %)
+ROUND_G = 10          # --mem rounded up to a multiple of 10 G
 PEAK_FRAC = 0.85      # re-time rule: cgroup peak incl. staged files <= 85 % of the request
 CHUNK = 1 << 24       # 16 MiB
 MANIFEST_VERSION = 1
@@ -155,6 +160,17 @@ def change_alarm(man, paths):
     return bad
 
 
+def drop_page_cache(fd):
+    """POSIX_FADV_DONTNEED on a file we finished reading (no-op where the platform lacks posix_fadvise, e.g. macOS)"""
+    if hasattr(os, "posix_fadvise") and hasattr(os, "POSIX_FADV_DONTNEED"):
+        try:
+            os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
+            return True
+        except OSError:
+            return False
+    return False
+
+
 def copy_hash(src, dst, chunk=CHUNK):
     """ONE read does both: copy src -> dst and return (sha256 of the bytes read, bytes)"""
     h = hashlib.sha256(); n = 0
@@ -162,6 +178,7 @@ def copy_hash(src, dst, chunk=CHUNK):
     with open(src, "rb") as fi, open(dst + ".part", "wb") as fo:
         for b in iter(lambda: fi.read(chunk), b""):
             h.update(b); fo.write(b); n += len(b)
+        drop_page_cache(fi.fileno())  # Neon 11:30 P0: the Lustre source pages would otherwise count in the job's memory.peak
     os.replace(dst + ".part", dst)
     return h.hexdigest(), n
 
@@ -266,13 +283,15 @@ def staged_bytes(man, drives, roots, use_tokens=True, include_wan=True):
     return sum(j[3] for j in jobs)
 
 
-def need_bytes(staged, margin_gb=MARGIN_GB):
-    return int(staged + margin_gb * 1e9)
+def need_bytes(staged, rss_gb=RSS_ALLOW_GB, frac=REQUEST_FRAC):
+    """minimum request in bytes = (staged bytes + RSS allowance) / frac"""
+    return int(-(-(staged + rss_gb * 1e9) // frac))
 
 
-def mem_request_g(staged, margin_gb=MARGIN_GB):
-    """--mem value for sbatch: staged bytes + margin, rounded UP to whole GiB-as-G (Slurm G = 1024^3)"""
-    return int(-(-need_bytes(staged, margin_gb) // (1 << 30)))
+def mem_request_g(staged, rss_gb=RSS_ALLOW_GB, frac=REQUEST_FRAC, round_g=ROUND_G):
+    """--mem for sbatch in Slurm G (1024^3): (staged + 45 GB) / 0.80, rounded UP to a multiple of 10 G"""
+    g = need_bytes(staged, rss_gb, frac) / (1 << 30)
+    return int(-(-g // round_g) * round_g)
 
 
 # ------------------------------------------------------------------------------------------------------------- cgroup
@@ -428,15 +447,15 @@ def _sample_main(out, interval=1.0):
         time.sleep(interval)
 
 
-def mem_check(staged, limit, margin_gb=MARGIN_GB):
-    """-> (ok, message). ok is None when the limit is unreadable (cannot check: the caller records it)."""
-    need = need_bytes(staged, margin_gb)
+def mem_check(staged, limit, rss_gb=RSS_ALLOW_GB):
+    """-> (ok, message). ok is None when the request / limit is unreadable (cannot check: the caller records it)."""
+    need = need_bytes(staged, rss_gb)
+    f_ = f"(staged {staged / 1e9:.1f} GB + {rss_gb:.0f} GB RSS) / {REQUEST_FRAC} = {need / 1e9:.1f} GB"
     if limit is None:
-        return None, f"cgroup memory limit unreadable; need staged {staged / 1e9:.1f} GB + {margin_gb:.0f} GB = {need / 1e9:.1f} GB"
+        return None, f"memory request unreadable; need {f_}"
     if limit < need:
-        return False, (f"memory limit {limit / 1e9:.1f} GB < staged {staged / 1e9:.1f} GB + {margin_gb:.0f} GB = {need / 1e9:.1f} GB: "
-                       f"resubmit with --mem={mem_request_g(staged, margin_gb)}G")
-    return True, f"memory limit {limit / 1e9:.1f} GB >= staged {staged / 1e9:.1f} GB + {margin_gb:.0f} GB"
+        return False, f"memory request {limit / 1e9:.1f} GB < {f_}: resubmit with --mem={mem_request_g(staged, rss_gb)}G"
+    return True, f"memory request {limit / 1e9:.1f} GB >= {f_}"
 
 
 def peak_rule(peak, limit, frac=PEAK_FRAC):
@@ -481,7 +500,7 @@ def _cli(argv):
     ap.add_argument("--lists", default="data/temporal_lists.json")
     ap.add_argument("--no_dev", action="store_true", help="the job does not open the dev drives (no probe)")
     ap.add_argument("--use_tokens", type=int, default=1)
-    ap.add_argument("--margin_gb", type=float, default=MARGIN_GB)
+    ap.add_argument("--rss_gb", type=float, default=RSS_ALLOW_GB)
     ap.add_argument("--drive_list", default="", help="override: whitespace-separated train drives (default: lists['train'])")
     a = ap.parse_intermixed_args(argv)  # positionals around options: Python 3.11 parse_args refuses files after --dst
     if a.cmd == "sample":
@@ -502,11 +521,11 @@ def _cli(argv):
         drives += sorted(L["dev"])
     sb = staged_bytes(man, drives, man["roots"], bool(a.use_tokens), True)
     if a.cmd == "need":
-        print(f"{mem_request_g(sb, a.margin_gb)}G")
+        print(f"{mem_request_g(sb, a.rss_gb)}G")
         return 0
     cg = cgroup_mem()
     req = slurm_requested_bytes()
-    ok, msg = mem_check(sb, req if req else cg["limit"], a.margin_gb)  # the request is what Slurm grants; an ancestor limit may be larger
+    ok, msg = mem_check(sb, req if req else cg["limit"], a.rss_gb)  # the request is what Slurm grants; an ancestor limit may be larger
     print(f"MEMCHECK {'PASS' if ok else ('UNKNOWN' if ok is None else 'FAIL')} {msg} (staged {len(drives)} drives + Wan, cgroup {cg.get('dir')})")
     return 0 if ok in (True, None) else 9
 

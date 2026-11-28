@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 06:31 UTC — OWNER: latency contract accepted ("im okay with the delay go go go")
+- Native Wan 4-tick groups: 10 Hz playback with a fixed lag (~0.3 s + compute). S0b timing jobs running (2080 Ti 3756580, H200 3756581); S0a scoring running. Next: S0c reader test + S1 teacher code.
+
 ## 2026-11-28 06:29 UTC — PLAN-video SIGNED by Astra + Fable (council/PLAN-video.md, "SIGNATURE ROUND RESULT")
 - Backbone Wan2.1-T2V-1.3B; conditioning hybrid, geometry first (Depth Anything V2-Small metric depth -> six views splatted into the chase camera as extra input channels; raw-view tokens + Plücker as the second path; both trained with input dropout if S0c has no clear lead).
 - Stages: S0a VAE round trip (running), S0b timing (Wan + depth, 2080 Ti / H200, per-tick still mode too), S0c reader test (<= 5 2080 Ti-h, LiDAR ceiling + wrong-drive control); S1 bidirectional teacher 24 slice-h (+12), verdict after >= 12k updates at batch 8, 512x256, 17-tick clips, LoRA r32 on self / cross-attention + MLP, pass = car F1 >= A, road >= A, ID and W > 9.4% better, camera-swap check; S2 causal + 4-step self-forcing 40 h (+16); S3 2-step + tiny decoder + live timing 24 h; exam sealed until recipe lock + N1.

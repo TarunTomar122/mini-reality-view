@@ -68,3 +68,7 @@ too). Builder merge of the final numbers (Fable's final = midpoint inside the ra
   owner's capture-to-display limit. 30-drive exam sealed until recipe lock + N1.
 - OWNER DECISION before S1 (after S0 numbers): latency contract (native 4-tick groups ~0.4-0.7 s behind vs per-tick stills).
 - All hour caps are restated in updates once S0b measures the rate. Worst case ~4-5 days on one slice (Fable estimate).
+
+## OWNER DECISION — latency contract (28 Nov ~06:35 UTC, verbatim): "im okay with the delay go go go"
+Native Wan 4-tick latent groups are accepted: 10 Hz playback with a fixed lag (~0.3 s group wait + compute; S0b measures). The
+per-tick still mode is no longer required (kept only as an S0a measurement). S1 proceeds with native 17-tick clips.

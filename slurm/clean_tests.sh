@@ -7,7 +7,8 @@ cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp
 PY=.venv/bin/python; A=runs/longA/ckpt_20000.pt; T=runs/ctest_clean_${SLURM_JOB_ID:-manual}; mkdir -p $T; FAILS=0
 sha256sum mrv/clean_video.py mrv/noise.py mrv/sd.py scripts/train_clean.py scripts/clean_rollout.py scripts/clean_tests.py scripts/clean_probe.py \
-  scripts/vclean_gate.py scripts/det_run.py slurm/clean_tests.sh scripts/cache_check.py scripts/build_cache.py | tee $T/code_sha256.txt
+  scripts/vclean_gate.py scripts/det_run.py slurm/clean_tests.sh scripts/cache_check.py scripts/build_cache.py \
+  scripts/causal_rollout.py mrv/causal_video.py mrv/cache_verify.py | tee $T/code_sha256.txt
 chk() { if [ "$1" != 0 ]; then echo "FAIL $2 (exit $1)"; FAILS=$((FAILS+1)); fi; }
 nvidia-smi --query-gpu=name --format=csv,noheader
 echo "== clean_tests.py part 0 + tiny UNet (CPU fp32)"; $PY scripts/clean_tests.py --small; chk $? clean_tests-small
@@ -94,32 +95,55 @@ print(("PASS" if okr else "FAIL"), "T7 resume after update 1 == straight run, up
 print(("PASS" if okb else "FAIL"), "T7 resume with changed rays refused before any update (exit $rb; log lines $nb -> $na; ckpt sha $sb -> $sa)")
 sys.exit(0 if okf and okr and okb and tstar else 1)
 P
-echo "== T7b (A5 vmix): jitter / source streams across resume with the cache branch (--mix_from 1, tiny fake cache); hold at mix_from"
+echo "== T7b (A5 vmix): jitter / source streams across resume with the cache branch (--mix_from 1, test-only fake cache that the shared verifier accepts); pin; hold; pickup"
 $PY - <<P; chk $? fake-cache
-import hashlib, json, os, torch
-L = json.load(open("data/temporal_lists.json")); os.makedirs("$T/fake_cache", exist_ok=True); files = {}
-for sc in sorted(L["train"]):  # TEST ONLY: key latents + noise in the cache format the trainer reads (lat aligned with the encoding)
+import json, os, torch
+from mrv.cache_verify import sha, file_code, builder_roll_code, rollout_roll_code, ray_sha, A_PATH
+L = json.load(open("data/temporal_lists.json")); RAYS = torch.load("data/calib_rays.pt"); C = "$T/fake_cache"; os.makedirs(C, exist_ok=True)
+A_SHA, ROLL = sha("$A")[:16], builder_roll_code(); files = {}
+for sc in sorted(L["train"]):  # TEST ONLY: key latents + noise, in the builder's format and signed fields
     E = torch.load(f"data/enc_tpv10/{sc}.pt"); g = torch.Generator().manual_seed(len(sc))
-    torch.save({"lat": (E["lat"].float() + 0.5 * torch.randn(E["lat"].shape, generator=g)).half(), "ticks": E["ticks"], "hard": E["hard"], "method": "fake_test_cache"}, f"$T/fake_cache/{sc}_s0.pt")
-    files[sc] = hashlib.sha256(open(f"$T/fake_cache/{sc}_s0.pt", "rb").read()).hexdigest()
-rec = {"kind": "cache_check", "pass": True, "cache": "$T/fake_cache", "files": files, "n_files": len(files), "code_sha256": {}, "note": "TEST ONLY"}
-json.dump(rec, open("$T/fake_cache_ok.json", "w"))
-bad = dict(rec, files=dict(files, **{sorted(files)[0]: "0" * 64})); json.dump(bad, open("$T/fake_cache_bad.json", "w"))
+    torch.save({"lat": (E["lat"].float() + 0.5 * torch.randn(E["lat"].shape, generator=g)).half(), "ticks": E["ticks"], "hard": E["hard"], "ok": E["ok"],
+                "ckpt_sha": A_SHA, "roll_code": ROLL, "method": "cache_off", "rho": 1.0, "seed": 0, "merge": False, "ray_sha": ray_sha(RAYS[sc]), "note": "TEST ONLY"}, f"{C}/{sc}_s0.pt")
+    files[sc] = sha(f"{C}/{sc}_s0.pt")
+tr, dv = sorted(L["train"]), list(L["dev"])
+rec = {"kind": "cache_check", "pass": True, "failures": [], "cache": C, "ckpt_sha": A_SHA, "roll_code": ROLL, "lists": "data/temporal_lists.json",
+       "enc": "data/enc_tpv10", "rays": "data/calib_rays.pt", "build": {"merge": False, "batch": 8, "amp": "torch.float16"}, "files": files, "n_files": len(files),
+       "parity": {"drive": tr[0], "exit": 0, "fields_equal": True, "whole": True, "max_diff": 0.0, "ref_ckpt_sha": A_SHA, "ref_rho": 1.0, "ref_method": "causal_off",
+                  "ref_roll_code": rollout_roll_code()},
+       "mse": {"train_mean": 0.1, "dev_mean": 0.1, "train_per_drive": {s: 0.1 for s in tr}, "dev_per_drive": {s: 0.1 for s in dv}}, "code_sha256": file_code(), "note": "TEST ONLY"}
+W = lambda n, r: json.dump(r, open(f"$T/fake_{n}.json", "w"), indent=1)
+W("ok", rec); W("ok2", dict(rec, note="TEST ONLY: a second, different but valid record"))
+W("bad_digest", dict(rec, files=dict(files, **{tr[0]: "0" * 64})))
+W("wrong_ckpt", dict(rec, ckpt_sha="0" * 16, parity=dict(rec["parity"], ref_ckpt_sha="0" * 16)))  # another renderer's cache
+W("wrong_roll", dict(rec, roll_code="deadbeef0000"))  # a cache from a different builder
 P
-TM="$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_cache_ok.json"
+TM="$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok.json"
 $TM --out $T/timing_mix_full --max_steps_this_job 3 > $T/mix_full.log 2>&1; chk $? T7b-full
 $TM --out $T/timing_mix_split --max_steps_this_job 2 > $T/mix_split1.log 2>&1; chk $? T7b-split1
+np=$(grep -c '^{"update"' $T/timing_mix_split/log.jsonl); sp=$(sha256sum $T/timing_mix_split/ckpt.pt | cut -c1-16)
+$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok2.json --out $T/timing_mix_split --max_steps_this_job 1 --resume > $T/mix_pin.log 2>&1; rp=$?
+np2=$(grep -c '^{"update"' $T/timing_mix_split/log.jsonl); sp2=$(sha256sum $T/timing_mix_split/ckpt.pt | cut -c1-16)
 $TM --out $T/timing_mix_split --max_steps_this_job 1 --resume > $T/mix_split2.log 2>&1; chk $? T7b-split2
 TH="$TR --mix_from 2 --cache $T/fake_cache"
-$TH --out $T/timing_hold_ctrl --cache_record $T/fake_cache_ok.json --max_steps_this_job 5 > $T/hold_ctrl.log 2>&1; chk $? T7b-hold-ctrl
-$TH --out $T/timing_hold --max_steps_this_job 5 > $T/hold1.log 2>&1; rh1=$?
+$TH --out $T/timing_hold_ctrl --cache_record $T/fake_ok.json --max_steps_this_job 5 > $T/hold_ctrl.log 2>&1; chk $? T7b-hold-ctrl
+$TH --out $T/timing_hold --cache_record $T/absent.json --max_steps_this_job 5 > $T/hold1.log 2>&1; rh1=$?
 nh1=$(grep -c '^{"update"' $T/timing_hold/log.jsonl)
-$TH --out $T/timing_hold --cache_record $T/fake_cache_bad.json --max_steps_this_job 5 --resume > $T/hold2.log 2>&1; rh2=$?
+$TH --out $T/timing_hold --cache_record $T/fake_bad_digest.json --max_steps_this_job 5 --resume > $T/hold2.log 2>&1; rh2=$?
+$TH --out $T/timing_hold --cache_record $T/fake_wrong_ckpt.json --max_steps_this_job 5 --resume > $T/hold_wc.log 2>&1; rwc=$?
+$TH --out $T/timing_hold --cache_record $T/fake_wrong_roll.json --max_steps_this_job 5 --resume > $T/hold_wr.log 2>&1; rwr=$?
 nh2=$(grep -c '^{"update"' $T/timing_hold/log.jsonl)
-$TH --out $T/timing_hold --cache_record $T/fake_cache_ok.json --max_steps_this_job 3 --resume > $T/hold3.log 2>&1; rh3=$?
+$TH --out $T/timing_hold --cache_record $T/fake_ok.json --max_steps_this_job 3 --resume > $T/hold3.log 2>&1; rh3=$?
+rm -f $T/late.json  # pickup: the record appears while the run trains toward update 30; no resume needed
+$TR --mix_from 30 --cache $T/fake_cache --cache_record $T/late.json --out $T/timing_late --max_steps_this_job 34 > $T/late.log 2>&1 &
+PID=$!
+for k in $(seq 900); do grep -q '^{"update": 3,' $T/timing_late/log.jsonl 2>/dev/null && break; kill -0 $PID 2>/dev/null || break; sleep 1; done
+cp $T/fake_ok.json $T/late.json.tmp && mv $T/late.json.tmp $T/late.json
+wait $PID; rl=$?
 $PY - <<P; chk $? T7b
 import json, sys, torch
-L = lambda d: {x["update"]: x for x in (json.loads(l) for l in open(f"$T/{d}/log.jsonl") if l.startswith('{"update"'))}
+rows = lambda d: [json.loads(l) for l in open(f"$T/{d}/log.jsonl") if l.strip()]
+L = lambda d: {x["update"]: x for x in rows(d) if "update" in x}
 F_, S_ = L("timing_mix_full"), L("timing_mix_split")
 same = lambda A, B, us: all(u in A and u in B and all(A[u][k] == B[u][k] for k in ("batch_sha", "mem_sha", "mem_t", "mem_src"))
                             and abs(A[u]["loss"] - B[u]["loss"]) <= 1e-3 * max(abs(A[u]["loss"]), 1e-6) + 1e-4 for u in us)
@@ -128,15 +152,24 @@ src_ok = F_.get(1, {}).get("mem_src") == ["key", "key"] and all(sorted(F_.get(u,
 jit_ok = all(t_ in (1, 41, 81) for u in (1, 2, 3) for t_ in F_.get(u, {}).get("mem_t", [0]))
 print(("PASS" if ok1 and src_ok and jit_ok else "FAIL"), "T7b split after update 2 + resume == straight run, updates 1-3 (batch_sha, mem_sha incl. jitter + coin, mem_t, mem_src, loss):",
       [(u, F_.get(u, {}).get("mem_t"), F_.get(u, {}).get("mem_src"), F_.get(u, {}).get("mem_sha"), S_.get(u, {}).get("mem_sha")) for u in (1, 2, 3)])
-h1, h2, h3 = (open(f"$T/hold{i}.log").read() for i in (1, 2, 3))
+pin = open("$T/mix_pin.log").read()
+okp = $rp != 0 and "pinned" in pin and $np == $np2 and "$sp" == "$sp2" and any("cache_pinned" in x for x in rows("timing_mix_full"))
+print(("PASS" if okp else "FAIL"), "T7b a different VALID record on resume after the pin is refused (exit $rp; log lines $np -> $np2; ckpt $sp -> $sp2)")
+h = {k: open(f"$T/{k}.log").read() for k in ("hold1", "hold2", "hold_wc", "hold_wr", "hold3")}
 ck = torch.load("$T/timing_hold/ckpt.pt", map_location="cpu")
-okh = $rh1 == 0 and "CLEAN_TRAIN_HOLD 2" in h1 and $nh1 == 2 and $rh2 == 0 and "CLEAN_TRAIN_HOLD 2" in h2 and "digest differs" in h2 and $nh2 == 2 \
-      and $rh3 == 0 and "resumed at 2" in h3 and "CLEAN_TRAIN_DONE 5" in h3 and ck["step"] == 5
+okh = $rh1 == 0 and "CLEAN_TRAIN_HOLD 2" in h["hold1"] and $nh1 == 2 and $rh2 == 0 and "CLEAN_TRAIN_HOLD 2" in h["hold2"] and "digest differs" in h["hold2"] \
+      and $rwc == 0 and "CLEAN_TRAIN_HOLD 2" in h["hold_wc"] and "ckpt_sha" in h["hold_wc"] and $rwr == 0 and "CLEAN_TRAIN_HOLD 2" in h["hold_wr"] \
+      and "reviewed builder" in h["hold_wr"] and $nh2 == 2 and $rh3 == 0 and "resumed at 2" in h["hold3"] and "CLEAN_TRAIN_DONE 5" in h["hold3"] and ck["step"] == 5
 C_, H_ = L("timing_hold_ctrl"), L("timing_hold")
 okc = same(C_, H_, (1, 2, 3, 4, 5)) and all(sorted(H_.get(u, {}).get("mem_src", [])) == ["cache", "key"] for u in (3, 4, 5))
-print(("PASS" if okh else "FAIL"), "T7b hold at mix_from 2 without a record (exit $rh1, %d updates) and with a bad digest (exit $rh2, %d updates); resumed with a passing record to 5 (exit $rh3)" % ($nh1, $nh2))
+print(("PASS" if okh else "FAIL"), "T7b hold at mix_from 2: no record (exit $rh1), bad digest (exit $rh2), wrong renderer checkpoint (exit $rwc), wrong builder (exit $rwr): "
+      "all hold with no update (%d -> %d rows); resumed with the passing record to 5 (exit $rh3)" % ($nh1, $nh2))
 print(("PASS" if okc else "FAIL"), "T7b hold + resume == uninterrupted run with the record, updates 1-5 (draws, sources, loss)")
-sys.exit(0 if ok1 and src_ok and jit_ok and okh and okc else 1)
+LT = rows("timing_late"); U = {x["update"]: x for x in LT if "update" in x}
+okl = $rl == 0 and any(x.get("cache_acquired") == 30 for x in LT) and not any("hold" in x for x in LT) and "CLEAN_TRAIN_DONE 34" in open("$T/late.log").read() \
+      and U.get(30, {}).get("mem_src") == ["key", "key"] and all(sorted(U.get(u, {}).get("mem_src", [])) == ["cache", "key"] for u in range(31, 35))
+print(("PASS" if okl else "FAIL"), "T7b a record arriving during training is picked up at update mix_from 30 without a resume (exit $rl)")
+sys.exit(0 if ok1 and src_ok and jit_ok and okp and okh and okc and okl else 1)
 P
 echo "== timing: 100 throwaway updates on this slice (step_s, mem_s, peak GB)"
 $TR --out $T/timing_100 --max_steps_this_job 100 > $T/t100.log 2>&1; chk $? timing-100

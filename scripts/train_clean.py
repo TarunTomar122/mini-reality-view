@@ -10,7 +10,13 @@ A5 "vmix" = A4 below with two changes inside the memory pass (council/r2-swap-fa
     memory-off rho-1.0 latents of the same ticks (--cache, built by scripts/causal_rollout.py; slurm/build_cache.sh). The target
     is always the real key. Before update mix_from+1 a passing scripts/cache_check.py record (--cache_record; every cache file
     digest re-verified) is required; without one the job saves and exits cleanly ("holds"); a later --resume continues.
-A4 "vclean" (as signed): memory timestep fixed at t*, real key source only.
+A4 "vclean" (as signed): memory timestep fixed at t*, real key source only; "--arm vclean --jitter 1,41,81" = the A5 signed
+pure key + jitter attribution control (no cached source).
+Cache admission (council/codereview-vmix-astra.md): ONE verifier (mrv/cache_verify.py) for the gate's passed and pending states,
+bound to the trainer's actual A@20k file, the reviewed builder / checker / rollout / dependency hashes, exactly the 144 train
+drives and the whole-drive parity result. A passed gate admits only its approved record digest; a pending run re-checks
+--cache_record when it reaches update mix_from (a record that arrived during training is picked up without a resume), and the
+first record it uses is PINNED in every later checkpoint and re-verified on every resume.
 
 Recipe = vpriv (scripts/train_causal.py with --private_clips 2) except where the past comes from. Only the 16 new temporal
 blocks (mrv/clean_video.py) train; the SD 1.5 UNet, A's LoRA and A's CameraAdapter are frozen (asserted). Each update:
@@ -44,6 +50,7 @@ from peft import LoraConfig
 from mrv.sd import CameraAdapter, LORA_TARGETS
 from mrv.clean_video import add_clean_temporal, set_mode, set_memory, collect_inputs
 from mrv.noise import build_eps
+from mrv.cache_verify import make_bind, verify, file_code, sha as fsha
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -75,7 +82,7 @@ if a.K != 4 or a.frames != 16 or a.clips != 2:
 if a.timing and not any(s in a.out for s in ("timing", "ctest")):
     raise SystemExit("--timing runs must write to a *timing* / *ctest* directory")
 PRIVATE_CLIPS, TRAIN_RHO = 2, 0.0  # A4: both clips private (rho 0 training noise), as vpriv
-CODE_FILES = ["scripts/train_clean.py", "mrv/clean_video.py", "mrv/sd.py", "mrv/noise.py"]
+CODE_FILES = ["scripts/train_clean.py", "mrv/clean_video.py", "mrv/sd.py", "mrv/noise.py", "mrv/cache_verify.py"]
 assert os.path.samefile(__file__, CODE_FILES[0]), "run from the repo root as scripts/train_clean.py"
 CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in CODE_FILES)).hexdigest()[:12]
 GATE, GATE_SHA = None, None
@@ -106,8 +113,13 @@ JITTER = [int(x) for x in a.jitter.split(",")] if a.jitter else ([1, 41, 81] if 
 MIX_FROM = a.mix_from if a.mix_from >= 0 else (2000 if a.arm == "vmix" else 0)
 if not all(j_ in DDIM_TS and j_ <= 81 for j_ in JITTER) or len(set(JITTER)) != len(JITTER):
     raise SystemExit(f"jitter {JITTER} must be distinct DDIM-25 timesteps <= 81")
-if a.arm == "vclean" and (JITTER != [T_STAR] or MIX_FROM):
-    raise SystemExit("arm vclean (A4): memory at t* only, key source only")
+if a.arm == "vclean" and (JITTER not in ([T_STAR], [1, 41, 81]) or MIX_FROM):
+    raise SystemExit("arm vclean: A4 (memory at t*) or the A5 key + jitter control (1,41,81); key source only")
+RECIPE = "vmix" if a.arm == "vmix" else ("vclean_A4" if JITTER == [T_STAR] else "vclean_keyjit_control")
+if GATE is not None and GATE.get("recipe", "vclean_A4" if GATE.get("arm") == "vclean" else "vmix") != RECIPE:
+    raise SystemExit(f"gate record is for recipe {GATE.get('recipe')}, not {RECIPE}")
+if not a.timing and MIX_FROM and not a.cache_record:
+    raise SystemExit("vmix production needs --cache_record <path> (it may not exist yet: the run picks it up at update mix_from)")
 if not a.timing and a.arm == "vmix" and (JITTER != [1, 41, 81] or MIX_FROM != 2000):
     raise SystemExit(f"A5 vmix fixes jitter {{1, 41, 81}} and mix from update 2001 (got {JITTER}, {MIX_FROM})")
 print(f"arm {a.arm}: memory timesteps {JITTER}, cached source from update {MIX_FROM + 1 if MIX_FROM else 'never'}", flush=True)
@@ -128,31 +140,34 @@ COVER = {sc: sum(1 for s_, _ in starts if s_ == sc) for sc in sorted(TRAIN)}
 print(f"clips: {len(starts)} start positions of {Fn} ticks from {len({s for s, _ in starts})}/{len(E)} drives", flush=True)
 
 
-def load_cache(path):
-    """re-verify a scripts/cache_check.py record: pass, same cache dir, every train drive's file digest, ticks aligned with the
-    encodings -> ({scene: fp16 latents}, record sha256, "") or (None, None, reason)"""
-    if not path or not os.path.isfile(path):
-        return None, None, f"no cache record ({path or 'none given'})"
-    rec = json.load(open(path)); rsha = hashlib.sha256(open(path, "rb").read()).hexdigest()
-    if rec.get("kind") != "cache_check" or rec.get("pass") is not True or rec.get("cache") != a.cache:
-        return None, None, f"cache record {path} is not a passing cache_check of {a.cache} (pass={rec.get('pass')}, cache={rec.get('cache')})"
-    if GATE is not None and rec.get("code_sha256", {}).get("scripts/cache_check.py") != GATE.get("code_sha256", {}).get("scripts/cache_check.py"):
-        return None, None, "cache record was not written by the suite-tested scripts/cache_check.py"
-    C = {}
-    for sc in sorted(TRAIN):
-        f = f"{a.cache}/{sc}_s0.pt"
-        if not os.path.isfile(f) or hashlib.sha256(open(f, "rb").read()).hexdigest() != rec.get("files", {}).get(sc):
-            return None, None, f"cache file {f} missing or its digest differs from the record"
-        c = torch.load(f, map_location="cpu")
-        if len(c["lat"]) != len(E[sc]["ticks"]) or not torch.equal(c["ticks"], E[sc]["ticks"]):
-            return None, None, f"cache {f}: ticks not aligned with {a.enc}/{sc}.pt"
-        C[sc] = c["lat"].half()
-    return C, rsha, ""
-
-
-CACHE, CACHE_SHA, CACHE_WHY = (None, None, "no cached source (mix_from 0)") if not MIX_FROM else load_cache(a.cache_record)
+A_SHA = fsha(a.init)[:16]  # the trainer's ACTUAL A@20k file
+BIND, APPROVED = None, None
 if MIX_FROM:
-    print("cached source:", f"record {a.cache_record} verified ({len(CACHE)} drives)" if CACHE is not None else f"NOT available: {CACHE_WHY}", flush=True)
+    if GATE is not None:  # production: the gate's bind (reviewed code, A@20k digest, drives, inputs) and, if passed, its approved record
+        BIND = GATE.get("cache_bind") or {}
+        if BIND.get("ckpt_sha") != A_SHA or [BIND.get(k) for k in ("cache", "lists", "enc", "rays")] != [a.cache, a.lists, a.enc, a.rays]:
+            raise SystemExit(f"gate cache bind {[BIND.get(k) for k in ('ckpt_sha', 'cache', 'lists', 'enc', 'rays')]} != this run ({A_SHA}, {a.cache}, {a.lists}, {a.enc}, {a.rays})")
+        st_ = GATE.get("cache", {}).get("status", "")
+        APPROVED = GATE["cache"]["sha256"] if st_ == "passed" else None
+        if not (st_ == "passed" or st_.startswith("pending")):
+            raise SystemExit(f"gate cache status {st_!r}")
+    else:  # timing / tests: the same verifier against the files on disk
+        BIND = make_bind(a.init, a.cache, a.lists, a.enc, a.rays, file_code())
+
+
+def try_cache(pin):
+    """shared verifier + approval / pin identity -> ({scene: fp16 latents}, record sha256, "") or (None, None, reason)"""
+    ok, why, rsha, lat = verify(a.cache_record, BIND, {"ticks": {sc: E[sc]["ticks"] for sc in TRAIN}, "rays": RAYS})
+    if not ok:
+        return None, None, why
+    if APPROVED and rsha != APPROVED:
+        return None, None, f"record {rsha[:12]} is not the gate-approved record {APPROVED[:12]}"
+    if pin and rsha != pin:
+        return None, None, f"record {rsha[:12]} differs from the record pinned in the checkpoint {pin[:12]}"
+    return lat, rsha, ""
+
+
+CACHE, CACHE_SHA, PIN, CACHE_WHY = None, None, None, "no cached source (mix_from 0)"
 G_JIT = torch.Generator().manual_seed(a.seed * 1000003 + 1)  # resumable stream 2: memory timestep per clip
 G_SRC = torch.Generator().manual_seed(a.seed * 1000003 + 2)  # resumable stream 3: which clip reads the cache
 
@@ -226,10 +241,14 @@ if os.path.exists(ck):
         w.temporal.load_state_dict(sd_, strict=True)
     opt.load_state_dict(s_["opt"]); start = s_["step"]
     G_JIT.set_state(s_["rng"]["jitter"]); G_SRC.set_state(s_["rng"]["source"])  # resumable jitter / source streams
-    print("resumed at", start, flush=True)
-    if MIX_FROM and start > MIX_FROM and CACHE is None:
-        raise SystemExit(f"resuming at {start} > mix_from {MIX_FROM} needs the verified cache: {CACHE_WHY}")
-json.dump({**vars(a), "jitter": JITTER, "mix_from": MIX_FROM, "cache_record_sha256": CACHE_SHA, "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "init_ref_diff": REF_DIFF, "base_sha": BASE_SHA,
+    PIN = s_.get("cache_record_sha256")  # the record this run first used (pinned)
+    print("resumed at", start, "pinned cache record", PIN, flush=True)
+if MIX_FROM:
+    CACHE, CACHE_SHA, CACHE_WHY = try_cache(PIN)
+    print("cached source:", f"record {a.cache_record} verified ({len(CACHE)} drives)" if CACHE is not None else f"NOT available yet: {CACHE_WHY}", flush=True)
+    if CACHE is None and (PIN or APPROVED or start > MIX_FROM):
+        raise SystemExit(f"the {'pinned' if PIN else 'gate-approved' if APPROVED else 'required'} cache record does not verify: {CACHE_WHY}")
+json.dump({**vars(a), "recipe": RECIPE, "jitter": JITTER, "mix_from": MIX_FROM, "cache_record_sha256": PIN, "cache_bind": BIND, "a_sha": A_SHA, "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "init_ref_diff": REF_DIFF, "base_sha": BASE_SHA,
            "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "gate_record_sha256": GATE_SHA, "gate": GATE,
            "block_names": BLOCK_NAMES, "clip_starts": len(starts), "drives_with_clips": sum(1 for v in COVER.values() if v),
            "drives_without_clips": [k for k, v in COVER.items() if not v], "clips_per_drive": COVER}, open(f"{a.out}/args.json", "w"), indent=1)
@@ -240,7 +259,7 @@ TRAIN_NOISE = {"private_clips": PRIVATE_CLIPS, "rho": TRAIN_RHO, "t_rule": f"U{{
 
 def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K, "frames": Fn,
-         "arm": a.arm, "jitter": JITTER, "mix_from": MIX_FROM, "cache": a.cache, "cache_record_sha256": CACHE_SHA,
+         "arm": a.arm, "recipe": RECIPE, "jitter": JITTER, "mix_from": MIX_FROM, "cache": a.cache, "cache_record_sha256": PIN,
          "rng": {"jitter": G_JIT.get_state(), "source": G_SRC.get_state()}, "memory": "tstar_final_call", "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
          "gate_record_sha256": GATE_SHA,
          "noise_policy": "one t per clip (t* excluded); fully private eps per tick; memory = features at the clip's memory timestep of the source latents",
@@ -322,7 +341,16 @@ T_WIN, N_WIN = time.time(), 0  # end-to-end window timing (data + compute + logg
 t_data = t_gpu = t_mem = 0.0; n_acc = 0
 HOLD = None
 for step in range(start, end):
-    if MIX_FROM and step >= MIX_FROM and CACHE is None:  # update step+1 would read the cache: hold here (A5)
+    if MIX_FROM and step >= MIX_FROM and CACHE is None:  # update step+1 reads the cache: re-check the record now (it may have arrived)
+        CACHE, CACHE_SHA, CACHE_WHY = try_cache(PIN)
+        if CACHE is not None:
+            rec = {"cache_acquired": step, "record": a.cache_record, "record_sha256": CACHE_SHA}
+            print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
+    if MIX_FROM and step >= MIX_FROM and PIN is None and CACHE is not None:  # first use: pin this record for the rest of the run
+        PIN = CACHE_SHA
+        rec = {"cache_pinned": step, "record_sha256": PIN}
+        print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
+    if MIX_FROM and step >= MIX_FROM and CACHE is None:  # still no verified cache: hold here (A5)
         save(step, ck); HOLD = step
         rec = {"hold": step, "reason": CACHE_WHY, "resume": "rerun with --resume --cache_record <passing cache_check record>"}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()

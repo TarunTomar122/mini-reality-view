@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 13:32 UTC — S1 continuation queued (Astra 13:30)
+- MODE=train continuation wan-s1b 3757198 (afterany 3757190, 12 h, resumes runs/wan_s1 from its rolling checkpoint; USR1 300 s before the limit triggers the save) so the 12 h wall limit cannot strand the remaining budget (12k = 9.3 update-hours; 21,652 = 16.75).
+- WATCH: if the overfit (3757187) or resume test (3757188) does not PASS, cancel 3757190 and 3757198 by hand (an afterany continuation could otherwise start, stage ~93 GB and only then be refused by the trainer).
+- Astra 13:30 pre-registered the overfit reading (no cars / zero round-trip F1 -> FAIL; hybrid <= none + 0.02 -> FAIL; PASS needs loss <= 0.25 x update-0 and hybrid F1 >= 0.80 x round-trip F1; one NOT_REACHED, any retry back to council) and the S1-time work list (CPU rehearsal of the 24 h decision with the checkpoint rule pinned first; read existing probe logs every 500 updates for wiring only; S2 CPU fixtures for block causality / cache parity).
+
 ## 2026-11-28 13:21 UTC — Astra T4: overfit SIGNED; production SIGNED conditional on overfit + resume-test PASS (same frozen gc0_m1 gate key); S1 chain queued
 - council/codereview-wan-t4-astra.md: gc0_m1 accepted (0.0026 vs gc1_m1, limit 0.05); micro 2 / 4 / 8 stay excluded. Correction to my 13:19 reading: the bf16 batch-shape explanation is plausible but NOT established — the matched check restores Adam state after the sweep, so "Adam's sign-normalised first step" is unproven.
 - Chain on saxa (H200 3g slice, 170G, MICRO=1 GRAD_CKPT=0): MODE=overfit 3757187 running since ~13:19 (2,000 updates, 8 clips, ~2.5 h) -> MODE=resume_test 3757188 (afterok) -> MODE=train 3757190 (afterok, 12 h job; the trainer itself refuses without the overfit / resume PASS records for this gate key, the parity record and the live ledger forecast).

@@ -3,14 +3,15 @@
 # own ledger runs/wan_score_ledger.jsonl (this allocation's outer heartbeat, kind score_<name> / score_parity), reported separately
 # from the 24 H200-3g slice-hour S1 budget. Cluster cap: 16 Mini Reality View jobs at once (submit the rest --hold).
 # 1. scorer parity (once, before any PASS; re-run after any scorer / adapter / SD VAE / wrapper change):
-#      G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --exclude=damnii10 --cpus-per-task=4 --mem=32G"
+#      G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --exclude=damnii10,damnii11 --cpus-per-task=4 --mem=32G"   # damnii11 slow (Neon 12:30)
 #      sbatch $G --time=8:00:00 -J wsc-par -o logs2/%x-%j.out slurm/wan_score.sh parity            # unsharded A@20k replay (+ rate)
 #      for i in 0 1 2; do sbatch $G --time=4:00:00 -J wsc-par$i -o logs2/%x-%j.out slurm/wan_score.sh parity $i/3; done
 #      sbatch -d afterok:<the four ids> --cpus-per-task=1 --mem=8G --time=0:30:00 -J wsc-pchk -o logs2/%x-%j.out \
 #             slurm/wan_score.sh parity_check 3                                                     # CPU: sharded == unsharded
-# 2. one rendered panel (after slurm/wan_panel.sh ... finished on the slice), sharded by drive (7 scorings x 2 shards = 14 jobs):
-#      for W in hybrid guide tokens none swap_full swap_postdonor swap_postrecv; do for i in 0 1; do
-#        sbatch $G --time=3:00:00 -J wsc-$W$i -o logs2/%x-%j.out slurm/wan_score.sh panel s1_12k $W $i/2; done; done
+# 2. one rendered panel (after slurm/wan_panel.sh ... finished on the slice), UNSHARDED (Neon 12:30: sharding overhead +52% against
+#    the 3.14 h scoring cap): 7 jobs, one per scoring:
+#      for W in hybrid guide tokens none swap_full swap_postdonor swap_postrecv; do
+#        sbatch $G --time=4:00:00 -J wsc-$W -o logs2/%x-%j.out slurm/wan_score.sh panel s1_24h $W 0/1; done
 #    then slurm/wan_panel.sh decide <ckpt> s1_12k <stage> (CPU).
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp
@@ -33,7 +34,8 @@ if [ -n "$KIND" ]; then  # the whole 2080 Ti allocation is charged once to the S
   trap stop_beat EXIT
   trap 'stop_beat; exit 143' TERM INT
 fi
-$PY scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
+# Neon 12:30 / 13:30: no in-job CPU test suite (it ran ~93 s per 2080 Ti job against the scoring cap); the code is frozen and
+# parity-bound (council/FREEZE-s1.md), the suite runs in every slice job
 $PY scripts/wan_score.py $ARGS
 rc=$?
 echo "end $(date -u) rc=$rc"

@@ -19,7 +19,6 @@ PHASE=render; [ "$1" = decide ] && { PHASE=decide; shift; }
 CK=$1; NAME=$2; STAGE=$3; shift 3
 sha256sum scripts/wan_panel.py scripts/wan_rollout.py scripts/wan_score.py scripts/score_rgb.py scripts/temporal_metrics.py scripts/temporal_compare.py mrv/wan_plan.py
 LEDGER=runs/wan_s1_ledger.jsonl
-.venv/bin/python scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
 BUDGET=24; [ -s runs/wan_s1/S1_24H_DECISION.json ] && grep -q '"EXTEND' runs/wan_s1/S1_24H_DECISION.json && BUDGET=36
 if [ $PHASE = render ]; then
   export WAN_LEDGER_OUTER=1  # S1b item 10: the whole slice allocation is charged once by this heartbeat; the panel only reads
@@ -28,4 +27,6 @@ if [ $PHASE = render ]; then
   trap stop_beat EXIT
   trap 'stop_beat; exit 143' TERM INT
 fi
+# Neon 13:30: the CPU test suite runs AFTER the heartbeat starts, so its slice minutes are charged to the S1 ledger
+.venv/bin/python scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
 .venv/bin/python scripts/wan_panel.py --phase $PHASE --ckpt $CK --name $NAME --stage $STAGE --ledger $LEDGER --budget_hours $BUDGET "$@"

@@ -4,7 +4,7 @@
 - VPN had dropped (ssh banner timeout at 09:18); reconnected via FortiTray, ssh fine at 09:19. Kerberos valid to 17:48.
 - Tokens + latent caches (wtok / wcache 0-2): 16 of 18 drives each, ~3.5 min / drive -> done ~09:27; MODE=timing 3756964 then starts.
 - S0c: guide reader finished training (rc 0, 3,552 train ticks, 0.29 s / update) and the LiDAR reader finished; token and hybrid readers still training (hybrid at update 3,300, 0.66 s / update); report 3756853 waits on them.
-- Full guide build: gfull0-2 done, gfull3 done 09:19 (38 drives in 1,257 s for that shard).
+- Full guide build: gfull0-2 done (gfull0 ended 09:19, 38 drives in 1,257 s); gfull3 still running.
 
 ## 2026-11-28 09:08 UTC — Astra SIGNED S1 production (yes) at fc01ccf
 - Clock note: the three entries above / below were first stamped 09:10 / 09:25 / 09:30, ahead of the clock (cluster `date -u` 09:08); corrected.

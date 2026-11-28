@@ -6,8 +6,10 @@ finite values), and writes runs/vmix_gate/a1_<k>k.json (mode "x"):
   joint pass  = ID and W eligible, smaller reduction > 9.4%, car F1 diff >= -0.03, late gap diff <= +0.03 (the signed bars,
                 unchanged) AND the A4 pass conditions at the same checkpoint, read from the comparator's PAIRED drive bootstrap
                 (2,000 draws, equal drive weights, seeds pooled within drive; "ci95" = 2.5 / 97.5 percentiles of arm - A):
-                  ghosts : ghost_ge5 "at or below the upper end of A's paired 95% interval" = the arm is not significantly above A
-                           on the paired bootstrap, i.e. ghost_ge5.ci95[0] (lower end of the arm - A interval) <= 0;
+                  ghosts : ghost_ge5 "at or below the upper end of A's paired 95% interval" (Astra 04:30): the arm's mean
+                           lingering-ghost count (equal drive weights, seeds pooled within drive) <= the 97.5th percentile of
+                           A's mean over 10,000 drive resamples (fixed seed 20261128; the same resampled drive sets would apply
+                           to the arm, so A's bound is paired by drive); computed here from the two signed metrics files;
                   road   : "the paired 95% interval of (arm - A) road IoU not wholly below zero", i.e. road_iou.ci95[1] >= 0.
                 (Fable final r1 (d): road "stated the same way" as ghosts; both conditions are on the same paired interval.)
                 A pass advances to the 30-drive exam only after N1 review; training is not stopped by a pass;
@@ -44,7 +46,22 @@ for key in ("ghost_ge5", "road_iou"):
 elig = d["ID"].get("can_pass") is True and d["W"].get("can_pass") is True
 red = min(-d["ID"]["rel"], -d["W"]["rel"])
 safe = d["car_f1"]["diff"] >= -0.03 and d["late_lpips_gap"]["diff"] <= 0.03
-ghost_ok = d["ghost_ge5"]["ci95"][0] <= 0.0   # arm - A ghost interval not wholly above zero
+def drive_means(path):  # ghost_ge5 per drive, seeds pooled within drive (equal drive weights), from a signed metrics file
+    m = json.load(open(path))["drives"]; acc = {}
+    for run, v in m.items():
+        need(num(v.get("ghost_ge5")), f"{path}: {run} ghost_ge5 missing / non-finite")
+        acc.setdefault(run.rsplit("_s", 1)[0], []).append(float(v["ghost_ge5"]))
+    return {k: sum(x) / len(x) for k, x in acc.items()}
+ga, gb = drive_means(d["A"]), drive_means(d["B"])  # comparator: A = arm (candidate), B = signed A@20k
+need(set(ga) == set(gb) and len(ga) == 6, f"ghost drive sets differ / not 6: {sorted(ga)} vs {sorted(gb)}")
+import random
+rng = random.Random(20261128); drv = sorted(gb); boots = []
+for _ in range(10000):
+    pick = [drv[rng.randrange(len(drv))] for _ in drv]
+    boots.append(sum(gb[x] for x in pick) / len(pick))
+boots.sort(); a_upper = boots[int(0.975 * len(boots)) - 1]
+arm_mean = sum(ga.values()) / len(ga)
+ghost_ok = arm_mean <= a_upper   # A4: arm mean <= upper end of A's 95% interval
 road_ok = d["road_iou"]["ci95"][1] >= 0.0     # arm - A road IoU interval not wholly below zero
 bars = elig and red > 0.094 and safe
 joint = bars and ghost_ok and road_ok
@@ -55,7 +72,7 @@ if PREV:
     prev_safe = json.load(open(pf))["safe"]
 stop = (not safe) and (not prev_safe)
 rec = {"k": k, "eligible": elig, "smaller_reduction": red, "f1_diff": d["car_f1"]["diff"], "late_diff": d["late_lpips_gap"]["diff"],
-       "safe": safe, "signed_bars_pass": bars, "ghost_ge5": {"arm": d["ghost_ge5"]["A"], "A": d["ghost_ge5"]["B"], "diff_ci95": d["ghost_ge5"]["ci95"], "ok": ghost_ok},
+       "safe": safe, "signed_bars_pass": bars, "ghost_ge5": {"arm": d["ghost_ge5"]["A"], "A": d["ghost_ge5"]["B"], "arm_mean_drives": arm_mean, "A_upper95": a_upper, "diff_ci95": d["ghost_ge5"]["ci95"], "ok": ghost_ok},
        "road_iou": {"arm": d["road_iou"]["A"], "A": d["road_iou"]["B"], "diff_ci95": d["road_iou"]["ci95"], "ok": road_ok},
        "joint_pass": joint, "prev_safe": prev_safe, "stop": stop, "n1_review_before_exam": joint}
 out = f"{G}/a1_{k}k.json"

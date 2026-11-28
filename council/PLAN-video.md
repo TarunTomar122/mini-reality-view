@@ -43,3 +43,28 @@ S3 few-step distillation (2-4 steps) + small decoder; live timing (p50 / p95 cam
 2. Depth source + licence choice; whether lidar-supervised fine-tuning of the depth net is in scope.
 3. S1 budget, resolution (512x256 vs a Wan-native size) and LoRA rank / which blocks train.
 4. Kill thresholds for S1 / S2 in hours.
+
+## SIGNATURE ROUND RESULT (28 Nov ~06:50 UTC) — supersedes the open points above
+Sources: PLAN-video-{astra,fable}.md, PLAN-video-swap-{astra,fable}.md. Fable's corrections C1-C9 accepted by both seats (tie rule
+as Fable revised; S0c keeps the LiDAR-depth ceiling arm, wrong-drive control and "still improving -> unresolved" rule; lag = 300 ms
+first-to-fourth-tick wait at 10 Hz + compute (est. 0.4-0.5 s on a 4090, 0.6-0.7 s on a 2080 Ti; S0b measures); per-tick still
+mode measured in S0a / S0b; causal conversion and few-step self-forcing are ONE stage; S0a kill compares Wan vs the SD round trip
+too). Builder merge of the final numbers (Fable's final = midpoint inside the range Astra accepted; Astra asked to confirm):
+- S0c: <= 5 aggregate 2080 Ti-h incl. caching and scoring; matched guide and token readers + hybrid report + LiDAR ceiling +
+  wrong-drive control; a lead needs >= 0.03 car F1, paired drive interval > 0, positive in every LODO, no road-IoU loss; otherwise
+  both inputs go into S1 (S1 trains with independent input dropout; hybrid / guide-only / tokens-only compared at fixed noise on
+  the same checkpoint; equal quality -> lower jitter, then lower measured runtime).
+- Depth: Depth Anything V2-Small (Apache-2.0 metric checkpoint), per-camera scale fitted on train drives and frozen; LiDAR as
+  training supervision only if the LiDAR ceiling beats the estimated-depth guide by >= 0.05 dev car F1. Neon to check the VKITTI2 /
+  nuScenes licence points.
+- S1 (bidirectional teacher): 24 H200-3g slice-hours (+ one 12 h extension), verdict only after >= 12k updates (A1: earlier =
+  unresolved, not failed); 512x256, 17-tick clips (floor 13); LoRA rank 32 on self-attention, cross-attention and MLPs in all 30
+  blocks (rank 16 if it fits train but not dev); new guide / token projections trained fully; base and VAE frozen. Pass: complete
+  paired dev panel with car F1 >= A (0.4456), road IoU >= A, ID and W each > 9.4% better than A, camera-swap check passes;
+  extension only if car F1 in [A-0.03, A) and the rest pass; else stop and re-council.
+- S2 (causal + 4-step self-forcing, own-rollout training): 40 slice-hours (+ one 16 h tranche); A1 from 8k-equivalent exposure;
+  A4 on whole dev drives with own history; cap before an eligible verdict = unresolved.
+- S3 (2-step student, tiny decoder, live timing): 24 slice-hours hard; advance only with A4 retained, sustained 10 Hz and the
+  owner's capture-to-display limit. 30-drive exam sealed until recipe lock + N1.
+- OWNER DECISION before S1 (after S0 numbers): latency contract (native 4-tick groups ~0.4-0.7 s behind vs per-tick stills).
+- All hour caps are restated in updates once S0b measures the rate. Worst case ~4-5 days on one slice (Fable estimate).

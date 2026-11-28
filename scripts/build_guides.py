@@ -52,8 +52,6 @@ out_dir = a.out or ("data/guides_v1_lidar" if a.lidar_ceiling else "data/guides_
 os.makedirs(out_dir, exist_ok=True)
 res = tuple(int(x) for x in a.res.split("x"))
 drives = G.drive_list(a.drives, a.lists, unseal=a.unseal)
-from mrv.wan_plan import check_split_membership  # explicit scene ids / list files too: train / dev, sealed only with --unseal
-drives = check_split_membership(drives, json.load(open(a.lists)), allowed=("train", "dev"), unseal=a.unseal)
 si, sn = map(int, a.shard.split("/")); mine = drives[si::sn]
 print(f"drives {len(drives)}, this shard {len(mine)} -> {out_dir}", flush=True)
 man = json.load(open(a.manifest))

@@ -1,0 +1,11 @@
+# Astra review of vmix launch and scoring at `e7c6a85`
+**Keep launcher 3756366 held.** A4 lines 136–138 specify two different statistics. The road check implements the signed rule. The ghost check can promote a failing arm.
+- **Ghosts.** Pass iff the arm’s mean `ghost_ge5` ≤ the 97.5th percentile of signed A@20k’s bootstrap means. Average seeds 0/1 within each of six matched drives. Use the comparator’s 2,000 equal-weight drive resamples with replacement, in sorted drive order, RNG seed 0. Record the reference bound and reject incomplete ghost inputs.
+- **Counterexample.** With A = [2,2,2,2,2,2] and arm = [2,2,2,2,2,14] at both seeds, I reproduced A’s upper bound of 2, arm mean 4, and paired difference interval [0,6]. `a1_decide_vmix.py:47` passes this arm. A4 fails it.
+- **Road.** Pass iff the 97.5th percentile of the paired arm−A road-IoU difference is ≥ 0, including equality. Both tests apply at the same checkpoint as the existing bars. Only F1 and late gap count toward consecutive safety misses. N1 precedes the exam.
+- **Cold reference.** `launch_vmix.sh:41` accepts ρ=0.95, while `vmix_checks.sh:117` and `vmix_score.sh:64` always use signed A as own cold. This can change the late-gap strike and the 12k continuation. Require verified ρ=1.0 before submission for this path, or wire the matched 0.95 cold through metrics and scoring.
+- **Launch and monitoring.** The launcher re-verifies the passed-cache record under lock, writes intent before submitting one H200-3g job to 12k, and records its ID. The watcher prioritizes gated stream panels and queues the 8k own-history probe independently.
+- **Early continuation.** The watcher supplies its completed 8k scorer. The callable `vmix_score.sh early` at lines 40–46 also accepts an unrelated completed ID alongside an old safe decision. Read the ID from `watch/8.c` and require that exact job to have completed.
+- **Watcher restart.** Two overlapping watchers can both submit the same shard before either records its ID at `vmix_checks.sh:43–51`. Take a watcher-specific process lock before reconciling intents.
+Shell and Python syntax passed locally. Cluster results were outside this review. If the launcher itself changes, submit the corrected batch script on hold because Slurm retains the submitted copy.
+SIGNED: no

@@ -38,7 +38,7 @@ OUT2=$($PY scripts/vclean_gate.py --verify $REC/vmix.json); rc=$?; echo "$OUT2"
 [ $rc = 0 ] || fail "gate record does not re-verify"
 read -r RHO ST ARM <<< "$($PY -c "import json;r=json.load(open('$REC/vmix.json'));print(r['rho_gate'],r['cache']['status'],r['arm'])")"
 [ "$ARM" = vmix ] && [ "$ST" = passed ] || fail "record arm '$ARM' cache '$ST' (need vmix / passed)"
-case "$RHO" in 1.0|0.95) ;; *) fail "rho_gate '$RHO'";; esac
+[ "$RHO" = 1.0 ] || fail "rho_gate '$RHO': this launch / scoring path uses signed A@20k as the own cold, valid only at rho 1.0 (Astra launcher review)"
 cmp -s $CREC $REC/cache_check.json || fail "cache record changed during the gate"
 sha256sum $REC/vmix.json $CREC council/vmix_pins.json > $REC/inputs.sha256
 mkdir -p runs/vmix; lfs setstripe -i 0 -c 1 runs/vmix 2>/dev/null

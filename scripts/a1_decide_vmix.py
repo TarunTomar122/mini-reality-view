@@ -8,8 +8,8 @@ finite values), and writes runs/vmix_gate/a1_<k>k.json (mode "x"):
                 (2,000 draws, equal drive weights, seeds pooled within drive; "ci95" = 2.5 / 97.5 percentiles of arm - A):
                   ghosts : ghost_ge5 "at or below the upper end of A's paired 95% interval" (Astra 04:30): the arm's mean
                            lingering-ghost count (equal drive weights, seeds pooled within drive) <= the 97.5th percentile of
-                           A's mean over 10,000 drive resamples (fixed seed 20261128; the same resampled drive sets would apply
-                           to the arm, so A's bound is paired by drive); computed here from the two signed metrics files;
+                           A's mean over the comparator's 2,000 drive resamples (np.random.default_rng(0), sorted drive order,
+                           np.percentile 97.5); computed here from the two signed metrics files;
                   road   : "the paired 95% interval of (arm - A) road IoU not wholly below zero", i.e. road_iou.ci95[1] >= 0.
                 (Fable final r1 (d): road "stated the same way" as ghosts; both conditions are on the same paired interval.)
                 A pass advances to the 30-drive exam only after N1 review; training is not stopped by a pass;
@@ -54,12 +54,12 @@ def drive_means(path):  # ghost_ge5 per drive, seeds pooled within drive (equal 
     return {k: sum(x) / len(x) for k, x in acc.items()}
 ga, gb = drive_means(d["A"]), drive_means(d["B"])  # comparator: A = arm (candidate), B = signed A@20k
 need(set(ga) == set(gb) and len(ga) == 6, f"ghost drive sets differ / not 6: {sorted(ga)} vs {sorted(gb)}")
-import random
-rng = random.Random(20261128); drv = sorted(gb); boots = []
-for _ in range(10000):
-    pick = [drv[rng.randrange(len(drv))] for _ in drv]
+import numpy as np  # the comparator's bootstrap: np.random.default_rng(0), 2000 equal-weight drive resamples, sorted drive order
+rng = np.random.default_rng(0); drv = sorted(gb); boots = []
+for _ in range(2000):
+    pick = list(rng.choice(drv, len(drv)))
     boots.append(sum(gb[x] for x in pick) / len(pick))
-boots.sort(); a_upper = boots[int(0.975 * len(boots)) - 1]
+a_upper = float(np.percentile(boots, 97.5))
 arm_mean = sum(ga.values()) / len(ga)
 ghost_ok = arm_mean <= a_upper   # A4: arm mean <= upper end of A's 95% interval
 road_ok = d["road_iou"]["ci95"][1] >= 0.0     # arm - A road IoU interval not wholly below zero

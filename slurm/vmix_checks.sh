@@ -19,6 +19,7 @@ G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --cpus-per-task=4 --mem=48G --exclude
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD
 mkdir -p $PWD/runs/tmp && export TMPDIR=$PWD/runs/tmp
 S=runs/vmix_gate/watch; mkdir -p $S || exit 1
+exec 8>$S/.watcher.lock; flock -n 8 || { echo "another vmix watcher holds the lock: exiting"; exit 0; }  # one watcher at a time (Astra)
 die() { echo "WATCH_FAIL $*" >&2; exit 1; }
 rec() { echo "$2" > $S/$1 && [ "$(cat $S/$1)" = "$2" ] || die "cannot record $1"; }
 free() {  # free slots (min of both limits); returns 1 if squeue failed

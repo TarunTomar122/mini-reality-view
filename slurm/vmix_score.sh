@@ -38,6 +38,7 @@ G2=runs/vmix_gate
 if [ "$1" = early ]; then  # resume without waiting for the 12k score: allowed only if the 8k A1 decision is safe (JSON true)
   # and was written by the CURRENT 8k score job ($2), which must have COMPLETED
   [[ "$2" =~ ^[0-9]+$ ]] || { echo "SCORE_FAIL early needs the 8k score job id"; exit 1; }
+  [ "$(cat runs/vmix_gate/watch/8.c 2>/dev/null)" = "$2" ] || { echo "SCORE_FAIL $2 is not the recorded 8k score job (runs/vmix_gate/watch/8.c)"; exit 1; }
   ST=$(sacct -n -X -P -S now-3days -j $2 -o State | head -1) || { echo "SCORE_FAIL sacct"; exit 1; }
   [ "$ST" = COMPLETED ] || { echo "SCORE_FAIL 8k score job $2 is '$ST', not COMPLETED: no early continuation"; exit 1; }
   exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }

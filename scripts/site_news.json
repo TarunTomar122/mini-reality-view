@@ -1,5 +1,9 @@
 [
  {
+  "when": "28 Nov, 13:20",
+  "text": "The video model's training setup now fits its budget. This morning one training step took 10.7 seconds because the computer spent most of its time reading files; after copying the data into memory first (and checking every byte), a step takes 2.7 seconds, and checking the dev drives costs 1 hour of the training GPU instead of 14. The forecast now fits about 21,700 training steps into the 24-hour budget, where 12,000 are needed. Next: a short test where the model must learn 8 clips by heart, then a stop-and-resume test, then the real training run."
+ },
+ {
   "when": "28 Nov, 09:50",
   "text": "Side test closed: we trained small 'readers' to find cars and road from our camera-only guide picture. Using the cameras' own depth estimate they found cars with a score of 0.255; using the real laser scanner (LiDAR) depth only 0.288, and that gain came from one drive, so we keep the camera-only depth. The test ran over its hour limit (partly our own mistake), so we stopped it without a final answer on the other input type; the video model simply trains with both inputs. The main video-model speed check is running now."
  },

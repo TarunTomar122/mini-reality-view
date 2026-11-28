@@ -1,5 +1,9 @@
 [
  {
+  "when": "28 Nov, 09:50",
+  "text": "Side test closed: we trained small 'readers' to find cars and road from our camera-only guide picture. Using the cameras' own depth estimate they found cars with a score of 0.255; using the real laser scanner (LiDAR) depth only 0.288, and that gain came from one drive, so we keep the camera-only depth. The test ran over its hour limit (partly our own mistake), so we stopped it without a final answer on the other input type; the video model simply trains with both inputs. The main video-model speed check is running now."
+ },
+ {
   "when": "28 Nov, 09:08",
   "text": "The code that trains the new video model passed its last safety review: the reviewer signed it off for the full training run. Before that run starts, it still has to pass four short checks on the cluster: how fast it is, whether it reproduces our old scores exactly, whether it can learn a few clips by heart, and whether it can stop and resume without changing the result. The first of these (speed) starts in about half an hour, once the data it needs is ready."
  },

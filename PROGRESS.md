@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 06:14 UTC — owner: choose the best image-to-video-model connection on merit, no reuse for its own sake
+- Owner (verbatim): "make sure we find the best way to connect our images to the video model dont try to reuse and loose". Added as an addendum to council/pivot-video-r1.md; a dedicated conditioning round (6 cameras -> video model) follows r1, comparing geometric warping / unprojection into the chase view, multi-view cross-attention with camera (Plücker) embeddings, stronger per-view encoders, BEV / 3D lifting, ControlNet-style branches and rendered-guide concatenation, judged by evidence on car placement and smoothness. CameraAdapter / DINOv2-small tokens are reused only if they win on merit.
+
 ## 2026-11-28 06:13 UTC — STRATEGIC PIVOT (owner): pretrained VIDEO model instead of time layers on the frozen SD 1.5 image model
 - Owner (side chat, 28 Nov ~06:11 UTC, verified in the thread): "i think we are going to struggle with a image mdoel ... we are going to use a video model now im okay with either 1.3b or 2b i dont mind as long as we get good results and need to run a deep council research round to plan this".
 - Wound down the superseded SD 1.5 temporal track at 06:12: control vctl 3756446 (stopped at update ~4,100; ckpt_1000 / 2000 / 4000 + ckpt.pt kept; runs/vctl/STOPPED_PIVOT.txt), batch-1 cache rebuild (124 / 144 drives done; kept), cache check 3756387 and handoff-vmix2 3756486 cancelled. vmix (A5) was never trained. All code, council files and results stay in the repo as the record of what did not work.

@@ -40,3 +40,12 @@ End with "PROPOSAL: <backbone> — <one line>". Read-only: write only your answe
 Neon: instead answer "FACT CHECK" (<= 35 lines, to council/pivot-video-r1-neon.md): verify sizes, licences, weight availability,
 VAE compression factors, published speeds and the existence / claims of the streaming / distillation papers above, with links;
 flag anything doubtful.
+
+## OWNER ADDENDUM (28 Nov ~06:25 UTC, verbatim): "make sure we find the best way to connect our images to the video model dont try to reuse and loose"
+- Conditioning (question 2) is chosen ON MERIT for the new backbone. Do NOT favour reusing our CameraAdapter / DINOv2-small
+  tokens / ray maps / A@20k pieces because we have them; reuse only if it is genuinely the best option. Compare the strongest
+  ways to feed 6 synchronized surround cameras (+ calibration / poses) into a video model (e.g. view-to-target geometric
+  warping / unprojection into the chase-camera frame, multi-view cross-attention with camera embeddings (Plücker), a strong
+  pretrained image encoder per view (DINOv2-L / SigLIP / the backbone's own VAE latents), BEV / 3D lifting, ControlNet-style
+  branches, channel concatenation of a rendered guide), with evidence (papers / results) for which gives the most accurate
+  car placement and smoothness. A dedicated round on this follows r1.

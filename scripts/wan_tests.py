@@ -799,5 +799,36 @@ check("F3: load-once rollout resets per-run state (sensitivity, RNG) and uses a 
       "SENS = None\n    torch.manual_seed(0)" in _rol and "sch = make_unipc()" in _rol and "SCHED" not in _rol and '"rgb_sha": hashlib.sha256(rgb.numpy().tobytes())' in _rol)
 check("F3: rehearsal = load-once (after a different run) vs fresh-load byte-equality on RGB and SD latents",
       'roll_cmd(f"{a.out}/loop_tokens", "tokens"' in _pan and 'torch.equal(A_["rgb"], B_["rgb"])' in _pan and 'torch.equal(A_["lat"], B_["lat"])' in _pan)
+
+# ---- Astra t1 item 10: overlapping modes / unsigned overfit gate
+for _flags, _ok in (((True, 8, False, False), False), ((False, 8, True, False), False), ((True, 0, False, True), False),
+                    ((True, 0, False, False), True), ((False, 8, False, False), True), ((False, 0, False, False), True)):
+    check(f"T1 item 10 repro: modes timing/overfit/resume/production = {_flags} -> {'accepted' if _ok else 'refused'}", (not _refused(WP.check_modes, *_flags)) == _ok)
+check("T1 item 10: the signed overfit gate is accepted", WP.overfit_signed_ok(8, 2000, 0.25, 0.8)[0])
+for _a, _nm in (((4, 2000, 0.25, 0.8), "4 clips"), ((8, 1000, 0.25, 0.8), "1,000 updates"), ((8, 2000, 0.5, 0.8), "loss ratio 0.5"),
+                ((8, 2000, 0.25, 0.5), "F1 fraction 0.5"), ((8, 2000, 0.25, 0.8, 0.0), "none margin 0")):
+    check(f"T1 item 10 repro: overfit gate with {_nm} -> no verdict can be registered", not WP.overfit_signed_ok(*_a)[0])
+_trs = open("scripts/train_wan_teacher.py").read()
+check("T1 item 10: the trainer rejects overlapping modes first and re-checks the signed gate before gate_append",
+      _trs.index("MODE_ = WP.check_modes(") < _trs.index("TEST = a.timing or a.overfit") and "a PASS is registered only under the signed" in _trs)
+# ---- Astra t1 item 11: evidence identity + refreshed forecast against the actual ledger
+with _tf.TemporaryDirectory() as td:
+    for f_ in WP.EVIDENCE_FILES:
+        os.makedirs(os.path.dirname(f"{td}/{f_}"), exist_ok=True); _sh_.copyfile(f_, f"{td}/{f_}")
+    e0 = WP.evidence_sha(td)
+    open(f"{td}/mrv/wan_stage.py", "a").write("\n# edit\n"); e1 = WP.evidence_sha(td)
+    open(f"{td}/scripts/wan_forecast.py", "a").write("\n# edit\n"); e2 = WP.evidence_sha(td)
+check("T1 item 11 repro: staging / forecast code edits change the evidence identity (they were outside the timing identity)", len({e0, e1, e2}) == 3)
+TJe = {"selected_setting": {"micro": 1, "grad_ckpt": 0}, "retime_pass": {"all_pass": True}, "evidence_sha": "E",
+       "forecast_final": {"evidence_sha": "E", "inputs": {**T_, "budget_h": 24.0, "used_h": 1.0, "n_panels": 1, "panel_h": 2.0, "wall_s": 2.0, "done_kinds": []}}}
+check("T1 item 11 repro: re-time evidence from older staging / forecast code -> overfit refused", not WP.retime_gate(TJe, 1, 0, evidence="E2")[0])
+ok_a, r_a = WP.refresh_forecast(TJe["forecast_final"], 1.0, set())
+ok_b, r_b = WP.refresh_forecast(TJe["forecast_final"], 15.0, set())
+check("T1 item 11 repro: a stored PASS whose headroom was consumed (ledger 1 h -> 15 h) is refused at the next stage",
+      ok_a and not ok_b and WP.retime_gate(TJe, 1, 0, evidence="E", used_h=1.0)[0] and not WP.retime_gate(TJe, 1, 0, evidence="E", used_h=15.0)[0], (r_a["updates"], r_b["updates"]))
+ok_c, r_c = WP.refresh_forecast(TJe["forecast_final"], 15.0, set(), start_step=9000)
+check("T1 item 11: a production resume counts the updates already done (start + affordable >= 12k)", ok_c == (9000 + r_c["updates"] >= 12000))
+check("T1 item 11: the trainer refreshes the forecast with the live ledger and gate registry before every non-timing stage",
+      "WP.retime_gate(TJ, a.micro, a.grad_ckpt, evidence=EVIDENCE_SHA, used_h=LEDGER.hours(), done_kinds=_done" in _trs)
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

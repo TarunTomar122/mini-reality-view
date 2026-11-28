@@ -1078,6 +1078,9 @@ if a.overfit:
     from PIL import Image
     Image.fromarray(np.concatenate(strips, 0)).save(f"{a.out}/overfit_samples.png")
     json.dump(res, open(f"{a.out}/overfit.json", "w"), indent=1)
+    _sig_ok, _sig_why = WP.overfit_signed_ok(a.overfit, end, a.overfit_ratio, a.overfit_f1_frac, WP.NONE_MARGIN)
+    if res["PASS"] and not _sig_ok:  # Astra t1 item 10: a PASS is registered only under the signed clip count / thresholds
+        res["PASS"] = False; status = f"INVALID ({_sig_why})"; res["status"] = status
     WP.gate_append(a.gates, {"kind": "overfit", "gate_key": GATE_KEY, "status": "PASS" if res["PASS"] else status, "out": a.out,
                              "f1": res["car_f1_controls"], "ratio": res["ratio"], "job": os.environ.get("SLURM_JOB_ID")})
     print("OVERFIT_GATE", json.dumps(res), flush=True)

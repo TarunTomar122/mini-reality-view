@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 07:24 UTC — session moved to another account: T3 delegation (Astra via codex, Neon via antigravity) unavailable
+- The builder session continued under a different account after a usage limit; the T3 orchestration tools (delegate_task to codex / antigravity) are not connected here. Fable can still be reached (Claude Fable via the Agent tool); Astra and Neon reviews resume when the T3 tools are back. Until then reviews are logged as "Fable only".
+- State: S0c running (scale fit + caches, guides queued); full train+dev guide build gfull0-5 held behind the S0c guide shards; S1 code batch 2 / 3 of Astra's S1b items being finished (batch 1 committed 4e2a719; CPU tests pass).
+
 ## 2026-11-28 07:16 UTC — guide preview (pinned dev drive scene-0396, 20 ticks): geometry aligns; depth needs its scale; training-free car placement is weak for every guide
 - Chase camera found in the sim renderer: 7.5 m behind, 2.4 m up, 8 deg down, 60 deg HFOV (fx = fy = 443.4, cx 256, cy 112 at 512x256), ego origin = nuScenes rear axle.
 - Training-free placement (photo car instances from the scorer's Mask2Former carried through the splat, matched to key cars with the signed 0.3-IoU matcher): flat-ground warp car F1 0.253 (coverage of key cars 0.45); estimated metric depth UNSCALED 0.143 (coverage 0.48); LiDAR depth ceiling 0.227 (coverage 0.56); LiDAR minus estimate 0.084. Median LiDAR / estimated depth ratio per camera 0.36-0.60 (the metric model overestimates depth ~1.8x here) -> scripts/fit_depth_scale.py on train drives fixes that before S0c. Render 15 ms (flat) / 34 ms (depth) per tick on a 2080 Ti. docs/figs/guide_preview_0396.jpg.

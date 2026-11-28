@@ -1,5 +1,9 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 12:19 UTC — scorer parity on the 2080 Ti PASS (bound); re-time staging nearly done
+- WAN_SCORE_PARITY PASS (3757143-47 on the frozen scorer): unsharded A@20k replay RGB_PATH_PARITY PASS (2,092 ticks, 1,291 s), sharded == unsharded, every part bound before scoring; record runs/wroll/score_parity_2080.json. 2080 Ti scoring rate 0.617 s / tick (vs 2.41 s / tick measured on the slice in 3756964).
+- Re-time 3757153: MEMCHECK PASS (request 182.5 GB >= 178.2 GB need); token geometry PASS again (10.7 px vs 45 px, inputs hashed against the manifest); stage-in of 607 files / 97.6 GB at ~110 MB/s (550 files, 80.4 GB after 723 s).
+
 ## 2026-11-28 12:02 UTC — Astra T3c SIGNED timing; ten evidence files FROZEN; MODE=timing (re-time, 144 drives) running 3757153
 - council/codereview-wan-t3c-astra.md: Neon C closed (Astra's six-drive case records 10,664 s = 10,240 s rendering + 424 s cache fills); SIGNED timing yes / overfit no / production no (their existing gates still apply in code).
 - Freeze: council/FREEZE-s1.md records the sha256 of mrv/{wan_cond,wan_plan,wan_stage,guide}.py, slurm/wan_teacher.sh, scripts/{train_wan_teacher,wan_forecast,wan_panel,wan_rollout,wan_token_check}.py at 233d5ec; cluster copies identical and made read-only.

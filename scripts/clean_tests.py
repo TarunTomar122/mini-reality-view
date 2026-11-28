@@ -37,6 +37,10 @@ a = p.parse_args()
 K = a.K
 torch.backends.cuda.matmul.allow_tf32 = False; torch.backends.cudnn.allow_tf32 = False
 torch.backends.cudnn.deterministic = True; torch.backends.cudnn.benchmark = False
+if a.init:  # full model on CUDA: deterministic kernels for the exact-equality checks (slurm exports CUBLAS_WORKSPACE_CONFIG=:4096:8)
+    if os.environ.get("CUBLAS_WORKSPACE_CONFIG") not in (":4096:8", ":16:8"):
+        print("WARNING: CUBLAS_WORKSPACE_CONFIG not set; cuBLAS may be nondeterministic", flush=True)
+    torch.use_deterministic_algorithms(True, warn_only=True)
 FAIL = []
 
 
@@ -293,8 +297,9 @@ elif a.small or a.init:
     worst = max(mx(o4[s], ref4[s]) for s in range(2))
     cut = stream4(reset_at=6)
     set_mode(TW, "off")
+    rw4 = [0, 1, 2, 3]  # IDENTICAL batch layout to the stream call (advanced indexing -> contiguous copies, same shapes / strides)
     with torch.no_grad():
-        a6 = Wm(X4[1][:, 6], tvec(500, 4), encoder_hidden_states=C4[:, 6]).sample
+        a6 = Wm(X4[1][rw4, 6], tvec(TV[1], 4), encoder_hidden_states=C4[rw4, 6]).sample
     first_after = mx(cut[1][:, 6], a6)
     fresh6 = torch.stack([run_clip(X4[1][row, 6:], 500, C4[row, 6:], [m[6:] for m in MEMR[row]], F1 - 6) for row in range(4)])
     d_reset = mx(cut[1][:, 6:], fresh6)

@@ -1,6 +1,11 @@
 """ONE verifier of an A5 cache_check record, shared by scripts/vclean_gate.py (passed state), scripts/train_clean.py (passed
 and pending states, before the first cache read and on every resume) and scripts/cache_check.py (self-check of its output)
-(council/codereview-vmix-astra.md, codereview-vmix2-astra.md).
+(council/codereview-vmix-astra.md, codereview-vmix2-astra.md, codereview-vmix3-astra.md).
+
+INDEPENDENT PINS (council/vmix_pins.json, part of the reviewed code set): the expected parity-reference artifact (path, drive and
+sha256 of the unchanged causal_rollout render of scene-0005, made outside the candidate record) and the six known-good full-file
+digests of the signed seed-0 dev renders. The verifier refuses while the parity pin is PENDING and never takes either from the
+candidate record. Tests pass a separate test-only pins file explicitly (bind["pins"] != the production path).
 
 Every file is read ONCE into memory; its digest is computed on those bytes and it is parsed from the same bytes (json.loads /
 torch.load(io.BytesIO(buf))), never reopened.
@@ -15,18 +20,19 @@ verify(path, bind, data) accepts a record only if
     drives; every cache file matches its recorded digest, is fp16 (n, 4, 32, 64) with ticks aligned to the trainer's encoding,
     carries its signed fields, and its ENCODING digest equals both the record's and the digest of the encoding bytes the caller
     actually loaded (data["enc_sha"]); its ray digest equals the caller's rays;
-  * parity is RE-MEASURED: the bound reference artifact (the unchanged causal_rollout's output for the parity drive; digest in
-    the record) is re-loaded and compared with the cached drive: whole drive, ticks / source ticks / ok / hard / restart / amp
+  * parity is RE-MEASURED: the PINNED reference artifact (the unchanged causal_rollout's output for the pinned parity drive;
+    path and digest from the pins file, never from the record) is re-loaded and compared with the cached drive: whole drive, ticks / source ticks / ok / hard / restart / amp
     equal, same inputs, A@20k memory off at rho 1.0, seed-0 noise keys, max |diff| < 0.01;
-  * the six dev references are exactly the bound signed files (digests), A@20k independent renders, and seed 0 is MEASURED
-    (the files carry no seed field): the recorded seed-check artifact (causal_rollout --seeds 0 --max_ticks 5 on that dev drive,
-    seed-0 noise keys) matches the reference on its non-hard ticks (< 0.01);
+  * the six dev references are exactly the PINNED known-good files (full-file digests), A@20k independent renders, and seed 0
+    is MEASURED (the files carry no seed field): the recorded seed-check artifact (causal_rollout --seeds 0 --max_ticks 5, seed-0
+    noise keys) is the COMPLETE five-tick prefix with matching hard flags and matches on every non-hard tick (< 0.01);
   * every train and dev cache-to-key MSE is present and finite.
 resume_identity() is the trainer's resume rule (gate approval and cache pin preserved across resumes).
 """
 import hashlib, io, json, math, os
 
-REVIEWED = ["scripts/build_cache.py", "scripts/cache_check.py", "scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py", "mrv/cache_verify.py"]
+PINS = "council/vmix_pins.json"
+REVIEWED = ["scripts/build_cache.py", "scripts/cache_check.py", "scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/sd.py", "mrv/cache_verify.py", PINS]
 A_PATH = "runs/longA/ckpt_20000.pt"
 DEV_REF = "runs/troll/A20k_indep_dev"
 
@@ -69,11 +75,16 @@ def ray_sha(t):  # == build_cache / causal_rollout RAY_SHA
     return hashlib.sha256(t.float().numpy().tobytes()).hexdigest()[:16]
 
 
-def make_bind(ckpt, cache, lists, enc, rays, code, dev_ref=DEV_REF):
-    L = json.loads(read(lists))
-    return {"ckpt_sha": sha(ckpt)[:16], "cache": cache, "lists": lists, "enc": enc, "rays": rays, "train": sorted(L["train"]), "dev": list(L["dev"]),
-            "dev_ref": dev_ref, "dev_ref_sha256": {sc: (sha(f"{dev_ref}/{sc}_s0.pt") if os.path.isfile(f"{dev_ref}/{sc}_s0.pt") else None) for sc in L["dev"]},
-            "code_sha256": {f: code[f] for f in REVIEWED}}
+def load_pins(path):
+    b = read(path)
+    return json.loads(b), hb(b)
+
+
+def make_bind(ckpt, cache, lists, enc, rays, code, pins=PINS, ckpt_sha=None):
+    """ckpt_sha: the caller's digest of the A bytes it parsed (else hashed here)"""
+    L = json.loads(read(lists)); P, psha = load_pins(pins)
+    return {"ckpt_sha": ckpt_sha or sha(ckpt)[:16], "cache": cache, "lists": lists, "enc": enc, "rays": rays, "train": sorted(L["train"]), "dev": list(L["dev"]),
+            "pins": pins, "pins_sha256": psha, "dev_ref": P["dev_ref"], "code_sha256": {f: code[f] for f in REVIEWED}}
 
 
 fin = lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
@@ -99,6 +110,14 @@ def verify(path, bind, data):
     try:
         _need(len(bind["train"]) == 144 and len(bind["dev"]) == 6, f"bind has {len(bind['train'])} train / {len(bind['dev'])} dev drives (A5: 144 / 6)")
         _need(path and os.path.isfile(path), f"no cache record at {path or '(none given)'}")
+        P, psha = load_pins(bind["pins"])  # the independent pins (read once)
+        _need(psha == bind["pins_sha256"], f"pins file {bind['pins']} changed since the bind")
+        if bind["pins"] == PINS:
+            _need(psha == bind["code_sha256"][PINS], "pins file is not the reviewed one")
+        pin_par = P.get("parity_ref_sha256", "")
+        _need(isinstance(pin_par, str) and len(pin_par) == 64 and all(ch in "0123456789abcdef" for ch in pin_par),
+              f"parity reference pin is {pin_par!r} (PENDING / malformed): no cache use until it is pinned")
+        _need(sorted(P.get("dev_ref_sha256", {})) == sorted(bind["dev"]) and P.get("dev_ref") == bind["dev_ref"], "pins do not cover the six dev drives")
         rbuf = read(path); rsha = hb(rbuf); rec = json.loads(rbuf)
         _need(rec.get("kind") == "cache_check" and rec.get("pass") is True and rec.get("failures") == [], f"not a passing cache_check record (failures {rec.get('failures')})")
         for k in ("cache", "ckpt_sha", "lists", "enc", "rays", "dev_ref"):
@@ -132,11 +151,13 @@ def verify(path, bind, data):
                   f"trainer loaded {data['enc_sha'][sc]}")
             _need(c.get("ray_sha") == ray_sha(data["rays"][sc]), f"{f}: rays changed since the cache was built")
             lat[sc] = x; files[sc] = c
-        # ---- parity re-measured from the bound reference artifact ----
+        # ---- parity re-measured against the INDEPENDENTLY pinned reference artifact ----
         pa = rec.get("parity", {}); drv = pa.get("drive")
-        _need(drv in bind["train"] and pa.get("ref_file") and os.path.isfile(pa["ref_file"]), f"parity reference artifact missing ({pa.get('ref_file')})")
-        pbuf = read(pa["ref_file"])
-        _need(hb(pbuf) == pa.get("ref_file_sha256"), "parity reference artifact differs from the record's digest")
+        _need(drv == P.get("parity_drive") and pa.get("ref_file") == P.get("parity_ref") and pa.get("ref_file_sha256") == pin_par,
+              f"record's parity reference ({drv}, {pa.get('ref_file')}) is not the pinned one ({P.get('parity_drive')}, {P.get('parity_ref')})")
+        _need(drv in bind["train"] and os.path.isfile(P["parity_ref"]), f"pinned parity reference artifact {P.get('parity_ref')} missing")
+        pbuf = read(P["parity_ref"])
+        _need(hb(pbuf) == pin_par, "parity reference artifact differs from the pinned digest")
         xr, c = tload(pbuf), files[drv]; del pbuf
         _need(xr.get("ckpt_sha") == bind["ckpt_sha"] and xr.get("rho") == 1.0 and xr.get("method") == "causal_off" and xr.get("roll_code") == rollout_roll_code()
               and xr.get("salt_from", -1) == -1 and xr.get("start_tick", 0) == 0 and not xr.get("swap", False),
@@ -148,12 +169,12 @@ def verify(path, bind, data):
         _need(all(torch.equal(xr[k_], c[k_]) for k_ in ("ticks", "src_ticks", "ok", "hard", "restart")) and xr.get("amp") == c.get("amp"), "parity: ticks / flags / amp differ")
         d = _maxdiff(xr["lat"], c["lat"])
         _need(math.isfinite(d) and d < 0.01, f"parity recomputed: max |diff| {d:.4g} >= 0.01")
-        # ---- six bound dev references: digests, signature, measured seed 0 ----
+        # ---- six PINNED dev references: full-file digests, signature, measured seed 0 on the complete five-tick prefix ----
         for sc in bind["dev"]:
             f = f"{bind['dev_ref']}/{sc}_s0.pt"
-            _need(bind["dev_ref_sha256"].get(sc) and os.path.isfile(f), f"dev reference {f} missing / unbound")
+            _need(os.path.isfile(f), f"dev reference {f} missing")
             dbuf = read(f)
-            _need(hb(dbuf) == bind["dev_ref_sha256"][sc] == rec.get("dev_files", {}).get(sc), f"dev reference {f}: digest differs from the bound signed file")
+            _need(hb(dbuf) == P["dev_ref_sha256"][sc] == rec.get("dev_files", {}).get(sc), f"dev reference {f}: digest differs from the pinned known-good file")
             dr = tload(dbuf); del dbuf
             _need(str(dr.get("snapshot", "")).endswith(A_PATH) and dr.get("snapshot_step") == 20000 and dr.get("method") == "independent"
                   and dr.get("swap_from", -1) == -1 and dr.get("seed", 0) == 0, f"{f}: not the signed A@20k independent seed-0 render")
@@ -165,7 +186,9 @@ def verify(path, bind, data):
             _need(s_.get("ckpt_sha") == bind["ckpt_sha"] and s_.get("rho") == 1.0 and s_.get("method") == "causal_off" and s_.get("roll_code") == rollout_roll_code()
                   and s_.get("noise_key") and all(k_.startswith(f"{sc}|0|") for k_ in s_["noise_key"]), f"{sc}: seed-check artifact is not causal_rollout seed 0")
             k = len(s_["lat"]); nh = [i for i in range(k) if not bool(s_["hard"][i])]
-            _need(nh and torch.equal(s_["ticks"], dr["ticks"][:k]), f"{sc}: seed-check ticks misaligned / all hard")
+            _need(k == 5 == len(dr["ticks"][:5]) and torch.equal(s_["ticks"], dr["ticks"][:5]) and torch.equal(s_["hard"].bool(), dr["hard"][:5].bool()),
+                  f"{sc}: seed check is not the complete five-tick prefix with matching hard flags ({k} ticks)")
+            _need(nh and len(s_["noise_key"]) == len(nh), f"{sc}: seed check has no / inconsistent non-hard ticks")
             ds = _maxdiff(s_["lat"][nh], dr["lat"][nh])
             _need(math.isfinite(ds) and ds < 0.01, f"{sc}: dev reference is not seed 0 (first ticks differ by {ds:.4g})")
         return True, "", rsha, lat

@@ -1,0 +1,16 @@
+{
+ "note": "A5 vmix independent pins (council/codereview-vmix3-astra.md items 4-5). Read by mrv/cache_verify.py; this file's sha256 is part of the reviewed code set (scripts/vclean_gate.py SUITE_FILES, slurm/clean_tests.sh manifest), so fill the parity pin BEFORE the clean suite runs.",
+ "parity_drive": "scene-0005",
+ "parity_ref": "runs/cache/parity_ref/scene-0005_s0.pt",
+ "parity_ref_render": "scripts/causal_rollout.py (unchanged) --ckpt runs/longA/ckpt_20000.pt --mode off --rho 1.0 --split train --seeds 0 --drive_list <scene-0005> --out runs/cache/parity_ref",
+ "parity_ref_sha256": "PENDING",
+ "dev_ref": "runs/troll/A20k_indep_dev",
+ "dev_ref_sha256": {
+  "scene-0043": "01da8be44e991c83b46f68376b9b3e393e93da3ce18942f8194093e1ac8dd2d0",
+  "scene-0234": "da65b9ab1e831394c469e1bb239465d4c00cf813fece39d893a2fbbc05896e22",
+  "scene-0285": "a592196cd843e402bf8f8192d61a39a904ef3d37fa0ca1491c782443b6af7ad6",
+  "scene-0393": "14a1b819ef2457a1627f02a85ecaf81d37f6e80043cef48a0db13f3211918e44",
+  "scene-0396": "651008420d765c65b49c0ed59045932b9214a3f543ab7822f3fb6c8bb68fcf26",
+  "scene-0468": "68883afe9f55995b84d562c273137ddafd752390bc6aabd8bc664f9a819e888a"
+ }
+}

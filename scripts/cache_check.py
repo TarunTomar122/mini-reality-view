@@ -6,34 +6,33 @@ computed on the bytes that are parsed.
      amp / batch / schedule in every file; enc_sha AND ray_sha of the current inputs (each drive's encoding digest is recorded so
      the trainer can compare it with the encoding bytes it loads); fp16 (n, 4, 32, 64) latents with ticks / hard flags aligned
      with the encoding; finite non-zero latents on every non-hard tick;
-  2. whole-drive parity: ONE train drive re-rendered by the UNCHANGED signed scripts/causal_rollout.py --mode off --rho 1.0
-     --seeds 0 with THIS checker's --enc / --rays / --lists (batch 1) equals the cache on every tick (ticks / source ticks / ok /
-     hard / restart / amp equal, max |latent diff| < 0.01). The reference artifact's path and digest are recorded; the shared
-     verifier re-loads it and RE-MEASURES parity before the first cache read;
-  3. dev: the six signed A@20k seed-0 independent dev renders (runs/troll/A20k_indep_dev: memory off, one z0 per drive) are
-     required, complete and signed; their digests are recorded (the gate binds them). They carry no seed field, so seed 0 is
-     MEASURED: causal_rollout --split dev --seeds 0 --max_ticks 5 must match each on its non-hard first ticks (< 0.01); those
-     artifacts are recorded too. Report: cache-to-key latent MSE on usable ticks, train (cache) vs dev; NaN fails.
+  2. whole-drive parity against the INDEPENDENTLY PINNED reference (council/vmix_pins.json: the unchanged
+     scripts/causal_rollout.py --mode off --rho 1.0 --seeds 0 render of the pinned train drive, made outside this checker; its
+     digest must equal the pin, PENDING fails): the cache equals it on every tick (ticks / source ticks / ok / hard / restart /
+     amp equal, same inputs, max |latent diff| < 0.01); the shared verifier re-measures this before the first cache read;
+  3. dev: the six signed A@20k seed-0 independent dev renders (runs/troll/A20k_indep_dev) must be the PINNED known-good files
+     (full-file digests in council/vmix_pins.json), complete and signed. They carry no seed field, so seed 0 is MEASURED:
+     causal_rollout --split dev --seeds 0 --max_ticks 5 must be the complete five-tick prefix with matching hard flags and match
+     every non-hard tick (< 0.01); those artifacts are recorded. Report: cache-to-key latent MSE on usable ticks, train (cache) vs dev; NaN fails.
 The record is then re-read by mrv/cache_verify.py (the same verifier the gate and the trainer use); pass requires that too.
 
   python scripts/cache_check.py --cache runs/cache/A20k_off_rho1_train --out runs/cache/check.json
 """
 import argparse, json, math, os, subprocess, sys, time
 import torch
-from mrv.cache_verify import A_PATH, DEV_REF, read, hb, tload, sha, file_code, builder_roll_code, rollout_roll_code, ray_sha, make_bind, verify
+from mrv.cache_verify import A_PATH, PINS, read, hb, tload, sha, file_code, builder_roll_code, rollout_roll_code, ray_sha, make_bind, verify, load_pins
 
 p = argparse.ArgumentParser()
 p.add_argument("--cache", default="runs/cache/A20k_off_rho1_train")
 p.add_argument("--ckpt", default=A_PATH)
-p.add_argument("--drive", default="", help="parity drive (default: the first train drive)")
-p.add_argument("--parity_out", default="", help="causal_rollout output dir (default <cache>_parity)")
-p.add_argument("--dev_ref", default=DEV_REF)
+p.add_argument("--pins", default=PINS, help="independent pins: parity reference artifact + digest, six dev digests")
 p.add_argument("--enc", default="data/enc_tpv10"); p.add_argument("--lists", default="data/temporal_lists.json")
 p.add_argument("--rays", default="data/calib_rays.pt")
 p.add_argument("--out", required=True)
 a = p.parse_args()
 L = json.loads(read(a.lists)); TRAIN, DEVL = sorted(L["train"]), list(L["dev"])
 RAYS = tload(read(a.rays))
+PIN, PINS_SHA = load_pins(a.pins); DEV_REF = PIN["dev_ref"]
 FAIL = []
 
 
@@ -88,16 +87,14 @@ for sc in TRAIN:
     train_mse[sc] = usable_mse(x, E)
     need(fin(train_mse[sc]), f"{sc}: train MSE {train_mse[sc]}")
 
-# ---------- 2. whole-drive parity: the unchanged causal_rollout.py on the same inputs (memory off, rho 1.0, seed 0, batch 1) ----------
-drv = a.drive or TRAIN[0]
-pdir = a.parity_out or a.cache.rstrip("/") + "_parity"
-os.makedirs(pdir, exist_ok=True); dl = f"{pdir}/drive.txt"; open(dl, "w").write(drv + "\n")
-t0 = time.time()
-r = subprocess.run(ROLL + ["--split", "train", "--drive_list", dl, "--out", pdir], capture_output=True, text=True)
-ref_file = f"{pdir}/{drv}_s0.pt"
-parity = {"drive": drv, "dir": pdir, "ref_file": ref_file, "exit": r.returncode, "minutes": round((time.time() - t0) / 60, 1)}
-if need(r.returncode == 0 and os.path.isfile(ref_file), f"causal_rollout parity render failed: {r.stdout[-400:]} {r.stderr[-400:]}") and drv in files:
+# ---------- 2. whole-drive parity against the independently pinned causal_rollout reference ----------
+drv, ref_file, pin_par = PIN["parity_drive"], PIN["parity_ref"], PIN["parity_ref_sha256"]
+parity = {"drive": drv, "ref_file": ref_file, "pin": pin_par, "pins_sha256": PINS_SHA, "exit": 0}
+need(drv in TRAIN, f"pinned parity drive {drv} is not a train drive")
+need(len(pin_par) == 64 and pin_par != "PENDING", f"parity reference pin is {pin_par!r}: render it with the unchanged causal_rollout and pin its sha256 first")
+if need(os.path.isfile(ref_file), f"pinned parity reference {ref_file} missing") and drv in files:
     pbuf = read(ref_file); parity["ref_file_sha256"] = hb(pbuf); x = tload(pbuf); del pbuf
+    need(parity["ref_file_sha256"] == pin_par, f"parity reference {ref_file} is not the pinned file")
     cbuf = read(f"{a.cache}/{drv}_s0.pt"); need(hb(cbuf) == files[drv], f"cache file {drv} changed during the check"); c = tload(cbuf); del cbuf
     n_enc = len(ENC_T[drv])
     whole = len(x["lat"]) == len(c["lat"]) == n_enc
@@ -106,22 +103,23 @@ if need(r.returncode == 0 and os.path.isfile(ref_file), f"causal_rollout parity 
     parity.update({"fields_equal": eq, "whole": whole, "enc_ticks": n_enc, "amp": [x["amp"], c["amp"]], "n_ticks": len(x["lat"]), "max_diff": d,
                    "ref_ckpt_sha": x.get("ckpt_sha"), "ref_roll_code": x.get("roll_code"), "ref_method": x.get("method"), "ref_rho": x.get("rho"),
                    "ref_enc_sha": x.get("enc_sha"), "ref_ray_sha": x.get("ray_sha")})
-    need(x.get("ckpt_sha") == CKPT_SHA and x.get("rho") == 1.0 and x.get("method") == "causal_off" and x.get("roll_code") == rollout_roll_code(),
-         "parity render is not the unchanged causal_rollout of A@20k off at rho 1.0")
+    need(x.get("ckpt_sha") == CKPT_SHA and x.get("rho") == 1.0 and x.get("method") == "causal_off" and x.get("roll_code") == rollout_roll_code()
+         and all(q.startswith(f"{drv}|0|") for q in x.get("noise_key", [""])), "parity reference is not the unchanged causal_rollout of A@20k off at rho 1.0, seed 0")
     need(x.get("enc_sha") == c.get("enc_sha") and x.get("ray_sha") == c.get("ray_sha"), "parity render and cache saw different inputs")
     need(eq, f"parity: whole drive {whole} ({len(x['lat'])}/{len(c['lat'])}/{n_enc} ticks); ticks / flags / amp equal {eq} (amp {x['amp']} vs {c['amp']})")
     need(math.isfinite(d) and d < 0.01, f"parity: max |latent diff| {d:.4g} >= 0.01")
 
-# ---------- 3. dev: six bound signed seed-0 references (digests), seed 0 measured, MSE report ----------
+# ---------- 3. dev: six PINNED signed seed-0 references (full-file digests), seed 0 measured on the full prefix, MSE report ----------
 sdir = a.cache.rstrip("/") + "_devseed"
 r2 = subprocess.run(ROLL + ["--split", "dev", "--max_ticks", "5", "--out", sdir], capture_output=True, text=True)
 need(r2.returncode == 0, f"dev seed-check render failed: {r2.stdout[-400:]} {r2.stderr[-400:]}")
 dev_mse, dev_files, dev_seed = {}, {}, {}
 for sc in DEVL:
-    f = f"{a.dev_ref}/{sc}_s0.pt"
+    f = f"{DEV_REF}/{sc}_s0.pt"
     if not need(os.path.isfile(f), f"dev reference {f} missing"):
         continue
     dbuf = read(f); dev_files[sc] = hb(dbuf); c = tload(dbuf); del dbuf
+    need(dev_files[sc] == PIN["dev_ref_sha256"].get(sc), f"{f}: not the pinned known-good file")
     E, _ = load_enc(sc)
     ok = need(str(c.get("snapshot", "")).endswith(A_PATH) and c.get("snapshot_step") == 20000 and c.get("method") == "independent"
               and c.get("swap_from", -1) == -1 and c.get("seed", 0) == 0, f"{f}: not the signed A@20k independent render ({c.get('snapshot')}, {c.get('method')})")
@@ -130,7 +128,9 @@ for sc in DEVL:
     if need(r2.returncode == 0 and os.path.isfile(sf), f"{sc}: seed-check artifact missing"):
         sbuf = read(sf); dev_seed[sc] = {"file": sf, "sha256": hb(sbuf)}; s_ = tload(sbuf); del sbuf
         k = len(s_["lat"]); nh = [i for i in range(k) if not bool(s_["hard"][i])]
-        ds = (s_["lat"][nh].float() - c["lat"][nh].float()).abs().max().item() if nh and torch.equal(s_["ticks"], c["ticks"][:k]) else float("inf")
+        full = k == 5 and torch.equal(s_["ticks"], c["ticks"][:5]) and torch.equal(s_["hard"].bool(), c["hard"][:5].bool())
+        need(full, f"{sc}: seed check is not the complete five-tick prefix with matching hard flags")
+        ds = (s_["lat"][nh].float() - c["lat"][nh].float()).abs().max().item() if nh and full else float("inf")
         dev_seed[sc]["max_diff"] = ds
         ok = need(all(q.startswith(f"{sc}|0|") for q in s_["noise_key"]) and math.isfinite(ds) and ds < 0.01,
                   f"{sc}: dev reference is not seed 0 (first {len(nh)} non-hard ticks differ by {ds:.4g})") and ok
@@ -139,7 +139,7 @@ for sc in DEVL:
 mean = lambda d: sum(d.values()) / len(d) if d and all(fin(v) for v in d.values()) else float("nan")
 rec = {"kind": "cache_check", "pass": not FAIL, "failures": FAIL, "cache": a.cache, "ckpt": a.ckpt, "ckpt_sha": CKPT_SHA, "roll_code": ROLL_CODE,
        "lists": a.lists, "enc": a.enc, "rays": a.rays, "build": common, "files": files, "n_files": len(files), "enc_sha": enc_sha, "parity": parity,
-       "dev_ref": a.dev_ref, "dev_files": dev_files, "dev_seed": dev_seed,
+       "dev_ref": DEV_REF, "pins": a.pins, "pins_sha256": PINS_SHA, "dev_files": dev_files, "dev_seed": dev_seed,
        "mse": {"train_mean": mean(train_mse), "dev_mean": mean(dev_mse), "train_per_drive": train_mse, "dev_per_drive": dev_mse},
        "code_sha256": CODE, "gpu": torch.cuda.get_device_name() if torch.cuda.is_available() else "cpu"}
 
@@ -154,7 +154,7 @@ def write(rec):
 write(rec)
 if rec["pass"]:  # self-check with the shared verifier (the gate / trainer view); a mismatch turns the record into a fail
     data = {"ticks": ENC_T, "rays": RAYS, "enc_sha": enc_sha}
-    ok, why, _, _ = verify(a.out, make_bind(a.ckpt, a.cache, a.lists, a.enc, a.rays, CODE, a.dev_ref), data)
+    ok, why, _, _ = verify(a.out, make_bind(a.ckpt, a.cache, a.lists, a.enc, a.rays, CODE, a.pins), data)
     if not ok:
         rec["pass"] = False; rec["failures"] = [f"shared verifier: {why}"]; print("FAIL: shared verifier:", why); write(rec)
 print("cache-to-key MSE train %.5f vs dev %.5f" % (rec["mse"]["train_mean"], rec["mse"]["dev_mean"]))

@@ -8,11 +8,12 @@ export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDI
 PY=.venv/bin/python; A=runs/longA/ckpt_20000.pt; T=runs/ctest_clean_${SLURM_JOB_ID:-manual}; mkdir -p $T; FAILS=0
 sha256sum mrv/clean_video.py mrv/noise.py mrv/sd.py scripts/train_clean.py scripts/clean_rollout.py scripts/clean_tests.py scripts/clean_probe.py \
   scripts/vclean_gate.py scripts/det_run.py slurm/clean_tests.sh scripts/cache_check.py scripts/build_cache.py \
-  scripts/causal_rollout.py mrv/causal_video.py mrv/cache_verify.py | tee $T/code_sha256.txt
+  scripts/causal_rollout.py mrv/causal_video.py mrv/cache_verify.py council/vmix_pins.json | tee $T/code_sha256.txt
 chk() { if [ "$1" != 0 ]; then echo "FAIL $2 (exit $1)"; FAILS=$((FAILS+1)); fi; }
 nvidia-smi --query-gpu=name --format=csv,noheader
-echo "== clean_tests.py part 0 + tiny UNet (CPU fp32)"; $PY scripts/clean_tests.py --small; chk $? clean_tests-small
-echo "== clean_tests.py full model T1 T3a T4 (A@20k, fp32, TF32 off)"; $PY scripts/clean_tests.py --init $A --K 4; chk $? clean_tests-full
+# deterministic cuBLAS for the exact-equality checks (set before CUDA initialises; only for clean_tests.py, not the timed trainer)
+echo "== clean_tests.py part 0 + tiny UNet (CPU fp32)"; CUBLAS_WORKSPACE_CONFIG=:4096:8 $PY scripts/clean_tests.py --small; chk $? clean_tests-small
+echo "== clean_tests.py full model T1 T3a T4 (A@20k, fp32, TF32 off, deterministic kernels)"; CUBLAS_WORKSPACE_CONFIG=:4096:8 $PY scripts/clean_tests.py --init $A --K 4; chk $? clean_tests-full
 [ $FAILS = 0 ] || { echo "fail-fast: clean_tests.py failed, skipping the rest"; echo "CLEAN_TESTS_SH FAILS=$FAILS dir=$T"; exit $FAILS; }
 DRV=$($PY -c "import json;print(json.load(open('data/temporal_lists.json'))['dev'][0])"); echo $DRV > $T/one.txt
 echo "== random-weight vclean checkpoint at rho 0.5 (T5 / T6 only; rho < 1 so --salt_from really changes the noise)"
@@ -97,7 +98,7 @@ sys.exit(0 if okf and okr and okb and tstar else 1)
 P
 echo "== T7b (A5 vmix): jitter / source streams across resume with the cache branch (--mix_from 1); pin; resume identity; hold; pickup"
 echo "   TEST-ONLY fixtures: a synthetic cache in the builder's format, a synthetic parity reference artifact and dev seed-check artifacts"
-echo "   that the PRODUCTION verifier (mrv/cache_verify.py) re-measures (parity / seed diffs recomputed from the artifacts, digests bound)"
+echo "   that the PRODUCTION verifier (mrv/cache_verify.py) re-measures; a TEST-ONLY pins file is passed explicitly (--pins), never council/vmix_pins.json"
 $PY - <<P; chk $? fake-cache
 import hashlib, io, json, os, torch
 from mrv.cache_verify import sha, read, hb, file_code, builder_roll_code, rollout_roll_code, ray_sha, DEV_REF
@@ -136,14 +137,21 @@ W("ok", rec); W("ok2", dict(rec, note="TEST ONLY: a second, different but valid 
 W("bad_digest", dict(rec, files=dict(files, **{drv: "0" * 64})))
 W("wrong_ckpt", dict(rec, ckpt_sha="0" * 16))  # another renderer's cache
 W("wrong_roll", dict(rec, roll_code="deadbeef0000"))  # a cache from a different builder
-W("bad_parity", dict(rec, parity=par("$T/fake_parity/bad.pt")))  # the record ASSERTS parity; the re-measured artifact differs by 0.05
+W("bad_parity", dict(rec, parity=par("$T/fake_parity/bad.pt")))  # pinned (test_pins_bad) reference whose re-measured diff is 0.05
 W("stale_enc", dict(rec, enc_sha=dict(encs, **{drv: "f" * 16})))  # cache built from another encoding than the one the trainer loads
+W("unpinned_ref", dict(rec, parity=par("$T/fake_parity/bad.pt")))  # the record names its own reference: not the pinned one
+pins = {"note": "TEST ONLY", "parity_drive": drv, "parity_ref": "$T/fake_parity/ok.pt", "parity_ref_sha256": sha("$T/fake_parity/ok.pt"),
+        "dev_ref": DEV_REF, "dev_ref_sha256": dev_files}
+json.dump(pins, open("$T/test_pins.json", "w"), indent=1)
+json.dump(dict(pins, parity_ref="$T/fake_parity/bad.pt", parity_ref_sha256=sha("$T/fake_parity/bad.pt")), open("$T/test_pins_bad.json", "w"), indent=1)
+json.dump(dict(pins, parity_ref_sha256="PENDING"), open("$T/test_pins_pending.json", "w"), indent=1)
 P
-TM="$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok.json"
+TP="--pins $T/test_pins.json"
+TM="$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok.json $TP"
 $TM --out $T/timing_mix_full --max_steps_this_job 3 > $T/mix_full.log 2>&1; chk $? T7b-full
 $TM --out $T/timing_mix_split --max_steps_this_job 2 > $T/mix_split1.log 2>&1; chk $? T7b-split1
 np=$(grep -c '^{"update"' $T/timing_mix_split/log.jsonl); sp=$(sha256sum $T/timing_mix_split/ckpt.pt | cut -c1-16)
-$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok2.json --out $T/timing_mix_split --max_steps_this_job 1 --resume > $T/mix_pin.log 2>&1; rp=$?
+$TR --mix_from 1 --cache $T/fake_cache --cache_record $T/fake_ok2.json $TP --out $T/timing_mix_split --max_steps_this_job 1 --resume > $T/mix_pin.log 2>&1; rp=$?
 np2=$(grep -c '^{"update"' $T/timing_mix_split/log.jsonl); sp2=$(sha256sum $T/timing_mix_split/ckpt.pt | cut -c1-16)
 $TM --out $T/timing_mix_split --max_steps_this_job 1 --resume > $T/mix_split2.log 2>&1; chk $? T7b-split2
 # resume identity negatives: (a) a checkpoint past mix_from with no pin; (b) a checkpoint made under a (passed) gate, resumed without it
@@ -156,15 +164,20 @@ P
 $TM --out $T/timing_nopin --max_steps_this_job 1 --resume > $T/nopin.log 2>&1; rn=$?
 $TM --out $T/timing_gated --max_steps_this_job 1 --resume > $T/gated.log 2>&1; rg=$?
 TH="$TR --mix_from 2 --cache $T/fake_cache"
-$TH --out $T/timing_hold_ctrl --cache_record $T/fake_ok.json --max_steps_this_job 5 > $T/hold_ctrl.log 2>&1; chk $? T7b-hold-ctrl
-$TH --out $T/timing_hold --cache_record $T/absent.json --max_steps_this_job 5 > $T/hold1.log 2>&1; rh1=$?
+$TH $TP --out $T/timing_hold_ctrl --cache_record $T/fake_ok.json --max_steps_this_job 5 > $T/hold_ctrl.log 2>&1; chk $? T7b-hold-ctrl
+$TH $TP --out $T/timing_hold --cache_record $T/absent.json --max_steps_this_job 5 > $T/hold1.log 2>&1; rh1=$?
 nh1=$(grep -c '^{"update"' $T/timing_hold/log.jsonl)
-NEG="bad_digest wrong_ckpt wrong_roll bad_parity stale_enc"; RNEG=""
-for n in $NEG; do $TH --out $T/timing_hold --cache_record $T/fake_$n.json --max_steps_this_job 5 --resume > $T/hold_$n.log 2>&1; RNEG="$RNEG $?"; done
+NEG="bad_digest wrong_ckpt wrong_roll bad_parity stale_enc unpinned_ref pending"; RNEG=""
+for n in $NEG; do
+  P=$T/test_pins.json; R_=$T/fake_$n.json
+  [ $n = bad_parity ] && P=$T/test_pins_bad.json
+  [ $n = pending ] && { P=$T/test_pins_pending.json; R_=$T/fake_ok.json; }
+  $TH --pins $P --out $T/timing_hold --cache_record $R_ --max_steps_this_job 5 --resume > $T/hold_$n.log 2>&1; RNEG="$RNEG $?"
+done
 nh2=$(grep -c '^{"update"' $T/timing_hold/log.jsonl)
-$TH --out $T/timing_hold --cache_record $T/fake_ok.json --max_steps_this_job 3 --resume > $T/hold3.log 2>&1; rh3=$?
+$TH $TP --out $T/timing_hold --cache_record $T/fake_ok.json --max_steps_this_job 3 --resume > $T/hold3.log 2>&1; rh3=$?
 rm -f $T/late.json  # pickup: the record appears while the run trains toward update 30; no resume needed
-$TR --mix_from 30 --cache $T/fake_cache --cache_record $T/late.json --out $T/timing_late --max_steps_this_job 34 > $T/late.log 2>&1 &
+$TR --mix_from 30 --cache $T/fake_cache --cache_record $T/late.json $TP --out $T/timing_late --max_steps_this_job 34 > $T/late.log 2>&1 &
 PID=$!
 for k in $(seq 900); do grep -q '^{"update": 3,' $T/timing_late/log.jsonl 2>/dev/null && break; kill -0 $PID 2>/dev/null || break; sleep 1; done
 cp $T/fake_ok.json $T/late.json.tmp && mv $T/late.json.tmp $T/late.json
@@ -188,7 +201,8 @@ nopin, gated = open("$T/nopin.log").read(), open("$T/gated.log").read()
 okr = $rn != 0 and "no pinned cache record" in nopin and $rg != 0 and "gate record" in gated
 print(("PASS" if okr else "FAIL"), "T7b resume identity: a checkpoint past mix_from without a pin is refused (exit $rn); a gated checkpoint resumed without its gate is refused (exit $rg)")
 neg = dict(zip("$NEG".split(), [int(x) for x in "$RNEG".split()]))
-want = {"bad_digest": "digest differs", "wrong_ckpt": "ckpt_sha", "wrong_roll": "reviewed builder", "bad_parity": "parity recomputed", "stale_enc": "trainer loaded"}
+want = {"bad_digest": "digest differs", "wrong_ckpt": "ckpt_sha", "wrong_roll": "reviewed builder", "bad_parity": "parity recomputed", "stale_enc": "trainer loaded",
+        "unpinned_ref": "not the pinned one", "pending": "PENDING"}
 hn = {n: open(f"$T/hold_{n}.log").read() for n in neg}
 okn = all(neg[n] == 0 and "CLEAN_TRAIN_HOLD 2" in hn[n] and want[n] in hn[n] for n in neg)
 h1, h3 = open("$T/hold1.log").read(), open("$T/hold3.log").read()

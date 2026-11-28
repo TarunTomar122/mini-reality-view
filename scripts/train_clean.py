@@ -55,7 +55,7 @@ from mrv.sd import CameraAdapter, LORA_TARGETS
 from mrv.clean_video import add_clean_temporal, set_mode, set_memory, collect_inputs
 from mrv.noise import build_eps
 import io
-from mrv.cache_verify import make_bind, verify, file_code, resume_identity, read, hb, DEV_REF, sha as fsha
+from mrv.cache_verify import make_bind, verify, file_code, resume_identity, read, hb, PINS
 
 p = argparse.ArgumentParser()
 p.add_argument("--init", required=True)
@@ -76,7 +76,7 @@ p.add_argument("--arm", default="vmix", choices=["vmix", "vclean"], help="A5 vmi
 p.add_argument("--jitter", default="", help="memory timesteps (comma list); default vmix 1,41,81 / vclean t*")
 p.add_argument("--mix_from", type=int, default=-1, help="vmix: cached source for one clip per update from update mix_from+1 (default 2000); vclean: 0 (never)")
 p.add_argument("--cache", default="runs/cache/A20k_off_rho1_train", help="cached A@20k memory-off rho-1 train rollouts (<cache>/<scene>_s0.pt)")
-p.add_argument("--dev_ref", default=DEV_REF, help="signed seed-0 A@20k dev renders (bound by digest; tests / timing bind)")
+p.add_argument("--pins", default=PINS, help="independent vmix pins (parity reference + dev digests); production must use council/vmix_pins.json")
 p.add_argument("--cache_record", default="", help="passing scripts/cache_check.py record; required before update mix_from+1 (else the job holds)")
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
@@ -148,11 +148,16 @@ COVER = {sc: sum(1 for s_, _ in starts if s_ == sc) for sc in sorted(TRAIN)}
 print(f"clips: {len(starts)} start positions of {Fn} ticks from {len({s for s, _ in starts})}/{len(E)} drives", flush=True)
 
 
-A_SHA = fsha(a.init)[:16]  # the trainer's ACTUAL A@20k file
+_ab = read(a.init); A_SHA = hb(_ab)[:16]  # the trainer's ACTUAL A@20k bytes: hashed and parsed from the same buffer
+ck0 = torch.load(io.BytesIO(_ab), map_location="cpu"); del _ab
+if not a.timing and a.pins != PINS:
+    raise SystemExit(f"production uses the reviewed pins {PINS}, not {a.pins}")
 BIND, APPROVED = None, None
 if MIX_FROM:
     if GATE is not None:  # production: the gate's bind (reviewed code, A@20k digest, drives, inputs) and, if passed, its approved record
         BIND = GATE.get("cache_bind") or {}
+        if BIND.get("pins") != PINS:
+            raise SystemExit(f"gate cache bind uses pins {BIND.get('pins')}, not the reviewed {PINS}")
         if BIND.get("ckpt_sha") != A_SHA or [BIND.get(k) for k in ("cache", "lists", "enc", "rays")] != [a.cache, a.lists, a.enc, a.rays]:
             raise SystemExit(f"gate cache bind {[BIND.get(k) for k in ('ckpt_sha', 'cache', 'lists', 'enc', 'rays')]} != this run ({A_SHA}, {a.cache}, {a.lists}, {a.enc}, {a.rays})")
         st_ = GATE.get("cache", {}).get("status", "")
@@ -160,7 +165,7 @@ if MIX_FROM:
         if not (st_ == "passed" or st_.startswith("pending")):
             raise SystemExit(f"gate cache status {st_!r}")
     else:  # timing / tests: the same verifier against the files on disk
-        BIND = make_bind(a.init, a.cache, a.lists, a.enc, a.rays, file_code(), a.dev_ref)
+        BIND = make_bind(a.init, a.cache, a.lists, a.enc, a.rays, file_code(), a.pins, ckpt_sha=A_SHA)
 
 
 def try_cache(pin):
@@ -180,7 +185,7 @@ G_JIT = torch.Generator().manual_seed(a.seed * 1000003 + 1)  # resumable stream 
 G_SRC = torch.Generator().manual_seed(a.seed * 1000003 + 2)  # resumable stream 3: which clip reads the cache
 
 # ---------- model: frozen A + clean temporal blocks ----------
-ck0 = torch.load(a.init, map_location="cpu"); r = ck0["args"]["rank"]
+r = ck0["args"]["rank"]  # ck0: parsed above from the hashed A bytes
 assert "hist" not in ck0 and "temporal" not in ck0, "init must be a plain no-memory renderer (A)"
 if not a.init.endswith("runs/longA/ckpt_20000.pt") or ck0.get("step") != 20000 or ck0["args"].get("arm") != "A":
     raise SystemExit(f"A4: init must be A@20k (runs/longA/ckpt_20000.pt), got {a.init} step {ck0.get('step')} arm {ck0['args'].get('arm')}")

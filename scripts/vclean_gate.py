@@ -26,11 +26,11 @@ Exit 0 + record (mode "x") only when everything holds. --verify recomputes a rec
   python scripts/vclean_gate.py --verify runs/vclean_gate/record.json
 """
 import argparse, hashlib, json, math, os, subprocess, sys
-from mrv.cache_verify import make_bind, verify, A_PATH, read, hb
+from mrv.cache_verify import make_bind, verify, A_PATH, PINS, load_pins, read, hb
 
 SUITE_FILES = sorted(["mrv/clean_video.py", "mrv/noise.py", "mrv/sd.py", "scripts/train_clean.py", "scripts/clean_rollout.py", "scripts/clean_tests.py",
                       "scripts/clean_probe.py", "scripts/vclean_gate.py", "scripts/det_run.py", "slurm/clean_tests.sh",
-                      "scripts/cache_check.py", "scripts/build_cache.py", "scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/cache_verify.py"])
+                      "scripts/cache_check.py", "scripts/build_cache.py", "scripts/causal_rollout.py", "mrv/causal_video.py", "mrv/cache_verify.py", "council/vmix_pins.json"])
 T2_FILES = sorted(["mrv/clean_video.py", "mrv/sd.py", "scripts/clean_rollout.py", "slurm/clean_t2.sh"])
 PY = sys.executable
 
@@ -92,7 +92,10 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
             continue
         d, dsha = jload(f)
         r = subprocess.run([PY, "scripts/a1_decide.py", str(k)], capture_output=True, text=True)
-        need(r.returncode == 0 and "existing, verified" in r.stdout, f"{f} does not re-verify against its comparator: {r.stdout[-300:]} {r.stderr[-300:]}")
+        tag = "A1_DECISION (existing, verified) "
+        need(r.returncode == 0 and tag in r.stdout, f"{f} does not re-verify against its comparator: {r.stdout[-300:]} {r.stderr[-300:]}")
+        verified = json.loads(r.stdout.split(tag, 1)[1].strip().splitlines()[0])  # the decision a1_decide re-derived and verified
+        need(json.dumps(verified, sort_keys=True) == json.dumps(d, sort_keys=True), f"{f}: the recorded decision differs from the one a1_decide verified")
         need(isinstance(d.get("joint_pass"), bool) and isinstance(d.get("stop"), bool), f"{f}: malformed")
         need(d["joint_pass"] is False, f"vpriv JOINT PASS at {k}k: its exam takes precedence (N1); no vclean launch")
         out[f"{k}k"] = {"file": f, "sha256": dsha, "joint_pass": False, "safe": d.get("safe"), "stop": d["stop"]}
@@ -112,7 +115,9 @@ def build(suite, t2, probe, arm="vclean", cache_record="", cache_pending=False, 
     rec["code_sha256"] = code
     if arm == "vmix":  # 2'. A5: the cache check replaces the probe predicate
         need(not probe, "vmix: the probe predicate is replaced by the cache check (no --probe)")
-        bind = make_bind(A_PATH, CACHE_DIR, LISTS, ENC, RAYS_F, code)
+        bind = make_bind(A_PATH, CACHE_DIR, LISTS, ENC, RAYS_F, code, PINS)
+        pin_par = load_pins(PINS)[0].get("parity_ref_sha256", "")
+        need(len(pin_par) == 64 and pin_par != "PENDING", f"{PINS}: parity reference pin is {pin_par!r}; pin it (then re-run the suite) before any vmix gate")
         rec["cache_bind"] = bind
         if cache_pending:
             need(not cache_record, "--cache_pending and --cache_record are exclusive")

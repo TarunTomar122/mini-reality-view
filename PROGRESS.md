@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 11:24 UTC — builder fixed all 15 Astra t1 items (ab0880c, 8dec71d, 20dac6d); deployed; parity resubmitted; Astra re-review t2 running
+- Each item has CPU repros ("T1 item N"); Astra's three false-PASS repros (48-drive list, 100-update blocks, zero-panel forecast) now fail the right rule. One cluster-only failure found on deploy: mrv.wan_stage's CLI used parse_args with files after --dst, which the cluster's Python 3.11 refuses -> parse_intermixed_args (cd5f183); WAN_TESTS FAILS=0 locally and in the cluster venv.
+- saxa cgroup layout checked (cgroup v2: /system.slice/slurmstepd.scope/job_<id>/step_0/...), so the memory sampler finds the job-level group.
+- Scorer parity re-run on the new bindings (old 3757092 / 3757096 cancelled; the earlier shard results, exact on all 12 runs, were scored without the new wrapper / weight / reference bindings): wsc-par 3757120 + shards 3757121-23, check 3757124. Builder's open choice for the council: SENS_STEP = 32 (fixed early step for the positive-sensitivity check).
+
 ## 2026-11-28 11:20 UTC — scorer parity on the 2080 Ti: all 12 A@20k runs reproduce the signed metrics exactly (sharded); manifest queued
 - wsc-par0-2 (3757093-95, 2080 Ti): each shard reports replay_pass false only because a shard cannot carry the full run set (by design, replay_pass needs the unsharded run); compared directly, every field of all 12 runs (6 dev drives x 2 seeds) equals runs/troll/m_A20k_indep_dev.json (0 differences). Wall 472-580 s per shard (592-772 ticks). The unsharded replay (wsc-par 3757092) and the sharded == unsharded check (3757096) are still running / queued.
 - Caches: wtokF0 / F2 and wcacheF0 / F2 finished rc 0; F1 still running (147 / 150 token caches, 150 / 150 latent caches). verify_manifest (3757117, CPU, saxa) queued after F1. Timing stays held until Astra signs the builder's fixes.

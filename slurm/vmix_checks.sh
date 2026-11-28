@@ -27,8 +27,12 @@ free() {  # free slots (min of both limits); returns 1 if squeue failed
   m=$(echo "$q" | grep mini-reality-view | grep -vc JobHeldUser); a=$(echo "$q" | grep -c .)
   local f=$(( 16 - m )); [ $(( 20 - a )) -lt $f ] && f=$(( 20 - a )); echo $f; }
 gates_done() { [ -e $S/8.done ] && [ -e $S/12.done ] && [ -e $S/16.done ]; }
-take() {  # is a slot free for job class of $k? (the 2k / 4k reserve applies only while training runs and gates remain)
-  local f need=1; case $k in 2|4) gates_done || ! running || need=10;; esac; f=$(free) || return 1; [ "$f" -ge $need ]; }
+paused_12k() { [ -f runs/vmix/ckpt_12000.pt ] && [ ! -e runs/vmix_gate/A1_STOPPED ] && [ ! -e runs/vmix_gate/CONTINUED ]; }
+take() {  # is a slot free for job class of $k? The 2k / 4k reserve applies while gates remain and training runs OR is paused
+          # at 12k awaiting its decision (Neon 03:30 / Fable 04:30: the reserve must not drop during the pause); released once
+          # all gates are queued / skipped or training is dead with no pause pending
+  local f need=1; case $k in 2|4) if ! gates_done && { running || paused_12k; }; then need=10; fi;; esac
+  f=$(free) || return 1; [ "$f" -ge $need ]; }
 jobstate() {  # active | done | failed | unknown
   local s; s=$(squeue -h -j $1 -o "%T %r" 2>/dev/null)
   if [ -n "$s" ]; then [[ "$s" == *DependencyNeverSatisfied* ]] && echo failed || echo active; return; fi

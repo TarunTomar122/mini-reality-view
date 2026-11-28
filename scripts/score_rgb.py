@@ -19,12 +19,20 @@ Extensions (Astra item 9):
       check of scripts/wan_panel.py;
       only positions whose receiver AND donor ticks are placement ticks (% 5 == 0) with both keys present stay accepted, so the
       two scores use identical frames ("common_frames" recorded).
+Off-slice scoring (council/s1-timing-r1-CONVERGED.md item 4; run by scripts/wan_score.py on 2080 Ti jobs):
+  --shard i/n    : score only the drives (scenes of the source files, sorted) with index % n == i; shard outputs are merged by
+      union of their per-run entries (scripts/wan_score.py --parity_check proves sharded == unsharded on the same inputs).
+  --rgb_manifest : the sha manifest the slice wrote with the RGB (scripts/wan_panel.py --phase render); every source file's
+      sha256 must equal its entry, else exit 1 (nothing is scored).
+  Every output carries a top-level "binding" {device, score_rgb / temporal_metrics / SD VAE shas, rgb_manifest_sha, per-input
+  sha256 + their combined sha, shard, ticks, wall_s}; the per-run entries are unchanged.
 Pseudo-rollouts go to a FRESH directory (<rgb>_roll_<tag>_<pid>_<time>, refused if it exists), never reused.
   python scripts/score_rgb.py --rgb runs/wroll/s1_12k_hybrid_dev --out runs/wroll/m_s1_12k_hybrid_dev.json
   python scripts/score_rgb.py --rgb runs/wroll/s1_12k_swap_dev --lag_ref runs/troll/A20k_indep_dev --out runs/wroll/m_s1_12k_swap_dev.json
   python scripts/score_rgb.py --from_lat runs/troll/A20k_indep_dev --parity_ref runs/troll/m_A20k_indep_dev.json --out runs/wroll/m_A20k_rgbpath.json
 """
-import argparse, glob, json, math, os, runpy, sys, time
+import argparse, glob, hashlib, json, math, os, runpy, sys, time
+T0 = time.time()
 import torch, diffusers
 
 p = argparse.ArgumentParser()
@@ -33,6 +41,8 @@ p.add_argument("--lag_ref", default=""); p.add_argument("--cold", default="")
 p.add_argument("--as_receiver", action="store_true"); p.add_argument("--post_swap_only", action="store_true")
 p.add_argument("--parity_ref", default=""); p.add_argument("--tag", default="")
 p.add_argument("--keys", default="data/sim/keys_tpv10", help="key folder (post-swap common-frame selection only)")
+p.add_argument("--shard", default="0/1", help="i/n: score only the drives with sorted-scene index % n == i")
+p.add_argument("--rgb_manifest", default="", help="sha manifest of the RGB written on the slice: every input must match it")
 a = p.parse_args()
 if bool(a.rgb) == bool(a.from_lat):
     raise SystemExit("give exactly one of --rgb / --from_lat")
@@ -70,10 +80,33 @@ def register(R, rgb, dst):
     torch.save(R, dst)
 
 
+def _sha(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as fh:
+        for blk in iter(lambda: fh.read(1 << 24), b""):
+            h.update(blk)
+    return h.hexdigest()
+
+
 PER_TICK = ("ticks", "src_ticks", "ok", "hard", "restart")
 roll = f"{ROOT}/roll"; os.makedirs(roll)
-for f in sorted(glob.glob(f"{SRC}/*_s[0-9]*.pt")):
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from mrv.wan_plan import shard_by_drive
+FILES = shard_by_drive(glob.glob(f"{SRC}/*_s[0-9]*.pt"), a.shard)
+if not FILES:
+    raise SystemExit(f"no rollout files in {SRC} for shard {a.shard}")
+INPUTS = {os.path.basename(f): _sha(f) for f in FILES}
+MAN_SHA = None
+if a.rgb_manifest:  # the slice wrote the RGB and its sha manifest; score only bytes that are exactly those
+    MAN_SHA = _sha(a.rgb_manifest)
+    runs_ = json.load(open(a.rgb_manifest))["runs"]
+    bad_ = [os.path.basename(f) for f in FILES if (runs_.get(os.path.normpath(f)) or {}).get("sha256") != INPUTS[os.path.basename(f)]]
+    if bad_:
+        raise SystemExit(f"RGB files differ from the slice's sha manifest {a.rgb_manifest} (or are not in it): {bad_[:4]}")
+NTICKS = 0
+for f in FILES:
     R = torch.load(f, map_location="cpu", weights_only=False); b = os.path.basename(f)[:-3]; sc, seed = b.rsplit("_s", 1)
+    NTICKS += len(R["ticks"])
     rgb = R.pop("rgb") if "rgb" in R else decode_like_scorer(R["lat"])
     sf = int(R.get("swap_from", -1))
     if a.post_swap_only:
@@ -137,7 +170,19 @@ class FakeVAE(torch.nn.Module):
 _real = None; torch.cuda.empty_cache()
 diffusers.AutoencoderKL.from_pretrained = classmethod(lambda cls, *args, **kw: FakeVAE())
 sys.argv = argv
+DEVICE = torch.cuda.get_device_name()
 runpy.run_path("scripts/temporal_metrics.py", run_name="__main__")
+from huggingface_hub import snapshot_download as _snap
+_sd = _snap("stabilityai/sd-vae-ft-mse", local_files_only=True)
+_sdf = sorted(f for f in glob.glob(f"{_sd}/**", recursive=True) if os.path.isfile(f))
+OUTJ = json.load(open(a.out))
+OUTJ["binding"] = {"device": DEVICE, "score_rgb": _sha("scripts/score_rgb.py"), "temporal_metrics": _sha("scripts/temporal_metrics.py"),
+                   "sd_vae": hashlib.sha256("".join(os.path.basename(f) + _sha(f) for f in _sdf).encode()).hexdigest(),
+                   "rgb_manifest": a.rgb_manifest or None, "rgb_manifest_sha": MAN_SHA, "inputs": INPUTS,
+                   "inputs_sha": hashlib.sha256("".join(k + v for k, v in sorted(INPUTS.items())).encode()).hexdigest(),
+                   "shard": a.shard, "src": SRC, "ticks": NTICKS, "wall_s": round(time.time() - T0, 1), "lag_ref": a.lag_ref or None,
+                   "post_swap_only": a.post_swap_only, "as_receiver": a.as_receiver, "from_lat": bool(a.from_lat)}
+json.dump(OUTJ, open(a.out + ".tmp", "w")); os.replace(a.out + ".tmp", a.out)
 
 if a.parity_ref:  # A@20k replay: every per-run field equal to the signed metrics
     mine, ref = json.load(open(a.out))["drives"], json.load(open(a.parity_ref))["drives"]

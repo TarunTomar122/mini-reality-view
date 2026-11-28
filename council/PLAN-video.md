@@ -72,3 +72,13 @@ too). Builder merge of the final numbers (Fable's final = midpoint inside the ra
 ## OWNER DECISION — latency contract (28 Nov ~06:35 UTC, verbatim): "im okay with the delay go go go"
 Native Wan 4-tick latent groups are accepted: 10 Hz playback with a fixed lag (~0.3 s group wait + compute; S0b measures). The
 per-tick still mode is no longer required (kept only as an S0a measurement). S1 proceeds with native 17-tick clips.
+
+## Neon fact check (council/PLAN-video-neon.md, 28 Nov ~06:50)
+- Wan2.1 VAE confirmed: 4x temporal, 8x8 spatial, 16 latent channels, 1+4k frames; DiT patch [1,2,2] -> 16x16 px tokens.
+- Licences: nuScenes is CC BY-NC-SA 4.0 + Motional terms -> every nuScenes-trained checkpoint (S1-S3) is NON-COMMERCIAL with
+  attribution. Depth: use "Depth-Anything-V2-Metric-VKITTI-Small" (Apache-2.0 tag; VKITTI2 data itself is NC); the untagged
+  Metric-Outdoor-Small is not used; plain -Small is the fallback. No "cleanly commercial" claim.
+- S2 budget: Self-Forcing on Wan 1.3B at 832x480x81f used 64 H100 x ~1.5 h (DMD, with a 14B real-score net) / 2-3 h (SiD);
+  our 40 slice-hours are viable only because 512x256x17f is ~12.8x fewer tokens and our teacher is 1.3B; the causal ODE-init is
+  budgeted INSIDE S2's 40 h; gradient accumulation to a global batch ~32-64; S0b / pre-S2 must time the 3-network DMD / SiD step
+  on 71 GB.

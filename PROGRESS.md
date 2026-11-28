@@ -1,5 +1,8 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 09:30 UTC — Astra SIGNED S1 production (yes) at fc01ccf
+- council/codereview-wan-s1h-astra.md: both S1g items closed; "SIGNED (production): yes". MODE=train may start once its own gates pass (timing geometry / init parity -> A@20k RGB-path parity -> overfit 2k PASS + resume_test PASS); the trainer enforces them.
+
 ## 2026-11-28 09:25 UTC — Astra S1g: production still "no" -> fixed; re-sign h requested
 - Astra S1g (council/codereview-wan-s1g-astra.md): 4a a forwarded --out runs/wan_timing_* made a 40,000-update train job skip the reserve, budget stops and gates (the S1f rule used the directory name); 4b the trainer / panel still accepted a stored forecast without checking the width its rates were measured at.
 - Fixed: production is now decided by the run mode only (PROD unless --timing / --overfit / --resume_test); --resume_test is a bounded exemption (<= 16 updates, *ctest* dir); MODE=train / extend append --production after any forwarded args and the trainer refuses it with any test flag. The forecast stores rollout_window_latents; the reserve helper and the panel refuse a forecast whose measured width differs from (or lacks) the panel width. Tests pass locally and on the cluster venv (real trainer repros; WAN_TESTS FAILS=0). Timing job 3756964 unaffected (timing branch unchanged).

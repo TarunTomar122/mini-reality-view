@@ -517,6 +517,60 @@ def panel_cost_h(dev_ticks_x_seeds, roll_tick_s, roll_start_s, score_tick_s, sco
 
 
 # ------------------------------------------------------------------------------------------------------------- budget
+# rollout option mirror (Astra S1d item 3): the EXACT option set of scripts/wan_rollout.py (tested against its source), so
+# argparse resolves abbreviations ("--window=1") the same way the rollout will; the panel parses its --rollout_args ONCE here
+ROLLOUT_FLAGS = {"unseal", "swap", "mp4", "mp4_keys", "allow_inert"}
+ROLLOUT_TYPES = {"steps": int, "shift": float, "cfg": float, "window_latents": int, "max_ticks": int, "swap_at": int, "sd_lat": int}
+ROLLOUT_OPTIONS = ["ckpt", "split", "unseal", "lists", "enc", "guides", "tokens", "keys", "seeds", "drive_list", "steps", "sampler",
+                   "shift", "cfg", "cond", "window_latents", "max_ticks", "swap", "swap_at", "donors", "sd_lat", "mp4", "mp4_keys",
+                   "dtype", "ledger", "allow_inert", "shard", "out"]
+ROLLOUT_EXTRA_ALLOWED = {"steps", "sampler", "shift", "cfg", "window_latents", "sd_lat", "mp4", "mp4_keys", "dtype"}
+
+
+def parse_rollout_extra(extra):
+    """--rollout_args of the panel -> (window_latents, canonical arg list). The window size is decided ONCE and the canonical
+    list carries it explicitly, so the preflight and every wan_rollout.py call use the same value. Any option outside
+    ROLLOUT_EXTRA_ALLOWED (length, split, mode, seeds, drives, swap, donors, output ...), even abbreviated, is refused."""
+    import argparse
+    ap = argparse.ArgumentParser(add_help=False, allow_abbrev=True, exit_on_error=False)
+    for o_ in ROLLOUT_OPTIONS:
+        if o_ in ROLLOUT_FLAGS:
+            ap.add_argument(f"--{o_}", action="store_true", default=None)
+        else:
+            ap.add_argument(f"--{o_}", type=ROLLOUT_TYPES.get(o_, str), default=None)
+    try:
+        ns, rest = ap.parse_known_args(list(extra))
+    except (argparse.ArgumentError, SystemExit) as e:
+        raise SystemExit(f"--rollout_args not understood: {e}")
+    if rest:
+        raise SystemExit(f"--rollout_args has unknown / ambiguous arguments: {rest}")
+    given = {k: v for k, v in vars(ns).items() if v is not None}
+    bad = sorted(set(given) - ROLLOUT_EXTRA_ALLOWED)
+    if bad:
+        raise SystemExit(f"--rollout_args may not set {bad} (full-length 6 x 2 panels; the panel controls these)")
+    win = int(given.get("window_latents", 5))
+    canon = []
+    for k, v in given.items():
+        if k == "window_latents":
+            continue
+        canon += [f"--{k}"] if k in ROLLOUT_FLAGS else [f"--{k}", str(v)]
+    return win, canon + ["--window_latents", str(win)]
+
+
+def train_reserve_h(fc, reserve_panels):
+    """Astra S1d item 4: the trainer's panel reserve comes ONLY from the measured TOTAL panel cost of a COMPLETE donor plan
+    (six valid assignments, shared-mode references priced); a legacy panel_h or a plan with an omitted receiver is refused."""
+    if not isinstance(fc, dict):
+        raise SystemExit("no forecast_final in timing.json: run MODE=timing with the current code")
+    plan = fc.get("donor_plan") or {}
+    if not fc.get("donor_plan_ok") or len(plan) != 6 or any(not v for v in plan.values()):
+        raise SystemExit(f"forecast donor plan incomplete ({len(plan)} receivers, ok={fc.get('donor_plan_ok')}): no valid reserve")
+    tot = fc.get("panel_h_total")
+    if not _num(tot) or tot <= 0:
+        raise SystemExit("forecast has no measured total panel cost (panel_h_total): legacy timing.json, rerun MODE=timing")
+    return float(tot) * reserve_panels
+
+
 def panel_with_shared_h(panel_h, donors, roll_tick_s, roll_start_s):
     """measured panel cost + one extra UNSWAPPED same-length hybrid rollout (2 seeds) per shared-mode receiver (Astra S1c item 4)"""
     extra = sum(roll_start_s + 2 * int(v["n"]) * roll_tick_s for v in donors.values() if v and v.get("mode") == "shared")

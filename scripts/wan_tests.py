@@ -143,6 +143,36 @@ check("S1c: scorer lag range = (swap, first restart) exclusive of restarts: 15 w
 pfa = WP.swap_preflight({**rcv, "ok": [i < 57 for i in range(150)]}, {**dnr, "ok": [True] * 150}, W=5, swap_at=50)
 check("S1c: receiver not accepted after the swap -> no common frames -> fails", pfa["common_frames"] == 0 and not pfa["ok"], pfa)
 
+# --- Astra S1d repro fixtures ----------------------------------------------------------------------------------------
+import re as _re
+_src = open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "wan_rollout.py")).read()
+check("rollout option mirror == scripts/wan_rollout.py options", _re.findall(r'add_argument\("--([a-z_0-9]+)"', _src) == WP.ROLLOUT_OPTIONS,
+      _re.findall(r'add_argument\("--([a-z_0-9]+)"', _src))
+w1, ex1 = WP.parse_rollout_extra(["--window=1"])
+check("S1d repro 3: '--window=1' resolves to window_latents 1 for BOTH preflight and rollout", w1 == 1 and ex1 == ["--window_latents", "1"], (w1, ex1))
+check("S1d: preflight at the parsed width (1) has the rollout's lag windows, not width 5's",
+      WP.swap_preflight(rcv, {**dnr, "ok": [True] * 150}, W=w1, swap_at=50)["lag_windows"] != pfo["lag_windows"])
+w5, ex5 = WP.parse_rollout_extra(["--steps", "20", "--cfg=2"])
+check("rollout extras canonicalised with an explicit default width", w5 == 5 and ex5 == ["--steps", "20", "--cfg", "2.0", "--window_latents", "5"], ex5)
+for bad_ in (["--max_t=10"], ["--sw"], ["--cond", "guide"], ["--drive", "x"], ["--seeds", "0"], ["--donors", "x"], ["--out", "y"]):
+    try:
+        WP.parse_rollout_extra(bad_); ok_ = False
+    except SystemExit:
+        ok_ = True
+    check(f"rollout extras: forbidden / abbreviated {bad_} refused", ok_)
+FC_OK = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {"donor": "d", "mode": "full", "n": None} for i in range(6)}, "panel_h_total": 2.2, "panel_h": 2.0}
+check("S1d: reserve = measured total x panels", abs(WP.train_reserve_h(FC_OK, 1) - 2.2) < 1e-12)
+for name_, fc_ in (("S1d repro 4: legacy panel_h only (2.0 h vs a 2.2 h panel)", {"panel_h": 2.0}),
+                   ("S1d: plan with an omitted receiver", {**FC_OK, "donor_plan": {**FC_OK["donor_plan"], "r5": None}}),
+                   ("S1d: plan of five receivers", {**FC_OK, "donor_plan": {f"r{i}": {"donor": "d"} for i in range(5)}}),
+                   ("S1d: plan not ok", {**FC_OK, "donor_plan_ok": False}),
+                   ("S1d: no measured total", {**FC_OK, "panel_h_total": None})):
+    try:
+        WP.train_reserve_h(fc_, 1); ok_ = False
+    except SystemExit:
+        ok_ = True
+    check(f"{name_} -> train / extend refused", ok_)
+
 # --- swap donor preflight (Astra / Neon 08:30) ---------------------------------------------------------------------------
 mk = lambda n_, hard_at=(): {"ticks": list(range(n_)), "ok": [True] * n_, "hard": [i in hard_at for i in range(n_)]}
 DRV = {"scene-0043": mk(109), "scene-0393": mk(200), "scene-0234": mk(200), "scene-0396": mk(200), "scene-0285": mk(190), "scene-0468": mk(200)}

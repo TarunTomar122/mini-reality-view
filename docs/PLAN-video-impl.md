@@ -290,6 +290,19 @@ verdict. The trainer also refuses `--budget_hours` above 24 without that marker.
    `slurm/wan_panel.sh parity`.
 7. **Resume test.** It checks that leg B saved update 8 before leg three runs.
 
+## Astra S1d fixes
+
+**Window size (item 3).** `--rollout_args` is parsed once by `mrv.wan_plan.parse_rollout_extra`. That function mirrors the
+exact option set of `wan_rollout.py`; a CPU test checks the mirror against the rollout source. So abbreviations such as
+`--window=1` resolve exactly as the rollout resolves them. The canonical argument list carries `--window_latents` explicitly to
+every rollout call, and the same value goes to the preflight. Options outside steps / sampler / shift / cfg / window / sd_lat /
+mp4 / dtype are refused, abbreviated or not.
+
+**Trainer reserve (item 4).** `mrv.wan_plan.train_reserve_h` takes the reserve only from the measured `panel_h_total` of a
+complete plan: six valid assignments, shared-mode references priced in. There is no legacy `panel_h` fallback. `MODE=train`
+and `MODE=extend` refuse otherwise. `wan_forecast.py` writes `panel_h_total` (and `panel_h`) as null when the donor plan is
+incomplete.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

@@ -138,10 +138,11 @@ if a.reserve_hours is None:
         import glob as _glob
         _tj = a.timing_json or (sorted(_glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
         try:
-            _fc = json.load(open(_tj))["forecast_final"]
-            a.reserve_hours = float(_fc.get("panel_h_total", _fc["panel_h"])) * a.reserve_panels
+            _fc = json.load(open(_tj)).get("forecast_final")
         except Exception as _e:  # noqa: BLE001
             raise SystemExit(f"MODE=train needs the measured panel cost for its reserve ({_tj!r}: {type(_e).__name__}); run MODE=timing")
+        # ONLY the measured total of a complete six-receiver donor plan (no legacy panel_h fallback): Astra S1d item 4
+        a.reserve_hours = WP.train_reserve_h(_fc, a.reserve_panels)
         print(f"panel reserve {a.reserve_hours:.2f} h = {a.reserve_panels} x measured panel cost from {_tj}", flush=True)
     else:
         a.reserve_hours = 0.0

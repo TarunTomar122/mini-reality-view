@@ -52,9 +52,9 @@ if not a.parity_only and not (a.ckpt and a.name):
 PY = sys.executable
 PARITY_RECORD = f"{a.wroot}/a20k_rgbpath_parity.json"
 MODES = ["hybrid", "guide", "tokens", "none"]
-roll_extra = a.rollout_args.split() if a.rollout_args else []
-if any(x.startswith("--max_ticks") or x in ("--swap", "--split", "--cond", "--seeds", "--drive_list") for x in roll_extra):
-    raise SystemExit("--rollout_args may not change length, split, mode, seeds or drives (full-length 6 x 2 panels only)")
+# Astra S1d item 3: the rollout options are parsed ONCE (the rollout's own option set, abbreviations resolved the same way); the
+# canonical list carries --window_latents explicitly and goes to every wan_rollout.py call, WIN to the preflight
+WIN, roll_extra = WP.parse_rollout_extra(a.rollout_args.split() if a.rollout_args else [])
 LEDGER = WP.Ledger(a.ledger, "panel").start()
 os.makedirs(a.wroot, exist_ok=True)
 T0 = time.time(); timing = {}
@@ -127,12 +127,6 @@ if a.parity_only:
 
 # 0. swap preflight FIRST (Astra S1c item 3): all six real assignments must pass, with the rollout's actual window size, before
 #    any GPU work or budget is spent
-WIN = 5
-for i_, x_ in enumerate(roll_extra):
-    if x_ == "--window_latents" and i_ + 1 < len(roll_extra):
-        WIN = int(roll_extra[i_ + 1])
-    elif x_.startswith("--window_latents="):
-        WIN = int(x_.split("=", 1)[1])
 DJ = f"{a.wroot}/{a.name}_swap_donors.json"
 run([PY, "scripts/wan_swap_preflight.py", "--lists", a.lists, "--enc", a.enc, "--swap_at", str(a.swap_at), "--window_latents", str(WIN), "--out", DJ],
     "swap preflight")

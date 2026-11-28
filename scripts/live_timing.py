@@ -16,13 +16,24 @@ from transformers import AutoModel
 from mrv.sd import CameraAdapter, LORA_TARGETS
 
 p = argparse.ArgumentParser(); p.add_argument("--ckpt", required=True); p.add_argument("--frames", type=int, default=50)
+p.add_argument("--merge", action="store_true", help="merge the LoRA into the UNet weights before timing (speed step 1)")
+p.add_argument("--channels_last", action="store_true")
 a = p.parse_args()
 dev = "cuda"; SD = "sd-legacy/stable-diffusion-v1-5"
 AMP = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
 ck = torch.load(a.ckpt, map_location="cpu"); r = ck["args"]["rank"]
 unet = UNet2DConditionModel.from_pretrained(SD, subfolder="unet")
 unet.add_adapter(LoraConfig(r=r, lora_alpha=r, target_modules=LORA_TARGETS)); unet.load_state_dict(ck["lora"], strict=False)
+if a.merge:  # fold LoRA deltas into the base weights (no extra matmuls at inference)
+    from peft.tuners.tuners_utils import BaseTunerLayer
+    n_ = 0
+    for m_ in unet.modules():
+        if isinstance(m_, BaseTunerLayer):
+            m_.merge(); n_ += 1
+    print("merged LoRA layers:", n_)
 unet.to(dev, AMP).eval()
+if a.channels_last:
+    unet.to(memory_format=torch.channels_last)
 adapter = CameraAdapter(n_styles=ck["args"].get("n_styles", 3)).to(dev).eval(); adapter.load_state_dict(ck["adapter"])
 dino = AutoModel.from_pretrained("facebook/dinov2-small").to(dev).half().eval()
 vae = AutoencoderKL.from_pretrained("stabilityai/sd-vae-ft-mse").to(dev, AMP).eval()

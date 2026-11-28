@@ -160,7 +160,8 @@ for bad_ in (["--max_t=10"], ["--sw"], ["--cond", "guide"], ["--drive", "x"], ["
     except SystemExit:
         ok_ = True
     check(f"rollout extras: forbidden / abbreviated {bad_} refused", ok_)
-FC_OK = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {"donor": "d", "mode": "full", "n": None} for i in range(6)}, "panel_h_total": 2.2, "panel_h": 2.0}
+FC_OK = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {"donor": "d", "mode": "full", "n": None} for i in range(6)}, "panel_h_total": 2.2, "panel_h": 2.0,
+         "panel_settings": {"window_latents": 5, "swap_at": 50}}
 check("S1d: reserve = measured total x panels", abs(WP.train_reserve_h(FC_OK, 1) - 2.2) < 1e-12)
 for name_, fc_ in (("S1d repro 4: legacy panel_h only (2.0 h vs a 2.2 h panel)", {"panel_h": 2.0}),
                    ("S1d: plan with an omitted receiver", {**FC_OK, "donor_plan": {**FC_OK["donor_plan"], "r5": None}}),
@@ -172,6 +173,43 @@ for name_, fc_ in (("S1d repro 4: legacy panel_h only (2.0 h vs a 2.2 h panel)",
     except SystemExit:
         ok_ = True
     check(f"{name_} -> train / extend refused", ok_)
+
+# --- Astra S1e repro fixtures ----------------------------------------------------------------------------------------
+FC5 = {**FC_OK, "panel_settings": {"window_latents": 5, "swap_at": 50}}
+for name_, args_ in (("S1e repro 4a: --reserve_panels 0", (FC5, 0, None)), ("S1e: --reserve_panels -1", (FC5, -1, None)),
+                     ("S1e repro 4a: --reserve_hours 0 below the measured 2.2 h", (FC5, 1, 0.0)),
+                     ("S1e: --reserve_hours 1.0 below the measured 2.2 h", (FC5, 1, 1.0))):
+    try:
+        WP.production_reserve_h(*args_); ok_ = False
+    except SystemExit:
+        ok_ = True
+    check(f"{name_} -> production refused", ok_)
+check("S1e: an explicit reserve above the measured total is kept", abs(WP.production_reserve_h(FC5, 1, 3.0) - 3.0) < 1e-12)
+check("S1e: default production reserve = measured total", abs(WP.production_reserve_h(FC5, 1, None) - 2.2) < 1e-12)
+mkA = lambda n_, rej=(): {"ticks": list(range(n_)), "ok": [i not in rej for i in range(n_)], "hard": [False] * n_}
+DRVE = {"A": mkA(200), "B": mkA(200, rej=range(50, 57)), "C": mkA(180), "D": mkA(180), "E": mkA(180), "F": mkA(180)}
+p5, p2 = WP.plan_donors(DRVE, 5, 50), WP.plan_donors(DRVE, 2, 50)
+sh = lambda pl: [r for r, v in pl["donors"].items() if v and v["mode"] == "shared"]
+check("S1e repro 4b: both plans pass; width 5 needs no shared reference, width 2 needs one 180-tick reference",
+      p5["ok"] and p2["ok"] and sh(p5) == [] and len(sh(p2)) == 1 and p2["donors"][sh(p2)[0]]["n"] == 180, (p5["donors"], p2["donors"]))
+check("S1e: the shared reference is priced (2 seeds x 180 ticks + start)",
+      abs(WP.panel_with_shared_h(2.0, p2["donors"], 0.5, 60) - (2.0 + (60 + 2 * 180 * 0.5) / 3600)) < 1e-9)
+for w_ in (2, 1):
+    try:
+        WP.production_reserve_h(FC5, 1, None, window_latents=w_); ok_ = False
+    except SystemExit:
+        ok_ = True
+    check(f"S1e: reserve priced for width 5 refused for a width-{w_} panel", ok_)
+try:
+    WP.production_reserve_h(FC5, 1, None, swap_at=60); ok_ = False
+except SystemExit:
+    ok_ = True
+check("S1e: reserve priced for swap at 50 refused for swap at 60", ok_)
+try:
+    WP.production_reserve_h({k: v for k, v in FC_OK.items() if k != "panel_settings"}, 1, None); ok_ = False
+except SystemExit:
+    ok_ = True
+check("S1e: legacy forecast without panel_settings refused", ok_)
 
 # --- swap donor preflight (Astra / Neon 08:30) ---------------------------------------------------------------------------
 mk = lambda n_, hard_at=(): {"ticks": list(range(n_)), "ok": [True] * n_, "hard": [i in hard_at for i in range(n_)]}

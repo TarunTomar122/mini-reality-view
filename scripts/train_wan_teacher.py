@@ -96,7 +96,9 @@ p.add_argument("--max_steps_this_job", type=int, default=0)
 p.add_argument("--budget_hours", type=float, default=24.0, help="S1 slice-hour cap over ALL S1 jobs in --ledger")
 p.add_argument("--reserve_hours", type=float, default=None, help="override; default = measured panel cost (timing.json forecast_final."
                "panel_h_total, incl. shared-mode references) x --reserve_panels (Astra S1c item 4)")
-p.add_argument("--reserve_panels", type=int, default=1, help="panels still to run inside this budget (train: the 24 h read; extend: the final)")
+p.add_argument("--reserve_panels", type=int, default=1, help="panels still to run inside this budget (train: the 24 h read; extend: the final); >= 1 in production")
+p.add_argument("--panel_window_latents", type=int, default=5, help="rollout window size the S1 panels will use (the reserve must be priced for it)")
+p.add_argument("--panel_swap_at", type=int, default=50, help="swap position the S1 panels will use (the reserve must be priced for it)")
 p.add_argument("--timing_json", default="", help="default: newest runs/wan_timing_*/timing.json")
 p.add_argument("--a_metrics", default="runs/troll/m_A20k_indep_dev.json")
 p.add_argument("--a_roll", default="runs/troll/A20k_indep_dev")
@@ -133,19 +135,18 @@ assert not set(TRAIN) & set(DEVL), "train / dev overlap"
 assert not (set(TRAIN) | set(DEVL)) & (set(LISTS.get("decision", [])) | set(LISTS.get("final", []))), "sealed drives in train / dev"
 NL = 5
 S_SLOTS = WC.SLOTS[a.tok_ticks]
-if a.reserve_hours is None:
-    if KIND == "train":  # the MEASURED panel cost, not a fixed number of hours (Astra S1c item 4)
-        import glob as _glob
-        _tj = a.timing_json or (sorted(_glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
-        try:
-            _fc = json.load(open(_tj)).get("forecast_final")
-        except Exception as _e:  # noqa: BLE001
-            raise SystemExit(f"MODE=train needs the measured panel cost for its reserve ({_tj!r}: {type(_e).__name__}); run MODE=timing")
-        # ONLY the measured total of a complete six-receiver donor plan (no legacy panel_h fallback): Astra S1d item 4
-        a.reserve_hours = WP.train_reserve_h(_fc, a.reserve_panels)
-        print(f"panel reserve {a.reserve_hours:.2f} h = {a.reserve_panels} x measured panel cost from {_tj}", flush=True)
-    else:
-        a.reserve_hours = 0.0
+if KIND == "train":  # production: ALWAYS the measured total for the panel's own settings; overrides may only raise it (S1e 4a / 4b)
+    import glob as _glob
+    _tj = a.timing_json or (sorted(_glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
+    try:
+        _fc = json.load(open(_tj)).get("forecast_final")
+    except Exception as _e:  # noqa: BLE001
+        raise SystemExit(f"MODE=train needs the measured panel cost for its reserve ({_tj!r}: {type(_e).__name__}); run MODE=timing")
+    a.reserve_hours = WP.production_reserve_h(_fc, a.reserve_panels, a.reserve_hours, a.panel_window_latents, a.panel_swap_at)
+    print(f"panel reserve {a.reserve_hours:.2f} h (>= {a.reserve_panels} x measured panel cost for window {a.panel_window_latents}, "
+          f"swap at {a.panel_swap_at}, from {_tj})", flush=True)
+elif a.reserve_hours is None:  # timing / overfit / resume test: no panel reserve
+    a.reserve_hours = 0.0
 if KIND == "train" and LEDGER.hours() + a.reserve_hours >= a.budget_hours:
     raise SystemExit(f"S1 budget exhausted: {LEDGER.hours():.2f} h used + {a.reserve_hours} h reserve >= {a.budget_hours} h")
 

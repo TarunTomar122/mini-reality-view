@@ -303,6 +303,22 @@ complete plan: six valid assignments, shared-mode references priced in. There is
 and `MODE=extend` refuse otherwise. `wan_forecast.py` writes `panel_h_total` (and `panel_h`) as null when the donor plan is
 incomplete.
 
+## Astra S1e fixes (item 4)
+
+**4a, no lowering the reserve.** `mrv.wan_plan.production_reserve_h` is used for every train / extend start, including runs
+with overrides.
+- `--reserve_panels < 1` is refused.
+- An explicit `--reserve_hours` below the measured total is refused; it may only raise the reserve.
+- The forecast is validated in every case.
+
+**4b, reserve bound to the panel settings.** `wan_forecast.py --window_latents W --swap_at S` prices the donor plan with the
+panel's own settings and records them as `panel_settings`.
+- `wan_panel.py` refuses a measured cost made for another width or swap position.
+- The trainer does the same via `--panel_window_latents` / `--panel_swap_at`.
+- `slurm/wan_teacher.sh` takes one `PANEL_WIN` (default 5) for both the timing forecast and the train / extend reserve.
+- Astra's repro (A–F 200/200/180/180/180/180, B ticks 50–56 rejected): width 5 needs no shared reference; width 2 needs one
+  180-tick reference at two seeds. This is a CPU test.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

@@ -557,11 +557,16 @@ def parse_rollout_extra(extra):
     return win, canon + ["--window_latents", str(win)]
 
 
-def train_reserve_h(fc, reserve_panels):
-    """Astra S1d item 4: the trainer's panel reserve comes ONLY from the measured TOTAL panel cost of a COMPLETE donor plan
-    (six valid assignments, shared-mode references priced); a legacy panel_h or a plan with an omitted receiver is refused."""
+def train_reserve_h(fc, reserve_panels, window_latents=5, swap_at=50):
+    """Astra S1d / S1e item 4: the measured TOTAL panel cost of a COMPLETE donor plan (six valid assignments, shared-mode
+    references priced) computed for the SAME panel settings (rollout window size, swap position) the panel will use, times
+    reserve_panels; legacy / incomplete forecasts and forecasts for other settings are refused."""
     if not isinstance(fc, dict):
         raise SystemExit("no forecast_final in timing.json: run MODE=timing with the current code")
+    ps = fc.get("panel_settings") or {}
+    if ps.get("window_latents") != window_latents or ps.get("swap_at") != swap_at:
+        raise SystemExit(f"forecast priced the panel for {ps} but the panel uses window_latents={window_latents}, swap_at={swap_at}: "
+                         f"rerun scripts/wan_forecast.py with those settings")
     plan = fc.get("donor_plan") or {}
     if not fc.get("donor_plan_ok") or len(plan) != 6 or any(not v for v in plan.values()):
         raise SystemExit(f"forecast donor plan incomplete ({len(plan)} receivers, ok={fc.get('donor_plan_ok')}): no valid reserve")
@@ -569,6 +574,17 @@ def train_reserve_h(fc, reserve_panels):
     if not _num(tot) or tot <= 0:
         raise SystemExit("forecast has no measured total panel cost (panel_h_total): legacy timing.json, rerun MODE=timing")
     return float(tot) * reserve_panels
+
+
+def production_reserve_h(fc, reserve_panels, explicit_h=None, window_latents=5, swap_at=50):
+    """the reserve a production (train / extend) run keeps (Astra S1e item 4a): at least one measured panel, never below the
+    measured total; an explicit --reserve_hours may only RAISE it"""
+    if reserve_panels < 1:
+        raise SystemExit(f"--reserve_panels {reserve_panels} < 1: production keeps at least one measured panel in reserve")
+    measured = train_reserve_h(fc, reserve_panels, window_latents, swap_at)
+    if explicit_h is not None and explicit_h < measured:
+        raise SystemExit(f"--reserve_hours {explicit_h} is below the measured panel reserve {measured:.2f} h: refused")
+    return max(measured, explicit_h or 0.0)
 
 
 def panel_with_shared_h(panel_h, donors, roll_tick_s, roll_start_s):

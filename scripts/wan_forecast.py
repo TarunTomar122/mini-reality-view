@@ -21,6 +21,8 @@ p.add_argument("--budget_hours", type=float, default=24.0); p.add_argument("--n_
 p.add_argument("--job_h", type=float, default=12.0); p.add_argument("--val_every", type=int, default=500); p.add_argument("--save_every", type=int, default=500)
 p.add_argument("--n_numbered", type=int, default=15)
 p.add_argument("--gates", default="runs/wan_gates/gates.jsonl", help="gate registry: a gate counts as done only with a PASS record")
+p.add_argument("--window_latents", type=int, default=5, help="rollout window size the S1 panels will use (prices the donor plan)")
+p.add_argument("--swap_at", type=int, default=50, help="swap position the S1 panels will use")
 a = p.parse_args()
 J = json.load(open(f"{a.timing_dir}/timing.json"))
 br = J["rollout_breakdown"]
@@ -36,7 +38,9 @@ _drv = {}
 for d in dev:
     E_ = torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)
     _drv[d] = {"ticks": [int(t) for t in E_["ticks"].tolist()], "ok": [bool(x) for x in E_["ok"].tolist()], "hard": [bool(x) for x in E_["hard"].tolist()]}
-PLAN = WP.plan_donors(_drv, 5, 50, lambda sc, t: os.path.exists(f"data/sim/keys_tpv10/{sc}/t{int(t):04d}.jpg"))
+# priced with the SAME window size / swap position the panel will use (Astra S1e item 4b); recorded as panel_settings, and the
+# panel and trainer refuse a total made for other settings
+PLAN = WP.plan_donors(_drv, a.window_latents, a.swap_at, lambda sc, t: os.path.exists(f"data/sim/keys_tpv10/{sc}/t{int(t):04d}.jpg"))
 # a total is only defined for a COMPLETE plan (six valid assignments); otherwise it is None and the trainer refuses (S1d item 4)
 panel_h = WP.panel_with_shared_h(panel_base_h, PLAN["donors"], roll_tick, roll_start) if (PLAN["ok"] and len(PLAN["donors"]) == 6) else None
 L = WP.Ledger(a.ledger, "forecast", write=False)
@@ -62,7 +66,7 @@ t = {"budget_h": a.budget_hours, "used_h": L.hours(live=False), "done_kinds": do
 fc = WP.forecast_s1(t)
 fc.update(inputs={k: (sorted(v) if isinstance(v, set) else v) for k, v in t.items()}, dev_ticks=dev_ticks, panel_h=round(panel_h, 3) if panel_h is not None else None,
           panel_plan_complete=panel_h is not None,
-          gate_key=GK, panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3) if panel_h is not None else None,
+          gate_key=GK, panel_settings={"window_latents": a.window_latents, "swap_at": a.swap_at}, panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3) if panel_h is not None else None,
           donor_plan=PLAN["donors"], donor_plan_ok=bool(PLAN["ok"] and len(PLAN["donors"]) == 6),
           startup_measured_s=J["startup_s"], startup_scaled_s=round(startup, 1), timing_train_drives=J.get("train_drives"), prod_train_drives=prod_train,
           roll_tick_s=round(roll_tick, 3), roll_start_s=round(roll_start, 1), score_tick_s=round(score_tick, 3), ledger_by_kind=kinds)

@@ -22,6 +22,7 @@ export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDI
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MALLOC_ARENA_MAX=2
 mkdir -p $TMPDIR logs2
 PY=.venv/bin/python; MODE=${MODE:-timing}; J=${SLURM_JOB_ID:-manual}; LEDGER=runs/wan_s1_ledger.jsonl
+PANEL_WIN=${PANEL_WIN:-5}  # rollout window size of the S1 panels: the forecast prices it and train / extend reserve for it (S1e 4b)
 if [ "$MODE" = extend ]; then  # Astra 08:30: the 12 h extension only on the qualifying 24 h verdict, checked BEFORE any allocation use
   $PY -c "import json,sys;v=json.load(open('runs/wan_s1/S1_24H_DECISION.json'))['verdict'];print('24h marker:',v);sys.exit(0 if v.startswith('EXTEND') else 1)" \
     || { echo "MODE=extend refused: runs/wan_s1/S1_24H_DECISION.json missing or not an EXTEND verdict"; exit 8; }
@@ -75,7 +76,8 @@ import torch; r = torch.load("$O/roll/${DRV}_s0.pt", map_location="cpu", weights
 json.dump(j, open("$O/timing.json", "w"), indent=1); print("WAN_TIMING_FULL", json.dumps(j))
 P
     # S1b item 5: the forecast is recomputed only now, after the scorer, with every deduction
-    $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER
+    $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER \
+        --window_latents $PANEL_WIN --swap_at 50
     rc=$? ;;
   overfit)
     # OUT=<dir of the stopped run> resubmits a preempted / signal-stopped gate in the SAME directory with --resume (Astra 08:30)
@@ -90,8 +92,8 @@ P
       && { ck8 || { echo "RESUME_TEST invalid: leg B did not stop at update 8"; false; }; } \
       && run_fg $T --out $B $C --resume "$@" \
       && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt --gates runs/wan_gates/gates.jsonl; rc=$? ;;
-  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_panels 1 --resume "$@"; rc=$? ;;
-  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_panels 1 --resume "$@"; rc=$? ;;
+  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@"; rc=$? ;;
+  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@"; rc=$? ;;
   *) echo "unknown MODE=$MODE"; exit 2 ;;
 esac
 echo "end $(date -u) rc=$rc"

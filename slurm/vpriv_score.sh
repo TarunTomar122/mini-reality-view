@@ -20,8 +20,10 @@ case $k in 8|12|16) $PY scripts/a1_decide.py $k || { echo "SCORE_FAIL A1 decisio
 if [ $k = 12 ]; then  # stage 2: resume 12k -> 16k only if the 12k A1 decision allows (training paused at 12k by design)
   G2=runs/vpriv_gate; exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }
   flock -w 600 9 || { echo "SCORE_FAIL gate lock not acquired"; exit 1; }
-  STOP=$($PY -c "import json;print(json.load(open('$G2/a1_12k.json'))['stop'])") || { echo "SCORE_FAIL reading a1_12k"; exit 1; }
-  if [ "$STOP" = "True" ]; then
+  STOP=$($PY -c "import json,sys;s=json.load(open('$G2/a1_12k.json'))['stop'];sys.exit(1) if not isinstance(s,bool) else print('stop' if s else 'continue')") \
+      || { echo "SCORE_FAIL reading a1_12k (stop must be a JSON boolean)"; exit 1; }
+  case "$STOP" in stop|continue) ;; *) echo "SCORE_FAIL bad A1 stop value '$STOP'"; exit 1;; esac
+  if [ "$STOP" = "stop" ]; then
     touch $G2/A1_STOPPED && [ -e $G2/A1_STOPPED ] || { echo "SCORE_FAIL cannot write the A1 stop marker"; exit 1; }
     echo "A1 STOP at 12k (two consecutive safety misses): vpriv is NOT continued"
   elif [ -e $G2/CONTINUED ]; then echo "already continued ($(cat $G2/CONTINUED))"

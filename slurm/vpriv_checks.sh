@@ -20,7 +20,10 @@ sub() {  # sub <job base name> <sbatch args...>: ONE sbatch under a unique name;
   local n="$1.$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')" j q; shift
   j=$(sbatch --parsable -J $n "$@") && [[ "$j" =~ ^[0-9]+$ ]] && { echo $j; return; }
   sleep 30
-  q=$( { squeue -u $USER -h -n $n -o %i; sacct -u $USER -X -n -P --name=$n -o JobID; } 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
+  local q1 q2
+  q1=$(squeue -u $USER -h -n $n -o %i) || { echo "WATCH_FAIL ambiguous sbatch for $n (squeue failed): reconcile by hand" >&2; exit 1; }
+  q2=$(sacct -u $USER -X -n -P --name=$n -o JobID) || { echo "WATCH_FAIL ambiguous sbatch for $n (sacct failed): reconcile by hand" >&2; exit 1; }
+  q=$(printf "%s\n%s\n" "$q1" "$q2" | grep -E '^[0-9]+$' | sort -u)
   [ "$(echo "$q" | grep -c .)" = 1 ] && { echo $q; return; }
   echo "WATCH_FAIL ambiguous sbatch for $n (matches: ${q:-none}): reconcile by hand" >&2; exit 1; }
 running() { local q; q=$(squeue -u $USER -h -n vpriv -o %i) || return 0; [ -n "$q" ]; }  # queue error: assume running

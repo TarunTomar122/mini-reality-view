@@ -46,7 +46,8 @@ rec = {"k": k, "eligible": elig, "smaller_reduction": red, "f1_diff": d["car_f1"
 out = f"runs/vpriv_gate/a1_{k}k.json"
 if os.path.exists(out):  # a retry: reuse the decision only if it is exactly what the same panel gives now
     old = json.load(open(out))
-    need(old == json.loads(json.dumps(rec)), f"{out} exists and differs from the recomputed decision: reconcile by hand")
+    same = json.dumps(old, sort_keys=True) == json.dumps(rec, sort_keys=True)  # type-strict (1 != true)
+    need(same and isinstance(old.get("stop"), bool), f"{out} exists and differs from the recomputed decision: reconcile by hand")
     print("A1_DECISION (existing, verified)", json.dumps(old)); sys.exit(0)
 with open(out, "x") as fh:
     json.dump(rec, fh, indent=1)

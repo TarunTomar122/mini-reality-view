@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 09:19 UTC — tick: caches 16 / 18 drives per shard; S0c guide + LiDAR readers finished; full guide build 3 / 4 shards done
+- VPN had dropped (ssh banner timeout at 09:18); reconnected via FortiTray, ssh fine at 09:19. Kerberos valid to 17:48.
+- Tokens + latent caches (wtok / wcache 0-2): 16 of 18 drives each, ~3.5 min / drive -> done ~09:27; MODE=timing 3756964 then starts.
+- S0c: guide reader finished training (rc 0, 3,552 train ticks, 0.29 s / update) and the LiDAR reader finished; token and hybrid readers still training (hybrid at update 3,300, 0.66 s / update); report 3756853 waits on them.
+- Full guide build: gfull0-2 done, gfull3 done 09:19 (38 drives in 1,257 s for that shard).
+
 ## 2026-11-28 09:08 UTC — Astra SIGNED S1 production (yes) at fc01ccf
 - Clock note: the three entries above / below were first stamped 09:10 / 09:25 / 09:30, ahead of the clock (cluster `date -u` 09:08); corrected.
 - council/codereview-wan-s1h-astra.md: both S1g items closed; "SIGNED (production): yes". MODE=train may start once its own gates pass (timing geometry / init parity -> A@20k RGB-path parity -> overfit 2k PASS + resume_test PASS); the trainer enforces them.

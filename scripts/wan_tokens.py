@@ -1,106 +1,124 @@
-"""PLAN-video S1 inputs, path (b): raw-view camera tokens for every tick (mrv/wan_cond.py docstring has the design).
+"""PLAN-video S1 inputs, path (b): raw-view camera tokens for every tick, from the guide's OWN depth pass (Astra item 1).
 
-Frozen per-view encoder = the ViT-S/14 backbone of Depth Anything V2-Small (default = mrv/guide.py PRIMARY,
-depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf; if the guides are built with the FALLBACK, pass that checkpoint here,
-so one encoder pass per view serves depth and tokens at run time). Input: the six nuScenes photos of the tick (data/temporal_manifest.json
-rows, CAMS order), resized to 448x252 (bicubic, ImageNet normalisation, as scripts/temporal_encode.py) -> last-layer patch
-tokens (layer-normed, CLS dropped), 18 x 32 = 576 UNPOOLED tokens x 384 per view. Hard-break ticks (temporal_encode rule,
-taken from the enc file) get zeros.
-Rays: per scene, the calibrated cameras (fixed per log, scene's first sample, as scripts/calib.py) give each patch centre's
-ray; stored as Pluecker (d, o x d) in the CHASE camera frame (mrv.wan_cond.plucker_chase).
+Shared pass: the guide's depth network (the checkpoint recorded in the guide provenance, no fallback; weights sha checked
+against the guide's) on the guide's exact preprocessing (mrv.guide.load_views at depth_res_hw = 294x518, JPEG draft +
+bilinear, ImageNet normalisation, fp16) is run ONCE per tick with output_hidden_states=True; tokens = backbone.layernorm(last
+hidden state) without CLS (21 x 37 = 777 x 384 per view). The same forward's predicted_depth is compared with
+mrv.guide.DepthNet.raw on the first batch of each drive (recorded: "shared_pass_max_abs_depth"), so live inference needs one
+encoder pass per view for depth AND tokens.
+Rays: per tick and camera from the guide file's K [n,6,3,3] (1600x900 px) and cam2tick [n,6,4,4] (each camera at its own capture
+pose, moved into the tick frame), patch centres of the 294x518 grid, Pluecker (d, o x d) in the chase-camera frame
+(mrv.guide.chase_cam_to_ego with the guide's chase_dz). scripts/wan_token_check.py verifies them on a pinned tick.
+Guide intake: mrv.wan_cond.check_guide (complete sidecar, camera-only, underlay, every tick built, ticks / hard == enc) and
+one guide version for every drive of the run.
 
-Per drive -> <out>/<scene>.pt {"ticks" (n,), "tokens" fp16 (n, 6, 576, 384), "rays" fp32 (6, 576, 6), "grid" (18, 32),
-"encoder", "input_wh" (448, 252)} + <scene>.json sidecar (sha256 of the .pt, counts). Ticks are the enc file's ticks, in order.
-Disk: 2.65 MB per tick (~56 GB for the 21.3k train ticks, ~60+ GB with dev); the trainer memory-maps these files.
-  python scripts/wan_tokens.py --splits train,dev --out data/wan_tok_v1 --shard i/n     (2080 Ti is fine)
+Per drive -> <out>/<scene>.pt {"ticks", "hard", "tokens" fp16 [n,6,777,384] (zeros on hard ticks), "rays" fp32 [n,6,777,6],
+"grid" (21, 37), "guide_version", "encoder", ...} + <scene>.json sidecar {sha256 of the .pt, guide / enc / manifest hashes,
+weights sha, code sha, guide_version, complete}. An existing drive is skipped ONLY if its sidecar and every upstream hash still
+match (else error; --rebuild re-encodes it). Disk: 3.7 MB per tick (~78 GB for the 21.3k train ticks).
+  python scripts/wan_tokens.py --splits train,dev --out data/wan_tok_v1 --shard i/n
 """
 import argparse, hashlib, json, os, time
 import numpy as np
 import torch
-from PIL import Image
-from mrv.nusc import CAMS
-from mrv.wan_cond import plucker_chase, TOK_ENCODER_ID
+from mrv import guide as GD
+from mrv import wan_cond as WC
 
 p = argparse.ArgumentParser()
 p.add_argument("--splits", default="train,dev")
 p.add_argument("--lists", default="data/temporal_lists.json")
 p.add_argument("--manifest", default="data/temporal_manifest.json")
 p.add_argument("--enc", default="data/enc_tpv10")
+p.add_argument("--guides", default="data/guides_v1")
 p.add_argument("--dataroot", default="data/nuscenes_full")
-p.add_argument("--version", default="v1.0-trainval")
-p.add_argument("--encoder", default=TOK_ENCODER_ID)
 p.add_argument("--out", default="data/wan_tok_v1")
 p.add_argument("--ticks_per_batch", type=int, default=8)
+p.add_argument("--rebuild", action="store_true")
 p.add_argument("--shard", default="0/1")
 a = p.parse_args()
 dev = "cuda"
-W_IN, H_IN, PS = 448, 252, 14
-GH, GW = H_IN // PS, W_IN // PS  # 18, 32
 os.makedirs(a.out, exist_ok=True)
-L = json.load(open(a.lists)); man = json.load(open(a.manifest))
-drives = sorted({d for s in a.splits.split(",") for d in L[s]})
+CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py", "mrv/guide.py")
+man = json.load(open(a.manifest))
+drives = GD.drive_list(a.splits, a.lists)  # sealed decision / final drives refused
 si, sn = map(int, a.shard.split("/"))
-todo = [d for k, d in enumerate(drives) if k % sn == si and not os.path.exists(f"{a.out}/{d}.pt")]
-print(f"{len(todo)} drives to encode in shard {a.shard}", flush=True)
+mine = drives[si::sn]
+
+
+def upstream(sc):
+    E_ = torch.load(f"{a.enc}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
+    return {"guide_sha": WC.file_sha(f"{a.guides}/{sc}.pt"), "enc_sha": WC.file_sha(f"{a.enc}/{sc}.pt"),
+            "manifest_sha": hashlib.sha256(json.dumps([r["files"] for r in man[sc]]).encode()).hexdigest(), "code_sha": CODE_SHA}, E_
+
+
+todo, VERSION = [], None
+for sc in mine:
+    side = json.load(open(f"{a.guides}/{sc}.json"))
+    Gm = torch.load(f"{a.guides}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
+    up, E = upstream(sc)
+    VERSION = WC.check_guide(f"{a.guides}/{sc}.pt", Gm, side, E["ticks"].tolist(), E["hard"].tolist(), sc, VERSION)
+    f = f"{a.out}/{sc}.pt"
+    if os.path.exists(f) and not a.rebuild:
+        if not os.path.exists(f"{a.out}/{sc}.json"):
+            raise SystemExit(f"{f} exists without a sidecar: --rebuild")
+        sj = json.load(open(f"{a.out}/{sc}.json"))
+        bad = {k: (sj.get(k), v) for k, v in {**up, "guide_version": VERSION}.items() if sj.get(k) != v}
+        if not sj.get("complete") or WC.file_sha(f) != sj.get("sha256") or bad:
+            raise SystemExit(f"{f}: stale or corrupt token cache ({list(bad)[:4]}); rerun with --rebuild")
+        print("valid, skip", sc, flush=True); continue
+    todo.append(sc)
+print(f"{len(todo)} drives to encode in shard {a.shard}; guide version {VERSION}", flush=True)
 if not todo:
     raise SystemExit(0)
-
-from transformers import AutoModelForDepthEstimation
-from nuscenes.nuscenes import NuScenes
-dt = torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16
-model = AutoModelForDepthEstimation.from_pretrained(a.encoder, torch_dtype=dt, local_files_only=True).to(dev).eval()
-backbone = model.backbone
-MEAN = torch.tensor([0.485, 0.456, 0.406], device=dev).view(1, 3, 1, 1); STD = torch.tensor([0.229, 0.224, 0.225], device=dev).view(1, 3, 1, 1)
-nusc = NuScenes(a.version, a.dataroot, verbose=False)
-by = {s["name"]: s for s in nusc.scene}
-from pyquaternion import Quaternion
-u = (np.arange(GW) + 0.5) * PS; v = (np.arange(GH) + 0.5) * PS
-uu, vv = np.meshgrid(u, v); pix = np.stack([uu.ravel(), vv.ravel(), np.ones(GH * GW)], 1)  # row-major like the tokens
-
-
-def rays_for(sc):
-    s = nusc.get("sample", by[sc]["first_sample_token"]); out = []
-    for cam in CAMS:
-        cs = nusc.get("calibrated_sensor", nusc.get("sample_data", s["data"][cam])["calibrated_sensor_token"])
-        K = np.array(cs["camera_intrinsic"], dtype=np.float64); K[0] *= W_IN / 1600; K[1] *= H_IN / 900
-        R = Quaternion(cs["rotation"]).rotation_matrix
-        d = (np.linalg.inv(K) @ pix.T).T @ R.T
-        out.append(plucker_chase(d / np.linalg.norm(d, axis=1, keepdims=True), np.array(cs["translation"])))
-    return torch.tensor(np.stack(out), dtype=torch.float32)  # (6, 576, 6)
+if tuple(VERSION["depth_res_hw"]) != WC.DEPTH_HW:
+    raise SystemExit(f"guide depth resolution {VERSION['depth_res_hw']} != token grid source {WC.DEPTH_HW}")
+DN = GD.DepthNet(VERSION["depth_model_id"], device=dev, dtype=torch.float16, allow_fallback=False)
+if VERSION["depth_weights_sha"] and DN.info.get("weights_sha") != VERSION["depth_weights_sha"]:
+    raise SystemExit(f"depth weights {DN.info.get('weights_sha')} != the guide's {VERSION['depth_weights_sha']}")
+model, backbone = DN.model, DN.model.backbone
+H, W = WC.DEPTH_HW
+CH = GD.chase_cam_to_ego(float(VERSION["chase_dz"] or 0.0))
 
 
 @torch.no_grad()
-def encode(imgs):
-    """list of uint8 HxWx3 (6 * k) -> (6k, 576, 384) fp16"""
-    x = torch.from_numpy(np.stack(imgs)).to(dev).permute(0, 3, 1, 2).float() / 255
-    fm = backbone(pixel_values=((x - MEAN) / STD).to(dt)).feature_maps[-1]
-    if fm.ndim == 4:  # reshaped variant: (B, C, h, w)
-        fm = fm.flatten(2).transpose(1, 2)
-    else:  # (B, 1 + N, C): drop CLS
-        fm = fm[:, 1:]
-    assert fm.shape[1] == GH * GW and fm.shape[2] == 384, fm.shape
-    return fm.half().cpu()
+def encode(views):
+    """uint8 [6k, H, W, 3] -> tokens [6k, 777, 384] fp16, predicted depth [6k, H', W']"""
+    x = torch.as_tensor(views).to(dev).permute(0, 3, 1, 2).contiguous()
+    y = (x.float() / 255 - DN.mean) / DN.std
+    out = model(pixel_values=y.to(DN.dtype), output_hidden_states=True)
+    hs = out.hidden_states[-1]
+    tok = backbone.layernorm(hs)[:, 1:]
+    assert tok.shape[1] == WC.TOK_P and tok.shape[2] == WC.TOK_DIM, tok.shape
+    return tok.half().cpu(), x, out.predicted_depth
 
 
 for sc in todo:
     t0 = time.time()
-    E = torch.load(f"{a.enc}/{sc}.pt", map_location="cpu", weights_only=False)
-    rows = man[sc]; ticks = E["ticks"].tolist(); hard = E["hard"].tolist()
+    up, E = upstream(sc)
+    Gm = torch.load(f"{a.guides}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
+    rows = man[sc]; ticks = E["ticks"].tolist(); hard = E["hard"].tolist(); n = len(ticks)
     assert [r["tick"] for r in rows] == ticks, f"{sc}: manifest ticks != enc ticks"
-    toks = torch.zeros(len(ticks), 6, GH * GW, 384, dtype=torch.float16)
-    live = [i for i in range(len(ticks)) if not hard[i]]
+    toks = torch.zeros(n, 6, WC.TOK_P, WC.TOK_DIM, dtype=torch.float16)
+    rays = torch.from_numpy(np.stack([WC.token_rays(Gm["K"][i].numpy(), Gm["cam2tick"][i].numpy(), CH) for i in range(n)]))
+    live = [i for i in range(n) if not hard[i]]; shared = None
     for b in range(0, len(live), a.ticks_per_batch):
         idx = live[b:b + a.ticks_per_batch]
-        ims = [np.asarray(Image.open(f"{a.dataroot}/{f}").convert("RGB").resize((W_IN, H_IN), Image.BICUBIC)) for i in idx for f in rows[i]["files"]]
-        toks[idx] = encode(ims).view(len(idx), 6, GH * GW, 384)
-    out = {"scene": sc, "ticks": E["ticks"].clone(), "tokens": toks, "rays": rays_for(sc), "grid": (GH, GW), "encoder": a.encoder,
-           "input_wh": (W_IN, H_IN), "layer": "last (layer-normed), CLS dropped", "hard": E["hard"].clone()}
+        views = np.concatenate([GD.load_views(a.dataroot, rows[i]["files"], (W, H)) for i in idx])
+        tk, x, pd = encode(views)
+        toks[idx] = tk.view(len(idx), 6, WC.TOK_P, WC.TOK_DIM)
+        if shared is None:  # the guide's own depth call on the same input must equal this pass's depth output
+            ref = DN.raw(x)
+            pdx = pd[:, 0] if pd.dim() == 4 else pd
+            if pdx.shape[-2:] != ref.shape[-2:]:
+                pdx = torch.nn.functional.interpolate(pdx[:, None].float(), size=ref.shape[-2:], mode="bilinear", align_corners=False)[:, 0]
+            shared = float((pdx.float() - ref).abs().max())
+    out = {"scene": sc, "ticks": E["ticks"].clone(), "hard": E["hard"].clone(), "tokens": toks, "rays": rays, "grid": WC.TOK_GRID,
+           "encoder": VERSION["depth_model_id"], "input_hw": WC.DEPTH_HW, "guide_version": VERSION,
+           "tokens_from": "depth forward (output_hidden_states), backbone.layernorm(last), CLS dropped", "shared_pass_max_abs_depth": shared}
     f = f"{a.out}/{sc}.pt"
     torch.save(out, f + ".tmp"); os.replace(f + ".tmp", f)
-    h = hashlib.sha256()
-    with open(f, "rb") as fh:
-        for chunk in iter(lambda: fh.read(1 << 24), b""):
-            h.update(chunk)
-    json.dump({"scene": sc, "sha256": h.hexdigest(), "ticks": len(ticks), "encoded": len(live), "encoder": a.encoder}, open(f"{a.out}/{sc}.json", "w"))
-    print(sc, len(ticks), "ticks", len(live), "encoded", f"{time.time() - t0:.0f}s", flush=True)
+    json.dump({"scene": sc, "sha256": WC.file_sha(f), **up, "guide_version": VERSION, "weights_sha": DN.info.get("weights_sha"),
+               "ticks": n, "encoded": len(live), "shared_pass_max_abs_depth": shared, "complete": True}, open(f"{a.out}/{sc}.json.tmp", "w"))
+    os.replace(f"{a.out}/{sc}.json.tmp", f"{a.out}/{sc}.json")
+    print(sc, n, "ticks", len(live), "encoded", f"shared-pass depth diff {shared:.3g}", f"{time.time() - t0:.0f}s", flush=True)
 print("WAN_TOKENS_DONE", a.shard)

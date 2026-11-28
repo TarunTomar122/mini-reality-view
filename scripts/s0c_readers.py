@@ -48,6 +48,9 @@ p.add_argument("--lr", type=float, default=3e-4); p.add_argument("--width", type
 p.add_argument("--blocks", type=int, default=6); p.add_argument("--seed", type=int, default=0)
 p.add_argument("--workers", type=int, default=6); p.add_argument("--evals", default="0.25,0.5,0.75,1.0")
 p.add_argument("--improve_tol", type=float, default=0.01); p.add_argument("--shard", default="0/1")
+p.add_argument("--budget_h", type=float, default=7.5, help="S0c hard ceiling (waiver A, 28 Nov 08:51; signed cap was 5.0)")
+p.add_argument("--discarded_lines", default="", help="1-based gpu_time.jsonl line range of discarded work, e.g. 2-9 (pre-underlay guides)")
+p.add_argument("--ceiling_hit", action="store_true", help="readers were cancelled at the waiver ceiling: no reruns (waiver A)")
 p.add_argument("--sheet_ticks", type=int, default=4)
 a = p.parse_args()
 T_START = time.time()
@@ -552,7 +555,8 @@ def stage_report():
     if not matched:
         unres.append(f"parameter counts not matched (guide {pg}, tokens {pt})")
     if unres:
-        verdict = "UNRESOLVED: " + "; ".join(unres) + " -> rerun BOTH readers with --updates 12000 (matched) before reading"
+        verdict = "UNRESOLVED: " + "; ".join(unres) + (" -> waiver A ceiling hit: NO reruns; both inputs go into S1 (already the S1 recipe)"
+                                                       if a.ceiling_hit else " -> rerun BOTH readers with --updates 12000 (matched) before reading")
     elif cmp_["guide_vs_tokens"]["lead"]:
         verdict = "GUIDE LEADS (>= 0.03 car F1, paired interval > 0, every LODO > 0, no road-IoU loss); tokens stay the second path"
     elif cmp_["tokens_vs_guide"]["lead"]:
@@ -567,6 +571,13 @@ def stage_report():
         tl = [json.loads(x) for x in open(f"{a.out}/gpu_time.jsonl") if x.strip()]
         gpu_s = sum(x["seconds"] for x in tl)
     gpu_h = (gpu_s + (time.time() - T_START)) / 3600
+    disc_s = 0.0
+    if a.discarded_lines:
+        lo, hi = map(int, a.discarded_lines.split("-"))
+        disc_s = sum(x["seconds"] for i, x in enumerate(tl, 1) if lo <= i <= hi)
+    canc_s = sum(x["seconds"] for x in tl if x.get("cancelled"))
+    hours = {"total_h": round(gpu_h, 3), "discarded_builder_error_h": round(disc_s / 3600, 3), "cancelled_at_ceiling_h": round(canc_s / 3600, 3),
+             "clean_h": round(gpu_h - (disc_s + canc_s) / 3600, 3)}
     controls = {x: {"car_f1": arms[x]["final"]["mean"]["car_f1"] if arms[x].get("final") else None,
                     "wrong_drive_car_f1": arms[x]["wrong_drive"]["mean"]["car_f1"] if arms[x].get("wrong_drive") else None,
                     "collapsed (wrong <= 0.5 x right)": arms[x].get("wrong_drive_collapsed")} for x in arms}
@@ -574,7 +585,7 @@ def stage_report():
            "params_matched": matched, "params": {x: arms[x]["info"]["params"] if arms[x]["info"] else None for x in arms},
            "arms": {x: {k: v for k, v in arms[x].items() if k not in ("checkpoints",)} | {
                "curve": {s_: (c["mean"] if c else None) for s_, c in arms[x]["checkpoints"].items()}} for x in arms},
-           "gpu_hours_aggregate": round(gpu_h, 2), "gpu_budget_h": 5.0, "over_budget": gpu_h > 5.0, "time_log": tl,
+           "gpu_hours_aggregate": round(gpu_h, 2), "gpu_budget_h": a.budget_h, "signed_cap_h": 5.0, "over_budget": gpu_h > a.budget_h, "hours": hours, "time_log": tl,
            "rules": {"lead": ">= 0.03 car F1 (mean of per-drive F1), paired drive bootstrap 95% interval > 0, every LODO > 0, road IoU diff >= 0",
                      "unresolved": f"unfinished or final - 75% checkpoint car F1 >= {a.improve_tol}", "lidar": "ceiling - guide >= 0.05 car F1",
                      "wrong_drive": "operational check: wrong-drive car F1 <= 0.5 x right-drive car F1", "dev_ticks": "every accepted dev tick",

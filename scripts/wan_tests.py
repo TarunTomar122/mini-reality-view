@@ -360,5 +360,9 @@ for _w, _ask, _ok in ((5, 2, False), (None, 5, False)):
 _sh = open("slurm/wan_teacher.sh").read()
 check("S1f 4b: timed rollout runs at PANEL_WIN and persists it", "--window_latents $PANEL_WIN --swap_at 50 --ledger" in _sh and 'j["rollout_window_latents"]' in _sh)
 
+# ---- Neon 09:30 P0: cache provenance must not hash the whole policy module
+for _f in ("scripts/wan_cache.py", "scripts/wan_tokens.py"):
+    _c = [l for l in open(_f) if l.startswith("CODE_SHA") or l.startswith("                    + ")]
+    check(f"Neon 0930: {_f} code sha excludes mrv/wan_plan.py", _c and not any("wan_plan.py" in l for l in _c), _c)
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

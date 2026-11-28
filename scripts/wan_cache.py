@@ -48,7 +48,12 @@ a = p.parse_args()
 assert (a.frames - 1) % 4 == 0 and 1 + (a.frames - 1) // 4 == a.clip_latents
 dev = "cuda"
 os.makedirs(a.out, exist_ok=True)
-CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
+# Neon 09:30 P0: the cache provenance hashes only the code that shapes the cached content (this script, mrv/wan_cond.py and the
+# SOURCE of the four self-contained planning functions it calls), not the whole mrv/wan_plan.py, whose policy / ledger edits
+# would otherwise invalidate every cache
+import hashlib as _hl, inspect as _insp
+CODE_SHA = _hl.sha1(open(__file__, "rb").read() + open("mrv/wan_cond.py", "rb").read()
+                    + "".join(_insp.getsource(fn_) for fn_ in (WP.segments, WP.stream_specs, WP.start_candidates, WP.mid_candidates)).encode()).hexdigest()[:12]
 drives = WP.check_split_membership(GD.drive_list(a.splits, a.lists), json.load(open(a.lists)))  # explicit ids / files too
 si, sn = map(int, a.shard.split("/"))
 mine = drives[si::sn]

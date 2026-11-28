@@ -201,6 +201,45 @@ def stage_files(jobs, streams=8, log=None):
     return rec
 
 
+def rehash_files(jobs, streams=8):
+    """hash already-staged destinations in parallel -> [(job, sha or None)]"""
+    def one(j):
+        try:
+            return j, sha256_file(j[1])
+        except OSError:
+            return j, None
+    with ThreadPoolExecutor(max_workers=max(1, streams)) as ex:
+        return list(ex.map(one, jobs))
+
+
+def stage_reuse(jobs, receipt_path, job_id, manifest_sha, streams=8, log=None):
+    """Astra t1 item 9: stage `jobs`, reusing files an earlier process of the SAME allocation staged (receipt: job id + manifest
+    sha) only after RE-HASHING every reused destination; a reused file whose bytes differ is copied and hashed again. A receipt
+    is never proof. -> record (stage_files fields + reused / rehashed / recopied counts)"""
+    rc = {}
+    if os.path.exists(receipt_path):
+        try:
+            rc = json.load(open(receipt_path))
+        except Exception:  # noqa: BLE001
+            rc = {}
+    reuse = bool(job_id) and rc.get("job") == job_id and rc.get("manifest_sha") == manifest_sha
+    have = (rc.get("files") or {}) if reuse else {}
+    cand = [j for j in jobs if j[1] in have and os.path.exists(j[1])]
+    t0 = time.time()
+    rh = rehash_files(cand, streams)
+    good = {j[1] for j, sha in rh if sha == j[2] and os.path.getsize(j[1]) == j[3]}
+    recopy = [j for j, sha in rh if j[1] not in good]
+    todo = [j for j in jobs if j[1] not in good]
+    rehash_s = time.time() - t0
+    rec = stage_files(todo, streams, log) if todo else {"files": 0, "bytes": 0, "seconds": 0.0, "mb_s": None, "streams": streams,
+                                                       "mismatches": [], "hash_equals_manifest": True}
+    rec.update(reused_files=len(good), rehashed_files=len(cand), recopied_after_rehash=len(recopy), rehash_s=round(rehash_s, 1),
+               cold=len(good) == 0 and not cand)
+    json.dump({"job": job_id, "manifest_sha": manifest_sha, "files": {j[1]: j[2] for j in jobs}}, open(receipt_path + ".tmp", "w"))
+    os.replace(receipt_path + ".tmp", receipt_path)
+    return rec
+
+
 def stage_plan(man, drives, roots, stage_dir, use_tokens=True, include_wan=True):
     """-> (jobs, layout): the files a training job opens (cache + token .pt / .json per drive, Wan snapshot files) and where they
     go under stage_dir (cache/, tokens/, wan/). Guide / enc files are NOT staged (the trainer never opens them)."""
@@ -293,12 +332,54 @@ def cgroup_mem(paths=None):
     return {"limit": None, "peak": None, "current": None, "version": None, "dir": None}
 
 
+def slurm_requested_bytes(env=None, scontrol_text=None):
+    """Astra t1 item 8: the memory this job REQUESTED (the denominator of the 85 % rule): SLURM_MEM_PER_NODE (MB), else
+    SLURM_MEM_PER_CPU x SLURM_CPUS_ON_NODE, else `scontrol show job` (MinMemoryNode / mem= in TRES). None if unknown."""
+    env = os.environ if env is None else env
+    if env.get("SLURM_MEM_PER_NODE"):
+        return int(float(env["SLURM_MEM_PER_NODE"])) * (1 << 20)
+    if env.get("SLURM_MEM_PER_CPU") and env.get("SLURM_CPUS_ON_NODE"):
+        return int(float(env["SLURM_MEM_PER_CPU"])) * int(env["SLURM_CPUS_ON_NODE"]) * (1 << 20)
+    if scontrol_text is None and env.get("SLURM_JOB_ID"):
+        try:
+            import subprocess
+            scontrol_text = subprocess.run(["scontrol", "show", "job", env["SLURM_JOB_ID"]], capture_output=True, text=True, timeout=30).stdout
+        except Exception:  # noqa: BLE001
+            scontrol_text = None
+    if scontrol_text:
+        import re
+        m = re.search(r"MinMemoryNode=(\d+(?:\.\d+)?)([KMGT]?)", scontrol_text) or re.search(r"\bmem=(\d+(?:\.\d+)?)([KMGT]?)", scontrol_text)
+        if m:
+            mult = {"": 1 << 20, "K": 1 << 10, "M": 1 << 20, "G": 1 << 30, "T": 1 << 40}[m.group(2)]
+            return int(float(m.group(1)) * mult)
+    return None
+
+
+def job_cgroup_dir(paths=None):
+    """the JOB-level memory cgroup (Slurm: a path component job_<id>), so the peak covers every process of the allocation
+    (batch shell, heartbeat, trainer, copy workers, staged tmpfs pages); falls back to this process's own cgroup"""
+    for ver, d in (paths if paths is not None else _cg_paths()):
+        parts = d.split("/")
+        for i in range(len(parts) - 1, 0, -1):
+            if parts[i].startswith("job_"):
+                return ver, "/".join(parts[:i + 1])
+        return ver, d
+    return None, None
+
+
+def _job_current():
+    ver, d = job_cgroup_dir()
+    if not d:
+        return None
+    return _read_int(os.path.join(d, "memory.current" if ver == "v2" else "memory.usage_in_bytes"))
+
+
 class PeakSampler:
     """max of the cgroup's current usage, sampled every `interval` s in a daemon thread (a peak where memory.peak is missing)"""
 
     def __init__(s, interval=1.0, reader=None):
         s.interval, s.max, s.n = interval, None, 0
-        s.reader = reader or (lambda: cgroup_mem().get("current"))
+        s.reader = reader or _job_current
         s._stop = threading.Event()
 
     def _run(s):
@@ -318,6 +399,24 @@ class PeakSampler:
     def stop(s):
         s._stop.set()
         return s.max
+
+
+def _sample_main(out, interval=1.0):
+    """python -m mrv.wan_stage sample <out.json>: started by slurm at ALLOCATION start; records the job cgroup's memory.peak (if
+    the kernel has it) and the max of memory.current every `interval` s until killed; rewrites <out.json> atomically"""
+    ver, d = job_cgroup_dir()
+    names = ("memory.peak", "memory.current") if ver == "v2" else ("memory.max_usage_in_bytes", "memory.usage_in_bytes")
+    rec = {"t0": time.time(), "dir": d, "version": ver, "max_current": None, "peak": None, "n": 0}
+    while True:
+        cur = _read_int(os.path.join(d, names[1])) if d else None
+        pk = _read_int(os.path.join(d, names[0])) if d else None
+        if cur is not None:
+            rec["max_current"] = cur if rec["max_current"] is None else max(rec["max_current"], cur)
+        if pk is not None:
+            rec["peak"] = pk
+        rec["n"] += 1; rec["t"] = time.time()
+        json.dump(rec, open(out + ".tmp", "w")); os.replace(out + ".tmp", out)
+        time.sleep(interval)
 
 
 def mem_check(staged, limit, margin_gb=MARGIN_GB):
@@ -365,15 +464,29 @@ def forecast_wall(rows, block=32):
 def _cli(argv):
     import argparse
     ap = argparse.ArgumentParser(prog="python -m mrv.wan_stage")
-    ap.add_argument("cmd", choices=["need", "memcheck"])
-    ap.add_argument("--manifest", required=True)
+    ap.add_argument("cmd", choices=["need", "memcheck", "copy", "sample"])
+    ap.add_argument("--manifest", default="")
+    ap.add_argument("--dst", default="", help="copy: destination folder (files keep their manifest-relative folder name)")
+    ap.add_argument("--out", default="", help="sample: output json")
+    ap.add_argument("files", nargs="*")
     ap.add_argument("--lists", default="data/temporal_lists.json")
     ap.add_argument("--no_dev", action="store_true", help="the job does not open the dev drives (no probe)")
     ap.add_argument("--use_tokens", type=int, default=1)
     ap.add_argument("--margin_gb", type=float, default=MARGIN_GB)
     ap.add_argument("--drive_list", default="", help="override: whitespace-separated train drives (default: lists['train'])")
     a = ap.parse_args(argv)
+    if a.cmd == "sample":
+        _sample_main(a.out)
+        return 0
     man, _ = load_manifest(a.manifest)
+    if a.cmd == "copy":  # Astra t1 item 9: copy + hash files a job will open (e.g. the geometry check's guide / tokens) to --dst
+        jobs = []
+        for f in a.files:
+            e = entry(man, f)
+            jobs.append((norm(f), os.path.join(a.dst, os.path.basename(os.path.dirname(norm(f))), os.path.basename(f)), e["sha256"], e["size"]))
+        rec = stage_files(jobs, streams=min(8, max(1, len(jobs))))
+        print("STAGE_COPY", json.dumps({k: v for k, v in rec.items() if k != "mismatches"}))
+        return 0
     L = json.load(open(a.lists))
     drives = sorted(open(a.drive_list).read().split()) if a.drive_list else sorted(L["train"])
     if not a.no_dev:
@@ -383,7 +496,8 @@ def _cli(argv):
         print(f"{mem_request_g(sb, a.margin_gb)}G")
         return 0
     cg = cgroup_mem()
-    ok, msg = mem_check(sb, cg["limit"], a.margin_gb)
+    req = slurm_requested_bytes()
+    ok, msg = mem_check(sb, req if req else cg["limit"], a.margin_gb)  # the request is what Slurm grants; an ancestor limit may be larger
     print(f"MEMCHECK {'PASS' if ok else ('UNKNOWN' if ok is None else 'FAIL')} {msg} (staged {len(drives)} drives + Wan, cgroup {cg.get('dir')})")
     return 0 if ok in (True, None) else 9
 

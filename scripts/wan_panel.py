@@ -131,7 +131,11 @@ def load_run(f):
 if a.rehearsal:
     dev = sorted(json.load(open(a.lists))["dev"])
     R = dev[0]
+    if not WP.dir_empty(a.out):  # Astra t1 item 6: a rehearsal renders everything fresh (wan_rollout.py would skip existing RGB)
+        fail(f"--out {a.out} is not empty: a rehearsal must render fresh")
     os.makedirs(a.out, exist_ok=True)
+    CK_SHA16 = WP._sha_file(a.ckpt)[:16]
+    n_r = len(torch.load(f"{a.enc}/{R}.pt", map_location="cpu", weights_only=False, mmap=True)["ticks"])
     open(f"{a.out}/drive.txt", "w").write(R + "\n")
     dl = ["--drive_list", f"{a.out}/drive.txt", "--allow_inert"]
     # load-once loop: a DIFFERENT run first (tokens-only mode), then the receiver's hybrid run, in one process
@@ -151,6 +155,13 @@ if a.rehearsal:
             why.append(f"{k} differs")
     if A_.get("windows") != B_.get("windows"):
         why.append("windows differ")
+    PF = json.load(open(f"{a.out}/fresh_hybrid/plan_timing.json"))
+    ok_f1, why_f1 = WP.plan_fresh(PT["runs"], [n_r, n_r])
+    ok_f2, why_f2 = WP.plan_fresh(PF["runs"], [n_r])
+    if not (ok_f1 and ok_f2):
+        why.append(f"not rendered fresh: loop {why_f1}; fresh {why_f2}")
+    if not (A_["ckpt_sha"] == B_["ckpt_sha"] == CK_SHA16):
+        why.append(f"rendered checkpoint {A_['ckpt_sha']} / {B_['ckpt_sha']} != {a.ckpt} ({CK_SHA16})")
     runs_ = [load_run(f"{a.out}/loop_{c}/{R}_s0.pt") for c in ("tokens", "hybrid")]
     ticks = sum(len(r_["ticks"]) for r_ in runs_)
     inner = sum(sum(r_["timing"][k] for k in ("encode_s", "sample_s", "decode_s", "sd_s")) for r_ in runs_)
@@ -158,7 +169,8 @@ if a.rehearsal:
     rec = {"pass": not why, "why": "; ".join(why) or "byte-equal", "receiver": R, "rgb_sha_loop": A_["rgb_sha"], "rgb_sha_fresh": B_["rgb_sha"],
            "ticks": ticks, "load_s": PT["load_s"], "roll_tick_inner_s": round(inner / ticks, 4), "roll_tick_wall_s": round(wall_runs / ticks, 4),
            "roll_tick_s": round(max(inner, wall_runs) / ticks, 4), "window_latents": int(A_["window_latents"]), "fresh_process_s": round(fresh_wall, 1),
-           "ckpt_sha": A_["ckpt_sha"], "plan_timing": PT, "timing_s": timing}
+           "ckpt_sha": CK_SHA16 if A_["ckpt_sha"] == B_["ckpt_sha"] == CK_SHA16 else None, "fresh_all_ticks": bool(ok_f1 and ok_f2),
+           "drive_ticks": n_r, "plan_timing": PT, "timing_s": timing}
     json.dump(rec, open(f"{a.out}/rehearsal.json", "w"), indent=1)
     print("WAN_PANEL_REHEARSAL", json.dumps({k: v for k, v in rec.items() if k != "plan_timing"}), flush=True)
     LEDGER.stop(); raise SystemExit(0 if rec["pass"] else 1)
@@ -217,8 +229,16 @@ if a.phase == "render":
             open(f"{sd_}/drive.txt", "w").write(r_ + "\n")
             runs.append(roll_cmd(sd_, "hybrid", extra=["--drive_list", f"{sd_}/drive.txt", "--max_ticks", str(dp["n"])]))
             SHARED[r_] = sd_
-    PT = plan_run(runs, f"{a.wroot}/{a.name}_plan", "render panel (load once)")
     n_full = {d: len(torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)["ticks"]) for d in dev}
+    busy = [d for d in list(DIRS.values()) + list(SHARED.values()) + [f"{a.wroot}/{a.name}_plan"] if glob.glob(f"{d}/*_s[0-9]*.pt") or os.path.exists(f"{d}/plan_timing.json")]
+    if busy:  # Astra t1 item 6: every RGB file of a panel is rendered by THIS process (no silent reuse of older files)
+        fail(f"panel output folders already hold renders: {busy[:3]}; use a new --name")
+    PT = plan_run(runs, f"{a.wroot}/{a.name}_plan", "render panel (load once)")
+    EXP = [2 * sum(n_full.values())] * 4 + [2 * sum(n_full[d] if DON[d]["mode"] == "full" else min(n_full[d], int(DON[d]["n"])) for d in dev)] \
+        + [2 * int(DON[r_]["n"]) for r_ in SHARED]
+    ok_fr, why_fr = WP.plan_fresh(PT["runs"], EXP)
+    if not ok_fr:
+        fail(f"panel not rendered fresh: {why_fr}")
     mode_why = []
     for cond in MODES:
         for d in dev:

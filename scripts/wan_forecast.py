@@ -46,6 +46,7 @@ if RH.get("window_latents") != a.window_latents:  # Astra S1f 4b: rates measured
 import torch  # after the width guard (CPU tests run the guard without torch)
 roll_tick, load_s = float(RH["roll_tick_s"]), float(RH["load_s"])
 L_ = json.load(open(a.lists))
+CANON = json.load(open(WP.CANON_LISTS))  # Astra t1 item 3: the rule compares the timing's IDs with the canonical lists
 dev = L_["dev"]
 _drv = {}
 for d in dev:
@@ -58,8 +59,11 @@ PLAN = WP.plan_donors(_drv, a.window_latents, a.swap_at, lambda sc, t: os.path.e
 plan_ok = bool(PLAN["ok"] and len(PLAN["donors"]) == 6)
 panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s)
 panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"]) if plan_ok else None
+if not os.path.exists(a.ledger):  # Astra t1 item 5: a missing ledger is never zero spend
+    raise SystemExit(f"S1 ledger {a.ledger} missing: refused (spend cannot be read)")
 L = WP.Ledger(a.ledger, "forecast", write=False)
 kinds = L.by_kind()
+LE = WP.ledger_evidence(WP.Ledger.read(a.ledger), J.get("job"))
 # overfit verdict (Astra / Neon 08:30): 8 clips sampled in THREE modes (30 steps, batch-1 window cost as a bound), four decodes per
 # clip (mid-stream clips decode with context: x2), ~20 frames x (4 renders + 1 key) segmented per clip on the slice
 verdict_h = (3 * 8 * J["window30_rows1_s"] + 2 * 4 * 8 * J["wan_decode_5lat_s"] + 8 * 20 * 5 * a.overfit_score_tick_s) / 3600
@@ -69,9 +73,9 @@ if fwd8 is None:
     fwd8 = max(v["fwd_s"] for v in (J.get("sweep") or {}).values() if "fwd_s" in v)
 evals_h = (2000 // 100 + 2) * 3 * fwd8 / 3600  # recurring fixed-noise overfit evals: every 100 updates + start + end, 3 sigmas
 prod_train = len(L_["train"])
-startup, st_info = WP.startup_for_forecast(J, prod_train)
+startup, st_info = WP.startup_for_forecast(J)
 if startup is None:
-    raise SystemExit("timing.json has no measured start-up: re-run MODE=timing with the current trainer")
+    raise SystemExit(f"timing.json lacks the measured production start components ({st_info['components']}): re-run MODE=timing")
 recs = WP.gate_records(a.gates)
 GK = J.get("gate_key")  # the gate key of the SELECTED setting (what overfit / train will run): Astra S1c item 5
 done = {k for k in ("overfit", "resume_test") if GK and any(r.get("kind") == k and r.get("status") == "PASS" and r.get("gate_key") == GK for r in recs)}
@@ -99,12 +103,12 @@ fc.update(inputs={k: (sorted(v) if isinstance(v, set) else v) for k, v in t.item
           donor_plan=PLAN["donors"], donor_plan_ok=plan_ok, startup_s=round(startup, 1), startup_info=st_info,
           timing_train_drives=J.get("train_drives"), prod_train_drives=prod_train, roll_tick_s=round(roll_tick, 4), roll_start_s=round(load_s, 1),
           rehearsal=RHP, wall_basis=J["production_loop"].get("basis"), wall_detail={k: J["production_loop"].get(k) for k in ("full_run_mean", "last_two_blocks")},
-          scoring=score, ledger_by_kind=kinds)
+          scoring=score, ledger_by_kind=kinds, ledger_evidence=LE, evidence_sha=WP.evidence_sha())
 try:
     SP = WP.score_parity_ok(a.score_parity, WP.score_binding(a.a_metrics, a.a_roll))
 except Exception as e:  # noqa: BLE001
     SP = (False, f"cannot check ({type(e).__name__}: {e})")
-RT = WP.retime_rules(J, fc, prod_train, SP, RH)
+RT = WP.retime_rules(J, fc, CANON, SP, RH)
 J["forecast_final"] = fc
 J["retime_pass"] = RT
 json.dump(J, open(f"{a.timing_dir}/timing.json", "w"), indent=1, default=str)

@@ -147,6 +147,7 @@ p.add_argument("--timing", action="store_true", help="timing / test run: dir mus
 p.add_argument("--resume_test", action="store_true", help="the 16-update resume test (bounded exemption: <= 16 updates, *ctest* dir)")
 p.add_argument("--production", action="store_true", help="set by slurm/wan_teacher.sh MODE=train / extend after any forwarded args")
 a = p.parse_args()
+MODE_ = WP.check_modes(a.timing, a.overfit, a.resume_test, a.production)  # Astra t1 item 10: exactly one run mode
 TEST = a.timing or a.overfit
 if TEST and not any(s in a.out for s in ("timing", "ctest")):
     raise SystemExit("--timing / --overfit runs must write to a *timing* / *ctest* directory")
@@ -155,6 +156,10 @@ if a.overfit and a.batch != a.overfit:
 OVERFIT_STEPS = 2000  # declared: both overfit gates are read at update 2,000 (S1b item 6)
 if a.overfit and a.steps != OVERFIT_STEPS:
     raise SystemExit(f"--overfit is declared at {OVERFIT_STEPS} updates: --steps {OVERFIT_STEPS}")
+if a.overfit:  # Astra t1 item 10: only the signed gate (8 clips, 2,000 updates, ratio 0.25, F1 fraction 0.8) can register a verdict
+    _ok_o, _why_o = WP.overfit_signed_ok(a.overfit, a.steps, a.overfit_ratio, a.overfit_f1_frac)
+    if not _ok_o:
+        raise SystemExit(_why_o)
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 KIND = a.kind or ("timing" if a.timing and not a.overfit else ("overfit" if a.overfit else "train"))
@@ -162,10 +167,8 @@ KIND = a.kind or ("timing" if a.timing and not a.overfit else ("overfit" if a.ov
 # or the output directory name: every run is production unless it is one of the three bounded test modes (timing: timed sweep
 # then exit; overfit: exactly 2,000 updates on N clips; resume test: <= 16 updates); --production (MODE=train / extend) refuses
 # any test flag, so a forwarded flag cannot turn a production job into an exempt one
-if a.resume_test and (a.steps > 16 or "ctest" not in a.out or a.timing or a.overfit):
-    raise SystemExit("--resume_test is the bounded 16-update test: --steps <= 16, a *ctest* dir, no --timing / --overfit")
-if a.production and (a.timing or a.overfit or a.resume_test):
-    raise SystemExit("--production (MODE=train / extend) cannot be combined with --timing / --overfit / --resume_test")
+if a.resume_test and (a.steps > 16 or "ctest" not in a.out):
+    raise SystemExit("--resume_test is the bounded 16-update test: --steps <= 16, a *ctest* dir")
 PROD = not (a.timing or a.overfit or a.resume_test)
 # F5 (CONVERGED item 5): the microbatch and checkpointing choice are explicit in EVERY mode (timing, overfit, resume test, train,
 # extend) and part of the recipe / gate key; a trainer default can no longer pick them silently (defaults were 8 and 1 while
@@ -176,20 +179,37 @@ if a.micro < 1 or a.batch % a.micro:
     raise SystemExit("--batch must be a multiple of --micro")
 if not a.manifest:  # F2: no job opens a byte that was not hashed (the CPU manifest + hash-on-copy)
     raise SystemExit("--manifest is required in every mode: run scripts/verify_manifest.py (CPU job) and pass its output")
+EVIDENCE_SHA = WP.evidence_sha()  # Astra t1 item 11: identity of every evidence-producing file (staging, forecast, rehearsal ...)
 TJ_PATH = a.timing_json or (sorted(glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
 TJ = None
+LEDGER = WP.Ledger(a.ledger, KIND).start()
 if not a.timing:  # CONVERGED item 7: no overfit / resume test / production unless the re-time passed with THIS setting
     try:
         TJ = json.load(open(TJ_PATH))
     except Exception as _e:  # noqa: BLE001
         raise SystemExit(f"{('overfit' if a.overfit else 'resume test' if a.resume_test else 'MODE=train')} needs a re-time timing.json "
                          f"({TJ_PATH!r}: {type(_e).__name__}); run MODE=timing")
-    ok_rt, why_rt = WP.retime_gate(TJ, a.micro, a.grad_ckpt)
+    # Astra t1 item 11: the stored PASS is not enough: the forecast is refreshed against the ACTUAL ledger (every job since the
+    # timing, this allocation included) and the gate registry before each stage is authorised
+    _gk = TJ.get("gate_key")
+    _done = {k for k in ("overfit", "resume_test") if _gk and any(r.get("kind") == k and r.get("status") == "PASS" and r.get("gate_key") == _gk
+                                                                  for r in WP.gate_records(a.gates))}
+    _start0 = 0
+    if PROD and os.path.exists(f"{a.out}/ckpt.pt"):
+        _start0 = int(torch.load(f"{a.out}/ckpt.pt", map_location="cpu", weights_only=False, mmap=True)["step"])
+    ok_rt, why_rt = WP.retime_gate(TJ, a.micro, a.grad_ckpt, evidence=EVIDENCE_SHA, used_h=LEDGER.hours(), done_kinds=_done,
+                                   start_step=_start0 if PROD else 0)
     if not ok_rt:
+        LEDGER.stop("failed")
         raise SystemExit(f"refused by the re-time rule ({TJ_PATH}): {why_rt}")
-LEDGER = WP.Ledger(a.ledger, KIND).start()
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
 LISTS = json.load(open(a.lists))
+CANON = json.load(open(WP.CANON_LISTS))
+# Astra t1 item 3: timing / train / extend use EXACTLY the 144 distinct canonical train IDs and the 6 dev IDs; the gates may use a
+# subset, each ID inside its original split
+_ok_l, _why_l = WP.check_lists(list(LISTS["train"]), list(LISTS["dev"]), CANON, "gate" if (a.overfit or a.resume_test) else "full")
+if not _ok_l:
+    raise SystemExit(f"drive lists refused ({a.lists}): {_why_l}")
 TRAIN, DEVL = sorted(LISTS["train"]), sorted(LISTS["dev"])
 WP.check_split_membership(TRAIN, LISTS, allowed=("train",)); WP.check_split_membership(DEVL, LISTS, allowed=("dev",))
 assert not set(TRAIN) & set(DEVL), "train / dev overlap"
@@ -218,6 +238,8 @@ MAN, MANIFEST_SHA = WS.load_manifest(a.manifest)
 ROOTS = {"cache": WS.norm(a.cache), "tokens": WS.norm(a.tokens), "guides": WS.norm(a.guides), "enc": WS.norm(a.enc)}
 if {k: (MAN.get("roots") or {}).get(k) for k in ROOTS} != ROOTS:
     raise SystemExit(f"manifest roots {MAN.get('roots')} != this job's data folders {ROOTS}: re-run verify_manifest for them")
+if (MAN.get("split") or {}).get("train") != sorted(CANON["train"]) or (MAN.get("split") or {}).get("dev") != sorted(CANON["dev"]):
+    raise SystemExit("the manifest was not written for the canonical 144 + 6 lists (data/temporal_lists.json): re-run verify_manifest")
 if bool(a.use_tokens) and not MAN.get("use_tokens"):
     raise SystemExit("manifest was written without token caches (--use_tokens 0) but this job uses tokens")
 USE_DEV = bool(a.val_every)  # the fixed dev probe opens the dev drives' caches: staged and hashed too
@@ -235,30 +257,22 @@ if _created and not a.keep_stage:
     atexit.register(shutil.rmtree, STAGE, True)
 _jobs, LAYOUT = WS.stage_plan(MAN, STAGE_DRIVES, ROOTS, STAGE, bool(a.use_tokens), include_wan=True)
 STAGE_BYTES = sum(j[3] for j in _jobs)
+MEM_SAMPLER = WS.PeakSampler(1.0).start()  # in-process cgroup sampler from BEFORE the copy workers start (Astra t1 item 8)
 _cg0 = WS.cgroup_mem()
-_ok_m, _msg_m = WS.mem_check(STAGE_BYTES, _cg0["limit"])
+MEM_REQUEST = WS.slurm_requested_bytes()  # Astra t1 item 8: the Slurm request, never an (possibly larger) ancestor cgroup limit
+_ok_m, _msg_m = WS.mem_check(STAGE_BYTES, MEM_REQUEST if MEM_REQUEST else _cg0["limit"])
 print(("MEMCHECK " + ("PASS " if _ok_m else "UNKNOWN " if _ok_m is None else "FAIL ")) + _msg_m, flush=True)
 if _ok_m is False:  # files in /dev/shm count against the job's memory cgroup (ConstrainRAMSpace)
     raise SystemExit(_msg_m)
-# a receipt written by an earlier process of the SAME allocation (resume-test legs) is reused: those bytes were hashed on copy
-# by this job into its own tmpfs; anything else (another job id, another manifest, a size change) is copied and hashed again
-_rc = json.load(open(_RECEIPT)) if os.path.exists(_RECEIPT) else {}
+# Astra t1 item 9: files an earlier process of the SAME allocation staged are reused only after RE-HASHING each destination
+# (a writable tmpfs file plus a receipt is not proof); any byte difference -> copied and hashed again
 _jid = os.environ.get("SLURM_JOB_ID")
-_reuse = bool(_jid) and _rc.get("job") == _jid and _rc.get("manifest_sha") == MANIFEST_SHA
-_have = (_rc.get("files") or {}) if _reuse else {}
-_todo = [j for j in _jobs if not (j[1] in _have and _have[j[1]] == j[2] and os.path.exists(j[1]) and os.path.getsize(j[1]) == j[3])]
-print(f"stage-in: {len(_todo)} of {len(_jobs)} files ({sum(j[3] for j in _todo) / 1e9:.1f} of {STAGE_BYTES / 1e9:.1f} GB) -> {STAGE} "
-      f"with {a.stage_streams} streams", flush=True)
-STAGE_REC = WS.stage_files(_todo, a.stage_streams, log=lambda m: print(m, flush=True)) if _todo else \
-    {"files": 0, "bytes": 0, "seconds": 0.0, "mb_s": None, "streams": a.stage_streams, "mismatches": [], "hash_equals_manifest": True}
-STAGE_REC.update(dir=STAGE, total_files=len(_jobs), total_bytes=STAGE_BYTES, reused_files=len(_jobs) - len(_todo),
-                 cold=len(_todo) == len(_jobs), drives=len(STAGE_DRIVES), manifest_sha=MANIFEST_SHA, mem_limit=_cg0["limit"],
-                 t_done=time.time(), since_process_start_s=round(time.time() - T_PROC0, 1))
-json.dump({"job": _jid, "manifest_sha": MANIFEST_SHA, "files": {**_have, **{j[1]: j[2] for j in _jobs}}}, open(_RECEIPT + ".tmp", "w"))
-os.replace(_RECEIPT + ".tmp", _RECEIPT)
+print(f"stage-in: {len(_jobs)} files ({STAGE_BYTES / 1e9:.1f} GB) -> {STAGE} with {a.stage_streams} streams", flush=True)
+STAGE_REC = WS.stage_reuse(_jobs, _RECEIPT, _jid, MANIFEST_SHA, a.stage_streams, log=lambda m: print(m, flush=True))
+STAGE_REC.update(dir=STAGE, total_files=len(_jobs), total_bytes=STAGE_BYTES, drives=len(STAGE_DRIVES), manifest_sha=MANIFEST_SHA,
+                 mem_limit=_cg0["limit"], mem_request=MEM_REQUEST, t_done=time.time(), since_process_start_s=round(time.time() - T_PROC0, 1))
 print("STAGED", json.dumps({k: v for k, v in STAGE_REC.items() if k != "mismatches"}), flush=True)
 WAN_SRC = LAYOUT["wan"]  # weights load from the staged, hashed copy; the recipe / cfg keep the repo id (a.wan)
-MEM_SAMPLER = WS.PeakSampler(1.0).start()  # cgroup usage incl. the staged files, every second (memory.peak may not exist)
 
 
 def sidecar(d, sc, root):
@@ -551,7 +565,8 @@ def probe(step):
     sens = WC.sensitivity(model, xt, torch.cat([bt["guide"], bt["src"]], 1), torch.full((2,), 600.0, device=dev), bt["tok"], bt["ray"], AMP)
     model.train()
     ok_s, why_s = WC.check_sensitivity(sens, bool(a.use_tokens))
-    rec = {"update": step, "probe": res, "sensitivity_sigma0.6": sens, "sensitivity_pass": ok_s, "sensitivity_why": why_s, "code_sha": CODE_SHA}
+    rec = {"update": step, "opt_step": opt_step(), "probe": res, "sensitivity_sigma0.6": sens, "sensitivity_pass": ok_s, "sensitivity_why": why_s,
+           "code_sha": CODE_SHA}
     print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
     return rec
 
@@ -627,6 +642,38 @@ def qget(Q_, step):
     return bt
 
 
+# ------------------------------------------------------------------------------------------- first-update guard (item 5)
+def frozen_snapshot():
+    """production's first-update snapshot: frozen base tensors (CPU copies), the new modules / LoRA-B, the VAE sha"""
+    ref = model.frozen()
+    return {"ref": ref, "pre": [q.detach().cpu().clone() for _, q in ref],
+            "new": {n: q.detach().clone() for n, q in TR if "lora_" not in n or "lora_B" in n}, "vae": WC.vae_sha(vae)}
+
+
+def guard_verify(step, snap):
+    """production's first-update guard (item 5): base transformer + VAE bit-identical; on a fresh run (step 0) the extra conv,
+    all 30 gates (tokens on) and LoRA-B of 8 targets x 30 blocks moved"""
+    assert all(torch.equal(q.detach().cpu(), q0) for (_, q), q0 in zip(snap["ref"], snap["pre"])), "frozen base transformer changed!"
+    assert WC.vae_sha(vae) == snap["vae"] == VAE_SHA, "VAE changed!"
+    if step == 0:
+        cur = dict(TR); moved = {n: not torch.equal(cur[n], q0) for n, q0 in snap["new"].items()}
+        must = [n for n in moved if ".patch_embedding.extra." in n or (n.endswith(".attn2.gate") and a.use_tokens)
+                or ("lora_B" in n and not any(x in n for x in (".attn2.inner.to_q.", ".attn2.inner.to_k.")))]
+        bad = [n for n in must if not moved[n]]
+        n_b = sum(1 for n in must if "lora_B" in n); n_g = sum(1 for n in must if n.endswith(".attn2.gate"))
+        assert n_b == 8 * 30 and (n_g == 30 or not a.use_tokens), f"guard coverage: {n_b} LoRA-B, {n_g} gates"
+        assert not bad, f"{len(bad)} tensors did not move in update 1 (all inputs active), e.g. {bad[:3]}"
+        print(f"guard after update 1: {len(snap['ref'])} base tensors + VAE bit-identical; extra conv, {n_g} gates, {n_b} LoRA-B moved", flush=True)
+    else:
+        print(f"guard after resumed update {step + 1}: {len(snap['ref'])} base tensors + VAE bit-identical", flush=True)
+
+
+def opt_step():
+    """the optimizer's ACTUAL step count (Astra t1 item 1): max Adam 'step' over the trainable parameters (0 = untouched)"""
+    st = [v.get("step") for v in opt.state.values() if "step" in v]
+    return int(max(float(x) for x in st)) if st else 0
+
+
 # ------------------------------------------------------------------------------------------------- timing mode
 def set_grad_ckpt(on):
     (model.tf.enable_gradient_checkpointing if on else model.tf.disable_gradient_checkpointing)()
@@ -637,26 +684,51 @@ def tensor_bytes_sha(t):
 
 
 if a.timing and not a.overfit:
+    import copy
+    T_READY = time.time()  # = where production enters its loop (staging, model, VAE, dev probe built)
+    if PROBE is None:
+        raise SystemExit("timing needs the dev probe (--val_every > 0): it measures init inertness and the early sensitivity")
     EXPLICIT = {"micro": a.micro, "grad_ckpt": a.grad_ckpt}
-    rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "sweep": {},
-           "train_drives": len(TRAIN), "stage_drives": len(STAGE_DRIVES), "explicit_setting": EXPLICIT, "gate_key_explicit": GATE_KEY,
-           "manifest_sha": MANIFEST_SHA, "data_sha": DATA_SHA, "code_sha": CODE_SHA, "stage": STAGE_REC, "job": os.environ.get("SLURM_JOB_ID"),
-           "init_parity": {"pass": True, "diag": DIAG, "note": "check_parity raised otherwise; forward-only (no_grad): independent of micro / grad_ckpt"}}
-    s_ = 0
-    # (1) F5 sweep: grad_ckpt {1, 0} x micro {1, 2, 4, 8} at global batch 8 (synchronous batches; fwd / bwd / Adam timed apart)
     GCS = [int(x) for x in a.timing_grad_ckpt.split(",")]
-    MBS = [int(x) for x in a.timing_micro.split(",") if a.batch % int(x) == 0]
+    MBS = [int(x) for x in a.timing_micro.split(",")]
+    rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "sweep": {},
+           "sweep_declared": {"grad_ckpt": GCS, "micro": MBS}, "train_drives": len(TRAIN), "dev_drives": len(DEVL),
+           "train_ids_sha": WP.ids_sha(TRAIN), "dev_ids_sha": WP.ids_sha(DEVL), "stage_drives": len(STAGE_DRIVES),
+           "explicit_setting": EXPLICIT, "gate_key_explicit": GATE_KEY, "manifest_sha": MANIFEST_SHA, "data_sha": DATA_SHA, "code_sha": CODE_SHA,
+           "evidence_sha": EVIDENCE_SHA, "stage": STAGE_REC, "job": os.environ.get("SLURM_JOB_ID"),
+           "init_parity": {"pass": True, "diag": DIAG, "note": "check_parity raised otherwise; forward-only (no_grad): independent of micro / grad_ckpt"}}
+    INIT_W = model.trainable_state(); INIT_OPT = copy.deepcopy(opt.state_dict())
+
+    def sens_probe():
+        model.eval()
+        b2 = to_dev({"key": PROBE["key"][:2], "eps": PROBE["eps"][:2], "guide": PROBE["guide"][:2], "src": PROBE["src"][:2],
+                     "tok": PROBE["tok"][:2] if PROBE["tok"] is not None else None, "ray": PROBE["ray"][:2] if PROBE["ray"] is not None else None})
+        xt = 0.4 * b2["key"] + 0.6 * b2["eps"]
+        r_ = WC.sensitivity(model, xt, torch.cat([b2["guide"], b2["src"]], 1), torch.full((2,), 600.0, device=dev), b2["tok"], b2["ray"], AMP)
+        model.train(); return r_
+
+    # (0) Astra t1 item 1: the UNTOUCHED init (optimizer step 0, init weights): guide / token paths inert
+    if opt_step() != 0 or WC.tensor_sha(TR) != INIT_SHA:
+        raise SystemExit("timing: the model was updated before the init inertness probe")
+    S0 = sens_probe()
+    rep["init_inertness"] = {"pass": WP.init_inert(S0), "opt_step": opt_step(), "weights_are_init": WC.tensor_sha(TR) == INIT_SHA, "values": S0}
+    print("TIMING init inertness (optimizer step 0)", rep["init_inertness"], flush=True)
+    s_ = 0
+    # (1) F5 sweep: the declared grad_ckpt x micro grid at global batch 8 (synchronous batches; fwd / bwd / Adam timed apart)
     for gc in GCS:
         set_grad_ckpt(gc)
+        oom_key = None
         for mb in MBS:
             key = f"gc{gc}_m{mb}"
+            if oom_key or a.batch % mb:
+                rep["sweep"][key] = {"micro": mb, "grad_ckpt": gc, "skipped_after_oom": oom_key} if oom_key else {"micro": mb, "grad_ckpt": gc, "invalid": "batch % micro"}
+                continue
             a.micro = mb; torch.cuda.empty_cache(); torch.cuda.reset_peak_memory_stats()
             rows = []
             try:
                 for k in range(6):  # 2 warm + 4 timed
                     tw = time.time(); bt = to_dev(make_batch(s_)); torch.cuda.synchronize(); tdata = time.time() - tw
                     loss_v, gn, tfb, tf, tb = update(s_, bt, timing=True)
-                    note_first_update()
                     ta = time.time(); opt.step(); torch.cuda.synchronize(); tad = time.time() - ta
                     s_ += 1
                     if k >= 2:
@@ -669,31 +741,64 @@ if a.timing and not a.overfit:
             if "oom" in rep["sweep"][key]:  # free outside the except block (its traceback pins the failed step's tensors)
                 import gc as _gc
                 bt = None; opt.zero_grad(set_to_none=True); _gc.collect(); torch.cuda.empty_cache()
-                print("TIMING", key, "OOM", flush=True); break  # larger microbatches at this grad_ckpt setting cannot fit either
+                oom_key = key; print("TIMING", key, "OOM", flush=True); continue
             print("TIMING", key, rep["sweep"][key], flush=True)
     fits = {k: v for k, v in rep["sweep"].items() if "gpu_s" in v}
     if not fits:
         raise SystemExit(f"no setting fits: {rep['sweep']}")
-    # (2) matched-update check (CONVERGED item 5): the SAME params, inputs, noise and seed must give the same loss and grad norm
-    # (within bf16 tolerance) under every fitting setting before one is selected; no Adam step here
-    SNAP = model.trainable_state(); BFIX = to_dev(make_batch(10 ** 6 + 7)); mrows = {}
-    for key, v in fits.items():
-        set_grad_ckpt(v["grad_ckpt"]); a.micro = v["micro"]; model.load_trainable(SNAP)
+    # (2) Astra t1 item 2: matched update = per-tensor parameter deltas after ONE Adam step from identical weights, optimizer
+    # state, batch and RNG under every fitting setting (loss / grad norm alone cannot see reversed or permuted gradients)
+    SNAP_W = model.trainable_state(); SNAP_OPT = copy.deepcopy(opt.state_dict()); BFIX = to_dev(make_batch(10 ** 6 + 7))
+    ref_key = min(fits, key=lambda k: (-fits[k]["grad_ckpt"], fits[k]["micro"]))  # checkpointing on, smallest micro = the baseline
+    DREF, mrows = {}, {}
+    for key in [ref_key] + [k for k in fits if k != ref_key]:
+        v = fits[key]
+        set_grad_ckpt(v["grad_ckpt"]); a.micro = v["micro"]
+        model.load_trainable(SNAP_W); opt.load_state_dict(copy.deepcopy(SNAP_OPT)); opt.zero_grad(set_to_none=True)
         torch.manual_seed(a.seed); torch.cuda.manual_seed_all(a.seed)
-        l_, g_, _ = update(0, BFIX); mrows[key] = {"loss": l_, "grad_norm": float(g_)}
-        opt.zero_grad(set_to_none=True)
-    model.load_trainable(SNAP)
-    ref_key = min(fits, key=lambda k: (-fits[k]["grad_ckpt"], fits[k]["micro"]))  # checkpointing on, smallest micro = the timed baseline
-    MATCH = WP.matched_updates(mrows, ref_key, a.match_rtol, a.match_gn_rtol)
+        l_, g_, _ = update(a.warmup - 1, BFIX)  # full learning rate: deltas well above rounding
+        opt.step(); torch.cuda.synchronize()
+        rows_t = {}
+        with torch.no_grad():
+            for n, q in TR:
+                d = q.detach().float() - SNAP_W[n].to(q.device)
+                if key == ref_key:
+                    DREF[n] = d; nr = d.norm().item(); rows_t[n] = {"ref": nr, "diff": 0.0, "norm": nr}
+                else:
+                    rows_t[n] = {"ref": DREF[n].norm().item(), "diff": (d - DREF[n]).norm().item(), "norm": d.norm().item()}
+        mrows[key] = {"loss": l_, "grad_norm": float(g_), "delta": WP.delta_check(rows_t)}
+    MATCH = WP.matched_updates({k: {"loss": r["loss"], "grad_norm": r["grad_norm"]} for k, r in mrows.items()}, ref_key, a.match_rtol, a.match_gn_rtol)
+    for k, r in MATCH["rows"].items():
+        r["delta"] = mrows[k]["delta"]; r["ok"] = bool(r["ok"] and r["delta"]["ok"])
+    MATCH.update(method="per_tensor_adam_delta", all_ok=all(r["ok"] for r in MATCH["rows"].values()), delta_rtol=WP.DELTA_RTOL)
     rep["matched_update"] = MATCH
-    print("TIMING matched-update check", MATCH, flush=True)
+    del BFIX, DREF, SNAP_W, SNAP_OPT; opt.zero_grad(set_to_none=True); torch.cuda.empty_cache()  # released before timing the winner
+    print("TIMING matched-update check", {k: (r["ok"], r["delta"]["worst_rel"]) for k, r in MATCH["rows"].items()}, flush=True)
     SEL = WP.select_setting(fits, MATCH)
     rep["selected_setting"] = SEL
     run_set = SEL or EXPLICIT  # a failed check leaves the explicit setting for the loop (retime_pass then fails)
     set_grad_ckpt(run_set["grad_ckpt"]); a.micro = run_set["micro"]
     RECIPE_SEL = {**RECIPE, "micro": run_set["micro"], "grad_ckpt": run_set["grad_ckpt"]}
     rep["gate_key"] = WP.gate_key(CODE_SHA, RECIPE_SEL, BASE_SHA, VAE_SHA, GUIDE_VERSION, MANIFEST_SHA)  # what overfit / train must run
-    # (3) --use_tokens 0 GPU time at the selected setting: tokens dropped for every clip (diagnostic only, never a recipe)
+    # (3) back to the untouched init + a fresh optimizer; production's first start at the selected setting: frozen snapshot,
+    # first update + Adam, guard verification (Astra t1 item 7), then exactly SENS_STEP optimizer steps and the probe
+    model.load_trainable(INIT_W); opt.load_state_dict(copy.deepcopy(INIT_OPT)); opt.zero_grad(set_to_none=True)
+    if opt_step() != 0 or WC.tensor_sha(TR) != INIT_SHA:
+        raise SystemExit("timing: init weights / optimizer state not restored")
+    t = time.time(); snap = frozen_snapshot(); t_snap = time.time() - t
+    t = time.time(); bt = to_dev(make_batch(0)); update(0, bt); opt.step(); torch.cuda.synchronize(); t_first = time.time() - t
+    note_first_update()
+    t = time.time(); guard_verify(0, snap); t_guard = time.time() - t; del snap
+    for st_ in range(1, WP.SENS_STEP):
+        bt = to_dev(make_batch(st_)); update(st_, bt); opt.step()
+    torch.cuda.synchronize()
+    t = time.time(); prec = probe(WP.SENS_STEP); rep["probe_s"] = round(time.time() - t, 2)
+    rep["early_sensitivity"] = {"pass": bool(prec["sensitivity_pass"]), "why": prec["sensitivity_why"], "values": prec["sensitivity_sigma0.6"],
+                                "opt_step": opt_step(), "required_step": WP.SENS_STEP, "micro": run_set["micro"], "grad_ckpt": run_set["grad_ckpt"],
+                                "rule": "mrv.wan_cond.check_sensitivity after exactly SENS_STEP optimizer steps from the untouched init"}
+    print("TIMING early sensitivity", rep["early_sensitivity"], flush=True)
+    s_ = WP.SENS_STEP
+    # (4) --use_tokens 0 GPU time at the selected setting: tokens dropped for every clip (diagnostic only, never a recipe)
     rows = []
     for k in range(6):
         bt = to_dev(make_batch(s_)); bt["tkeep"] = torch.zeros_like(bt["tkeep"])
@@ -703,9 +808,8 @@ if a.timing and not a.overfit:
     with_tok = fits.get(f"gc{run_set['grad_ckpt']}_m{run_set['micro']}", {}).get("gpu_s")
     rep["use_tokens0_diag"] = {"gpu_s": round(float(np.mean(rows)), 3), "gpu_s_with_tokens": with_tok, "diagnostic_only": True,
                                "note": "tokens dropped (tok_keep = 0) at the selected setting: what F4 pooling could save at most"}
-    print("TIMING use_tokens 0 (diagnostic)", rep["use_tokens0_diag"], flush=True)
     torch.cuda.empty_cache()
-    # (4) production loop: >= 200 consecutive updates from the staged data through the real prefetch thread + queue
+    # (5) production loop: >= 200 consecutive updates from the staged data through the real prefetch thread + queue
     NP = a.timing_prod_updates; P0 = s_
     Qp = start_producer(s_, s_ + NP); torch.cuda.reset_peak_memory_stats(); prow = []
     for k in range(NP):
@@ -727,7 +831,7 @@ if a.timing and not a.overfit:
     print("TIMING production loop", {k: v for k, v in rep["production_loop"].items() if k != "blocks"}, flush=True)
     for b_ in BLK:
         print("TIMING block", b_, flush=True)
-    # (5) the stage dir must give the SAME batches as the Lustre originals (same steps, every tensor byte-equal)
+    # (6) the stage dir must give the SAME batches as the Lustre originals (same steps, every tensor byte-equal)
     C_LU, T_LU, SH_LU = load_split(TRAIN, a.cache, a.tokens)
     eq = []
     for st_ in range(P0, P0 + a.lustre_check_batches):
@@ -738,11 +842,12 @@ if a.timing and not a.overfit:
     rep["staged_vs_lustre"] = {"batches": len(eq), "all_equal": all(e["equal"] for e in eq), "data_sha_equal": SH_LU == SHAS, "rows": eq}
     print("TIMING staged vs Lustre", {k: v for k, v in rep["staged_vs_lustre"].items() if k != "rows"}, flush=True)
     del C_LU, T_LU
-    t = time.time(); prec = probe(0) if PROBE else None; rep["probe_s"] = round(time.time() - t, 2)
-    rep["update0_sensitivity"] = {"pass": bool(prec and prec["sensitivity_pass"]), "why": prec["sensitivity_why"] if prec else "no dev probe",
-                                  "values": prec["sensitivity_sigma0.6"] if prec else None, "micro": a.micro, "grad_ckpt": run_set["grad_ckpt"]}
     t = time.time(); save(s_, f"{a.out}/ckpt.pt"); rep["save_s"] = round(time.time() - t, 2)
-    # (6) rollout pieces: one 30-step window (5 latents) at 1 and 2 rows, VAE encode / decode, SD encode
+    rep["ckpt_sha16"] = WS.sha256_file(f"{a.out}/ckpt.pt")[:16]  # the rehearsal must render THIS checkpoint (Astra t1 item 6)
+    t = time.time()  # production resume: load the rolling checkpoint, trainable weights and Adam state (Astra t1 item 7)
+    _ck = torch.load(f"{a.out}/ckpt.pt", map_location="cpu", weights_only=False); model.load_trainable(_ck["trainable"]); opt.load_state_dict(_ck["opt"])
+    del _ck; t_resume = time.time() - t
+    # (7) rollout pieces: one 30-step window (5 latents) at 1 and 2 rows, VAE encode / decode, SD encode
     model.eval(); bt = to_dev(make_batch(10 ** 6))
     for rows_ in (1, 2):
         z = torch.randn(rows_, 16, NL, 32, 64, device=dev); ex = torch.cat([bt["guide"][:rows_], bt["src"][:rows_]], 1)
@@ -762,24 +867,36 @@ if a.timing and not a.overfit:
     with torch.no_grad():
         sdv.encode(v17[0].permute(1, 0, 2, 3)).latent_dist.mode()
     torch.cuda.synchronize(); rep["sd_encode_17f_s"] = round(time.time() - t, 3)
-    # (7) memory: cgroup peak incl. the staged files vs the request (re-time rule <= 85 %)
+    # (8) Astra t1 item 8: peak incl. staged files since the ALLOCATION start (slurm's job-level sampler + memory.peak + the
+    # in-trainer sampler) over the Slurm REQUEST
     CG = WS.cgroup_mem(); SAMP = MEM_SAMPLER.max
-    PEAK = max(v for v in (CG["peak"], SAMP) if v is not None) if (CG["peak"] is not None or SAMP is not None) else None
-    ok_p, ratio_p = WS.peak_rule(PEAK, CG["limit"])
-    rep["memory"] = {"cgroup": CG, "sampled_peak": SAMP, "samples": MEM_SAMPLER.n, "peak": PEAK, "staged_bytes": STAGE_BYTES,
-                     "need_bytes": WS.need_bytes(STAGE_BYTES), "peak_over_request": ratio_p, "peak_le_85pct": ok_p,
-                     "rule": f"peak incl. staged files (memory.peak, or the 1 s sampled maximum) <= {WS.PEAK_FRAC} x request"}
-    print("TIMING memory", rep["memory"], flush=True)
-    rep["startup"] = STARTUP
-    rep["startup_s"] = STARTUP.get("alloc_to_first_update_s") or STARTUP.get("process_to_first_update_s")
+    AS = {}
+    try:
+        AS = json.load(open(os.environ.get("MRV_MEM_SAMPLE", "")))
+    except Exception:  # noqa: BLE001
+        AS = {}
+    t_alloc = float(os.environ.get("MRV_ALLOC_T0") or 0) or None
+    from_alloc = bool(AS) and t_alloc is not None and AS.get("t0", 1e18) <= t_alloc + 60 and AS.get("n", 0) > 0
+    MR = WP.memory_rule([AS.get("peak"), AS.get("max_current"), CG["peak"], SAMP], MEM_REQUEST)
+    rep["memory"] = {"rule": MR, "request_bytes": MEM_REQUEST, "alloc_sampler": AS, "sampled_from_allocation": from_alloc, "cgroup": CG,
+                     "trainer_sampled_peak": SAMP, "staged_bytes": STAGE_BYTES, "need_bytes": WS.need_bytes(STAGE_BYTES),
+                     "peak_le_85pct": MR["pass"], "peak_over_request": MR["ratio"]}
+    print("TIMING memory", {k: v for k, v in rep["memory"].items() if k != "cgroup"}, flush=True)
+    # (9) Astra t1 item 7: the selected recipe's production start components (timing-only steps excluded)
+    pre = (T_PROC0 - t_alloc - float(os.environ.get("MRV_TIMING_ONLY_S") or 0.0)) if t_alloc else None
+    COMP = {"pre_trainer_s": round(pre, 1) if pre is not None else None, "process_to_ready_s": round(T_READY - T_PROC0, 1),
+            "frozen_snapshot_s": round(t_snap, 2), "first_update_s": round(t_first, 2), "guard_verify_s": round(t_guard, 2),
+            "first_probe_s": rep["probe_s"], "resume_load_s": round(t_resume, 2)}
+    rep["startup"] = {**STARTUP, "components": COMP,
+                      "startup_s": round(sum(COMP.values()), 1) if all(v is not None for v in COMP.values()) else None,
+                      "timing_only_excluded_s": float(os.environ.get("MRV_TIMING_ONLY_S") or 0.0)}
+    rep["startup_s"] = rep["startup"]["startup_s"]
     rem = a.budget_hours - LEDGER.hours() - a.reserve_hours
     ups = rem * 3600 / WALL_FC
-    rep["forecast"] = {"basis": "production-loop wall (slowest of mean / last two blocks); provisional until scripts/wan_forecast.py adds the "
-                                "panel rehearsal rates and every deduction", "remaining_hours_after_reserve": round(rem, 2),
-                       "updates_in_remaining": int(ups), "floor_12k_reachable": ups >= WP.FLOOR_UPDATES,
-                       "max_s_per_update_for_12k": round(rem * 3600 / WP.FLOOR_UPDATES, 2), "ledger_by_kind": LEDGER.by_kind()}
+    rep["forecast"] = {"basis": "provisional (scripts/wan_forecast.py adds the rehearsal rates and every deduction)", "remaining_hours_after_reserve": round(rem, 2),
+                       "updates_in_remaining": int(ups), "floor_12k_reachable": ups >= WP.FLOOR_UPDATES, "ledger_by_kind": LEDGER.by_kind()}
     json.dump(rep, open(f"{a.out}/timing.json", "w"), indent=1, default=str)
-    print("WAN_TIMING", json.dumps({k: v for k, v in rep.items() if k not in ("sweep",)}, default=str)[:4000], flush=True)
+    print("WAN_TIMING", json.dumps({k: v for k, v in rep.items() if k not in ("sweep", "matched_update")}, default=str)[:4000], flush=True)
     LEDGER.stop(); raise SystemExit(0)
 
 
@@ -844,9 +961,7 @@ for step in range(start, end):
     CHAIN = hashlib.sha1((CHAIN + "|" + bt["sha"]).encode()).hexdigest()
     bt = to_dev(bt)
     if step == start:
-        FROZEN_REF = model.frozen(); FROZEN_PRE = [q.detach().cpu().clone() for _, q in FROZEN_REF]
-        PRE_NEW = {n: q.detach().clone() for n, q in TR if "lora_" not in n or "lora_B" in n}
-        VAE_PRE = WC.vae_sha(vae)
+        SNAP0 = frozen_snapshot()
     loss_v, gn, tfb = update(step, bt)
     note_first_update()
     if step == 1 and a.use_tokens:  # gates opened at update 1: the token path must now carry gradient everywhere (item 5)
@@ -860,20 +975,8 @@ for step in range(start, end):
         print(f"gate-open check (update 2): projector {len(pj)}/{n_pj} tensors and attn2 q/k LoRA-B in {len(qk)}/30 blocks have gradients", flush=True)
     opt.step()
     if step == start:  # first-update guard (item 5)
-        assert all(torch.equal(q.detach().cpu(), q0) for (_, q), q0 in zip(FROZEN_REF, FROZEN_PRE)), "frozen base transformer changed!"
-        assert WC.vae_sha(vae) == VAE_PRE == VAE_SHA, "VAE changed!"
-        if step == 0:
-            cur = dict(TR); moved = {n: not torch.equal(cur[n], q0) for n, q0 in PRE_NEW.items()}
-            must = [n for n in moved if ".patch_embedding.extra." in n or (n.endswith(".attn2.gate") and a.use_tokens)
-                    or ("lora_B" in n and not any(x in n for x in (".attn2.inner.to_q.", ".attn2.inner.to_k.")))]
-            bad = [n for n in must if not moved[n]]
-            n_b = sum(1 for n in must if "lora_B" in n); n_g = sum(1 for n in must if n.endswith(".attn2.gate"))
-            assert n_b == 8 * 30 and (n_g == 30 or not a.use_tokens), f"guard coverage: {n_b} LoRA-B, {n_g} gates"
-            assert not bad, f"{len(bad)} tensors did not move in update 1 (all inputs active), e.g. {bad[:3]}"
-            print(f"guard after update 1: {len(FROZEN_REF)} base tensors + VAE bit-identical; extra conv, {n_g} gates, {n_b} LoRA-B moved", flush=True)
-        else:
-            print(f"guard after resumed update {step + 1}: {len(FROZEN_REF)} base tensors + VAE bit-identical", flush=True)
-        del FROZEN_PRE, PRE_NEW
+        guard_verify(step, SNAP0)
+        del SNAP0
     acc["gpu"] += tfb; acc["n"] += 1
     if (step + 1) % 100 == 0 or step == start or step == end - 1 or TEST:
         gates = [m.gate for m in model.xattn]

@@ -43,7 +43,11 @@ PANEL_WIN=${PANEL_WIN:-5}  # rollout window size of the S1 panels: the forecast 
 MANIFEST=${MANIFEST:-data/wan_manifest_v1.json}
 [ -n "$MICRO" ] && [ -n "$GRAD_CKPT" ] || { echo "MICRO=<n> and GRAD_CKPT=<0|1> must be exported explicitly (F5; e.g. --export=ALL,MODE=$MODE,MICRO=1,GRAD_CKPT=1)"; exit 2; }
 [ -s "$MANIFEST" ] || { echo "MANIFEST $MANIFEST missing: run scripts/verify_manifest.py (CPU job) first"; exit 2; }
-STAGE=/dev/shm/mrv_$J
+STAGE=/dev/shm/mrv_$J; GEOM=/dev/shm/mrv_${J}_geom
+# Astra t1 item 8: job-level memory sampler from the allocation start (staged tmpfs pages, copy workers, shell, trainer)
+export MRV_MEM_SAMPLE=$TMPDIR/mem_$J.json
+$PY -m mrv.wan_stage sample --out $MRV_MEM_SAMPLE & MEMS=$!
+trap 'kill $MEMS 2>/dev/null' EXIT  # replaced by cleanup below once the heartbeat runs
 if [ "$MODE" = extend ]; then  # Astra 08:30: the 12 h extension only on the qualifying 24 h verdict, checked BEFORE any allocation use
   $PY -c "import json,sys;v=json.load(open('runs/wan_s1/S1_24H_DECISION.json'))['verdict'];print('24h marker:',v);sys.exit(0 if v.startswith('EXTEND') else 1)" \
     || { echo "MODE=extend refused: runs/wan_s1/S1_24H_DECISION.json missing or not an EXTEND verdict"; exit 8; }
@@ -60,7 +64,7 @@ $PY -m mrv.wan_stage memcheck --manifest $MANIFEST $ND || { echo "memory request
 export WAN_LEDGER_OUTER=1
 $PY -m mrv.wan_plan beat $LEDGER alloc_$MODE & BEAT=$!
 stop_beat() { kill -TERM $BEAT 2>/dev/null; wait $BEAT 2>/dev/null; }
-cleanup() { stop_beat; [ -n "$STAGE" ] && rm -rf "$STAGE"; }  # the job-local stage dir never outlives the allocation
+cleanup() { stop_beat; kill $MEMS 2>/dev/null; [ -n "$STAGE" ] && rm -rf "$STAGE" "$GEOM"; }  # job-local stage dirs never outlive the allocation
 trap cleanup EXIT
 # Fable 07:30: Slurm sends USR1 to this shell 300 s before the time limit (#SBATCH --signal above; pass it on the sbatch line
 # too if you override the script header); it and TERM are forwarded to the running trainer, which saves an atomic rolling
@@ -83,23 +87,30 @@ T="$PY scripts/train_wan_teacher.py --ledger $LEDGER --manifest $MANIFEST --micr
 case $MODE in
   timing)
     O=runs/wan_timing_$J; mkdir -p $O
+    G0=$(date +%s.%N)  # timing-only steps (geometry) are excluded from the priced production start-up (Astra t1 item 7)
     DRV=$($PY -c "import json;print(sorted(json.load(open('data/temporal_lists.json'))['dev'])[0])"); echo $DRV > $O/one.txt
-    # S1b item 1: pinned token-geometry check (wrong-camera control) must pass before any timing
-    TK=$($PY -c "import torch;g=torch.load('data/guides_v1/$DRV.pt',map_location='cpu',weights_only=False,mmap=True);t=[int(x) for x,h in zip(g['ticks'].tolist(),g['hard'].tolist()) if not h];print(t[len(t)//2])")
-    $PY scripts/wan_token_check.py --scene $DRV --tick $TK --out $O/token_geom_${DRV}_t$TK || { echo "TOKEN_GEOM check failed: no timing"; exit 5; }
+    # S1b item 1 + Astra t1 item 9: the pinned token-geometry check opens ONLY hashed copies of the guide / token files (manifest)
+    $PY -m mrv.wan_stage copy --manifest $MANIFEST --dst $GEOM data/guides_v1/$DRV.pt data/wan_tok_v1/$DRV.pt || { echo "TOKEN_GEOM inputs differ from the manifest"; exit 5; }
+    TK=$($PY -c "import torch;g=torch.load('$GEOM/guides_v1/$DRV.pt',map_location='cpu',weights_only=False,mmap=True);t=[int(x) for x,h in zip(g['ticks'].tolist(),g['hard'].tolist()) if not h];print(t[len(t)//2])")
+    $PY scripts/wan_token_check.py --scene $DRV --tick $TK --guides $GEOM/guides_v1 --tokens $GEOM/wan_tok_v1 --out $O/token_geom_${DRV}_t$TK \
+      || { echo "TOKEN_GEOM check failed: no timing"; exit 5; }
+    rm -rf "$GEOM"
+    export MRV_TIMING_ONLY_S=$(echo "$(date +%s.%N) - $G0" | bc)
     run_fg $T --out $O --timing "$@" || exit $?
     rm -rf "$STAGE"  # the rehearsal reads its own inputs; free the staged bytes before the rollouts
     # F3 rehearsal: one receiver run from the load-once panel loop byte-equal to a fresh-load render; load-once rollout rate
     $PY scripts/wan_panel.py --rehearsal --ckpt $O/ckpt.pt --out $O/rehearsal --ledger $LEDGER --rollout_args "--window_latents $PANEL_WIN"
-    echo "rehearsal rc=$?"
+    REH=$?; echo "rehearsal rc=$REH"
     $PY - <<P || exit $?
 import json; j = json.load(open("$O/timing.json"))
-j["token_geometry"] = {"pass": True, "dir": "$O/token_geom_${DRV}_t$TK", "note": "wan_token_check.py exits 5 on failure (no timing)"}
+j["token_geometry"] = {"pass": True, "manifest_verified": True, "dir": "$O/token_geom_${DRV}_t$TK",
+                      "note": "wan_token_check.py exits 5 on failure (no timing); it read hash-on-copy staged guide / token files"}
 json.dump(j, open("$O/timing.json", "w"), indent=1)
 P
     # CONVERGED item 7: forecast with ONE panel (render-only, load-once rate) + every re-time rule -> retime_pass
     $PY scripts/wan_forecast.py --timing_dir $O --ledger $LEDGER --window_latents $PANEL_WIN --swap_at 50
-    rc=$? ;;
+    rc=$?
+    [ $REH -ne 0 ] && { echo "REHEARSAL FAILED (rc $REH): the timing job fails"; rc=$REH; } ;;
   overfit)
     # OUT=<dir of the stopped run> resubmits a preempted / signal-stopped gate in the SAME directory with --resume (Astra 08:30)
     O=${OUT:-runs/wan_ctest_overfit_$J}; RS=; [ -n "$OUT" ] && RS=--resume

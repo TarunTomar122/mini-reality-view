@@ -646,9 +646,8 @@ def merge_score_shards(parts, manifest_sha, parity_rec):
 
 # ------------------------------------------------------------------------------------------------------------- F5 / re-time
 def matched_updates(rows, ref_key, rtol=0.02, gn_rtol=0.05):
-    """F5 matched-update check: rows {setting: {"loss", "grad_norm"}} from the SAME params / inputs / noise / seed under each
-    (grad_ckpt, micro) setting; every setting must reproduce the reference loss within rtol and grad norm within gn_rtol
-    (relative; bf16 tolerance). -> {"ref", "rows": {k: {..., "d_loss_rel", "d_gn_rel", "ok"}}, "all_ok"}"""
+    """scalar part of the F5 matched-update check (loss and grad norm from the SAME params / inputs / noise / seed under each
+    setting); the decisive part is delta_check (per-tensor Adam deltas, Astra t1 item 2). -> {"ref", "rows", "all_ok"}"""
     ref = rows[ref_key]; out = {}
     for k, r in rows.items():
         dl = abs(r["loss"] - ref["loss"]) / max(abs(ref["loss"]), 1e-12)
@@ -658,9 +657,34 @@ def matched_updates(rows, ref_key, rtol=0.02, gn_rtol=0.05):
     return {"ref": ref_key, "rtol": rtol, "gn_rtol": gn_rtol, "rows": out, "all_ok": all(v["ok"] for v in out.values())}
 
 
+DELTA_RTOL = 0.05       # per-tensor ||d - d_ref|| / ||d_ref|| after ONE Adam step (bf16 accumulation order; reversal = 2.0)
+DELTA_ZERO_ABS = 1e-12  # a tensor whose reference delta is zero must stay (numerically) zero
+
+
+def delta_check(rows, rtol=DELTA_RTOL, zero_abs=DELTA_ZERO_ABS):
+    """Astra t1 item 2: rows {tensor: {"ref": ||d_ref||, "diff": ||d - d_ref||, "norm": ||d||}} for ONE setting against the
+    reference, where d = parameter change of ONE Adam step from identical weights, optimizer state, batch and RNG. Every tensor
+    must match (relative L2 <= rtol; zero reference -> zero delta); reversed or permuted gradients fail even when the loss and
+    the global grad norm agree. -> {"ok", "tensors", "worst", "worst_rel", "failing"}"""
+    worst, wrel, bad = None, 0.0, []
+    for n, r in rows.items():
+        if not (_num(r.get("ref")) and _num(r.get("diff")) and _num(r.get("norm"))):
+            bad.append(n); continue
+        if r["ref"] <= zero_abs:
+            rel = 0.0 if r["norm"] <= max(zero_abs, 1e-9) else float("inf")
+        else:
+            rel = r["diff"] / r["ref"]
+        if rel > wrel:
+            worst, wrel = n, rel
+        if rel > rtol:
+            bad.append(n)
+    return {"ok": bool(rows) and not bad, "tensors": len(rows), "worst": worst, "worst_rel": wrel if wrel != float("inf") else "inf",
+            "failing": bad[:8], "n_failing": len(bad)}
+
+
 def select_setting(fits, match):
-    """fastest fitting (grad_ckpt, micro) setting whose update matched the reference -> {"key", "micro", "grad_ckpt", "gpu_s"} or None
-    (no matched setting, or the reference itself not finite)"""
+    """fastest fitting (grad_ckpt, micro) setting whose matched-update rows are ok (scalar AND per-tensor delta check) ->
+    {"key", "micro", "grad_ckpt", "gpu_s"} or None"""
     ok = [k for k in fits if (match.get("rows") or {}).get(k, {}).get("ok")]
     if not ok:
         return None
@@ -672,71 +696,255 @@ UPDATE_TARGET = 13200       # CONVERGED item 7: the forecast must buy >= floor +
 RETIME_MIN_UPDATES = 200    # Astra: >= 200 consecutive production updates
 RETIME_QUEUE_FRAC = 0.05
 RETIME_WALL_OVER_GPU = 1.10
+RETIME_BLOCK = 32           # Astra t1 item 4: block width is fixed (wider blocks average a failing 32-update block away)
+SWEEP_GC = (1, 0)           # declared F5 sweep
+SWEEP_MICRO = (1, 2, 4, 8)
+GLOBAL_BATCH = 8
+N_TRAIN, N_DEV = 144, 6     # Astra t1 item 3: the production lists, exactly
+CANON_LISTS = "data/temporal_lists.json"
+SENS_STEP = 32              # Astra t1 item 1: positive input sensitivity is required after exactly this many optimizer steps
+BUDGET_H, JOB_H = 24.0, 12.0
+STARTUP_PARTS = ("pre_trainer_s", "process_to_ready_s", "frozen_snapshot_s", "first_update_s", "guard_verify_s", "first_probe_s",
+                 "resume_load_s")
+EVIDENCE_FILES = ("scripts/train_wan_teacher.py", "mrv/wan_cond.py", "mrv/wan_plan.py", "mrv/wan_stage.py", "scripts/wan_forecast.py",
+                  "scripts/wan_panel.py", "scripts/wan_rollout.py", "scripts/wan_token_check.py", "slurm/wan_teacher.sh")
 
 
-def startup_for_forecast(J, prod_train_drives):
-    """start-up priced per job start (CONVERGED item 7): measured from ALLOCATION to the first update on the production drive list.
-    No 48 -> 144 extrapolation: if the timing ran on the production list the measured value is used as is; otherwise the stage-in
-    is scaled by bytes and the result is flagged extrapolated (the full-list rule then fails). -> (seconds, info)"""
+def ids_sha(ids):
+    import hashlib
+    return hashlib.sha256("\n".join(sorted(ids)).encode()).hexdigest()[:16]
+
+
+def check_lists(train, dev, canon, mode):
+    """Astra t1 item 3. train / dev as given to the job (duplicates kept), canon = data/temporal_lists.json. mode 'full' (timing,
+    train, extend): exactly the N_TRAIN distinct canonical train IDs and the N_DEV distinct canonical dev IDs. mode 'gate'
+    (overfit, resume test): any subset, but every ID inside its ORIGINAL canonical split. -> (ok, why)"""
+    why = []
+    ct, cd = list(canon.get("train", [])), list(canon.get("dev", []))
+    if len(set(ct)) != N_TRAIN or len(ct) != N_TRAIN or len(set(cd)) != N_DEV or len(cd) != N_DEV:
+        why.append(f"canonical lists have {len(set(ct))}/{len(ct)} train and {len(set(cd))}/{len(cd)} dev IDs (need {N_TRAIN} / {N_DEV} distinct)")
+    if len(set(train)) != len(train) or len(set(dev)) != len(dev):
+        why.append("duplicate IDs in the job's lists")
+    if mode == "full":
+        if sorted(set(train)) != sorted(ct) or len(train) != N_TRAIN:
+            why.append(f"train list is not the exact {N_TRAIN} canonical train IDs ({len(set(train))} given, {len(set(train) - set(ct))} foreign)")
+        if sorted(set(dev)) != sorted(cd) or len(dev) != N_DEV:
+            why.append(f"dev list is not the exact {N_DEV} canonical dev IDs")
+    elif mode == "gate":
+        if not set(train) <= set(ct):
+            why.append(f"gate train IDs outside the canonical train split: {sorted(set(train) - set(ct))[:3]}")
+        if not set(dev) <= set(cd):
+            why.append(f"gate dev IDs outside the canonical dev split: {sorted(set(dev) - set(cd))[:3]}")
+    else:
+        raise ValueError(mode)
+    return not why, "; ".join(why) or "ok"
+
+
+def check_modes(timing, overfit, resume_test, production):
+    """Astra t1 item 10: exactly one run mode (an overlap such as --timing --overfit would skip the re-time gate)"""
+    on = [n for n, v in (("--timing", timing), ("--overfit", overfit), ("--resume_test", resume_test), ("--production", production)) if v]
+    if len(on) > 1:
+        raise SystemExit(f"overlapping run modes {on}: exactly one of --timing / --overfit / --resume_test / --production (or none)")
+    return on[0] if on else "train"
+
+
+OVERFIT_SIGNED = {"clips": 8, "steps": 2000, "ratio": 0.25, "f1_frac": 0.8, "none_margin": 0.02}
+
+
+def overfit_signed_ok(clips, steps, ratio, f1_frac, none_margin=None):
+    """Astra t1 item 10: an overfit verdict may only be registered under the signed gate (8 clips, 2,000 updates, loss ratio
+    0.25, car F1 fraction 0.8, none margin 0.02) -> (ok, why)"""
+    got = {"clips": clips, "steps": steps, "ratio": ratio, "f1_frac": f1_frac, "none_margin": NONE_MARGIN if none_margin is None else none_margin}
+    bad = {k: (got[k], v) for k, v in OVERFIT_SIGNED.items() if got[k] != v}
+    return not bad, (f"overfit gate differs from the signed one: {bad}" if bad else "ok")
+
+
+def init_inert(sens, tol_rel=1e-3):
+    """Astra t1 item 1: at the UNTOUCHED init (optimizer step 0) the guide path is exactly inert (zero conv) and the token path
+    inert within the check_parity bound (the gated term is exactly 0; GEMM tiling may differ in the last bits)"""
+    tr = (sens or {}).get("trained") or {}
+    if not tr.get("finite"):
+        return False
+    return tr.get("guide") == 0.0 and abs(tr.get("tokens", 0.0)) <= tol_rel * max(tr.get("v_abs", 0.0), 1e-12)
+
+
+def sweep_complete(sweep, gcs=SWEEP_GC, micros=SWEEP_MICRO):
+    """Astra t1 item 4: every declared (grad_ckpt, micro) cell is measured, an OOM (with its message), or explicitly skipped
+    after an OOM at a SMALLER micro of the same grad_ckpt -> (ok, missing)"""
+    miss = []
+    for gc in gcs:
+        for mb in micros:
+            c = (sweep or {}).get(f"gc{gc}_m{mb}")
+            if c is None:
+                miss.append(f"gc{gc}_m{mb}: absent"); continue
+            if "gpu_s" in c and _num(c["gpu_s"]):
+                continue
+            if c.get("oom"):
+                continue
+            sk = c.get("skipped_after_oom")
+            if sk and (sweep.get(sk) or {}).get("oom") and int(sk.split("_m")[1]) < mb and sk.startswith(f"gc{gc}_"):
+                continue
+            miss.append(f"gc{gc}_m{mb}: no measurement / OOM evidence")
+    return not miss, miss
+
+
+def blocks_ok(pl, block=RETIME_BLOCK):
+    """Astra t1 item 4: blocks of exactly `block` updates, consecutive from the first production update, covering every full
+    block of the loop -> (ok, why)"""
+    bl = pl.get("blocks") or []; n = pl.get("updates") or 0
+    why = []
+    if pl.get("block") != block:
+        why.append(f"block width {pl.get('block')} != {block}")
+    if len(bl) != n // block:
+        why.append(f"{len(bl)} blocks for {n} updates (need {n // block})")
+    for i, b in enumerate(bl):
+        if b.get("updates") != block or b.get("first") != i * block:
+            why.append(f"block {i} covers updates {b.get('first')}..+{b.get('updates')} (need {i * block}..+{block})"); break
+    return not why, "; ".join(why) or "ok"
+
+
+def startup_for_forecast(J, prod_train_drives=None):
+    """Astra t1 item 7: start-up priced per job start = the SELECTED recipe's measured production start components (allocation
+    -> trainer, minus timing-only steps; process -> ready incl. the cold stage-in; frozen snapshot; first update incl. Adam;
+    guard verification; first probe; resume checkpoint load). -> (seconds | None, info)"""
     st = J.get("startup") or {}
-    meas = st.get("alloc_to_first_update_s") or st.get("process_to_first_update_s") or J.get("startup_s")
-    info = {"measured_s": meas, "from_allocation": st.get("alloc_to_first_update_s") is not None, "timing_drives": J.get("train_drives"),
-            "prod_drives": prod_train_drives, "extrapolated": False}
-    if meas is None:
+    comp = st.get("components") or {}
+    info = {"components": comp, "from_allocation": comp.get("pre_trainer_s") is not None, "timing_drives": J.get("train_drives"),
+            "extrapolated": False, "complete": all(_num(comp.get(k)) for k in STARTUP_PARTS)}
+    if not info["complete"]:
         return None, info
-    if J.get("train_drives") == prod_train_drives:
-        return float(meas), info
-    ratio = prod_train_drives / max(1, J.get("train_drives") or prod_train_drives)
-    stage = float(st.get("stage_in_s") or 0.0)
-    info.update(extrapolated=True, ratio=round(ratio, 3))
-    return float(meas) + stage * (ratio - 1.0), info
+    return float(sum(comp[k] for k in STARTUP_PARTS)), info
 
 
-def retime_rules(J, fc, prod_train_drives, score_parity, rehearsal, token_geom=None):
-    """CONVERGED item 7: every rule with pass / fail and its numbers; all must hold, else no overfit.
-    J = timing.json (trainer + slurm additions), fc = forecast_final (ONE panel), score_parity = (ok, why) of the 2080 Ti record,
-    rehearsal = the panel-loop rehearsal record (or None), token_geom = {"pass": bool} from the slurm geometry check."""
+def evidence_sha(root="."):
+    """Astra t1 item 11: identity of every file that produces re-time evidence (trainer, model, rules, staging, forecast, panel /
+    rehearsal, rollout, geometry check, slurm wrapper)"""
+    import hashlib
+    h = hashlib.sha1()
+    for f in EVIDENCE_FILES:
+        h.update(f.encode() + b"\0" + open(os.path.join(root, f), "rb").read())
+    return h.hexdigest()[:16]
+
+
+def ledger_evidence(jobs, this_job):
+    """Astra t1 item 5: the S1 ledger must hold BOTH timing allocations (the first timing and this re-time) -> dict"""
+    tj = sorted({j.split("-")[1] for j, v in jobs.items() if v.get("kind") == "alloc_timing" and j.startswith("alloc-")})
+    return {"timing_allocations": tj, "this_job": this_job, "this_job_charged": bool(this_job) and str(this_job) in tj,
+            "ok": len(tj) >= 2 and bool(this_job) and str(this_job) in tj}
+
+
+def memory_rule(peaks, request, frac=None):
+    """Astra t1 item 8: peak incl. staged files from the allocation start (job memory.peak, the job-level sampler started by
+    slurm at allocation, the in-trainer sampler: the largest) over the SLURM REQUEST (never an ancestor cgroup limit)"""
+    from mrv.wan_stage import PEAK_FRAC
+    frac = PEAK_FRAC if frac is None else frac
+    pk = [p for p in peaks if _num(p)]
+    if not pk or not _num(request) or request <= 0:
+        return {"pass": None, "peak": max(pk) if pk else None, "request": request, "ratio": None}
+    p = max(pk)
+    return {"pass": p <= frac * request, "peak": p, "request": request, "ratio": round(p / request, 4)}
+
+
+def retime_rules(J, fc, canon, score_parity, rehearsal, token_geom=None):
+    """CONVERGED item 7 + Astra t1 items 1-9 / 11: every rule with pass / fail and its numbers; all must hold, else no overfit.
+    J = timing.json, fc = forecast_final, canon = data/temporal_lists.json, score_parity = (ok, why) of the 2080 Ti record,
+    rehearsal = the panel-loop rehearsal record (or None)."""
     R = {}
     st, pl, mem = J.get("stage") or {}, J.get("production_loop") or {}, J.get("memory") or {}
-    stup = J.get("startup") or {}
-    R["full_production_list_cold_allocation"] = {
-        "pass": bool(J.get("train_drives") == prod_train_drives and st.get("cold") and stup.get("alloc_to_first_update_s") is not None
-                     and not (fc.get("startup_info") or {}).get("extrapolated")),
-        "timing_drives": J.get("train_drives"), "prod_drives": prod_train_drives, "stage_cold": st.get("cold"),
-        "alloc_to_first_update_s": stup.get("alloc_to_first_update_s")}
+    ok_l = (J.get("train_ids_sha") == ids_sha(canon.get("train", [])) and J.get("dev_ids_sha") == ids_sha(canon.get("dev", []))
+            and J.get("train_drives") == N_TRAIN == len(set(canon.get("train", []))) and J.get("dev_drives") == N_DEV == len(set(canon.get("dev", []))))
+    R["exact_production_lists"] = {"pass": bool(ok_l), "train_drives": J.get("train_drives"), "dev_drives": J.get("dev_drives"),
+                                   "train_ids_sha": J.get("train_ids_sha"), "canonical_train_sha": ids_sha(canon.get("train", []))}
+    su, si = startup_for_forecast(J)
+    R["cold_allocation_startup_measured"] = {"pass": bool(st.get("cold") and si["complete"] and si["from_allocation"]
+                                                          and (fc.get("startup_info") or {}).get("complete")),
+                                             "stage_cold": st.get("cold"), "components": si["components"], "startup_s": su}
     R["production_updates_ge_200"] = {"pass": (pl.get("updates") or 0) >= RETIME_MIN_UPDATES, "updates": pl.get("updates")}
+    ok_b, why_b = blocks_ok(pl)
+    R["blocks_32_consecutive"] = {"pass": ok_b, "why": why_b, "block": pl.get("block"), "blocks": len(pl.get("blocks") or [])}
     bl = pl.get("blocks") or []
     qf = [b.get("queue_frac") for b in bl]; wg = [b.get("wall_over_gpu") for b in bl]
     R["queue_wait_le_5pct_each_block"] = {"pass": len(bl) >= 2 and all(_num(x) and x <= RETIME_QUEUE_FRAC for x in qf), "per_block": qf}
     R["wall_le_1.10_gpu_each_block"] = {"pass": len(bl) >= 2 and all(_num(x) and x <= RETIME_WALL_OVER_GPU for x in wg), "per_block": wg}
+    ok_s, miss_s = sweep_complete(J.get("sweep"))
+    R["declared_recipe_and_sweep"] = {"pass": bool(ok_s and J.get("batch") == GLOBAL_BATCH and J.get("use_tokens") is True
+                                                   and pl.get("micro") == (J.get("selected_setting") or {}).get("micro")
+                                                   and pl.get("grad_ckpt") == (J.get("selected_setting") or {}).get("grad_ckpt")),
+                                      "sweep_missing": miss_s, "batch": J.get("batch"), "use_tokens": J.get("use_tokens")}
     mu = J.get("matched_update") or {}
-    R["matched_update_selected"] = {"pass": bool(J.get("selected_setting")), "selected": J.get("selected_setting"),
-                                    "all_settings_matched": mu.get("all_ok"), "explicit": J.get("explicit_setting")}
+    sel = J.get("selected_setting") or {}
+    srow = (mu.get("rows") or {}).get(sel.get("key", ""), {})
+    R["matched_update_selected"] = {"pass": bool(sel and mu.get("method") == "per_tensor_adam_delta" and srow.get("ok")
+                                                 and (srow.get("delta") or {}).get("ok")),
+                                    "selected": sel, "method": mu.get("method"), "selected_delta": srow.get("delta")}
     tg = token_geom if token_geom is not None else J.get("token_geometry")
-    R["gates_final_recipe"] = {"pass": bool((tg or {}).get("pass") and (J.get("init_parity") or {}).get("pass")
-                                            and (J.get("update0_sensitivity") or {}).get("pass")),
-                               "token_geometry": (tg or {}).get("pass"), "init_parity": (J.get("init_parity") or {}).get("pass"),
-                               "update0_sensitivity": (J.get("update0_sensitivity") or {}).get("pass")}
+    ii, es = J.get("init_inertness") or {}, J.get("early_sensitivity") or {}
+    R["gates_final_recipe"] = {"pass": bool((tg or {}).get("pass") and (tg or {}).get("manifest_verified") and (J.get("init_parity") or {}).get("pass")
+                                            and ii.get("pass") and ii.get("opt_step") == 0 and es.get("pass") and es.get("opt_step") == SENS_STEP
+                                            and es.get("micro") == sel.get("micro") and es.get("grad_ckpt") == sel.get("grad_ckpt")),
+                               "token_geometry": (tg or {}).get("pass"), "geometry_inputs_hashed": (tg or {}).get("manifest_verified"),
+                               "init_parity": (J.get("init_parity") or {}).get("pass"), "init_inert": ii.get("pass"), "init_opt_step": ii.get("opt_step"),
+                               "sensitivity": es.get("pass"), "sensitivity_opt_step": es.get("opt_step"), "required_step": SENS_STEP}
     R["staged_hashes_eq_manifest"] = {"pass": bool(st.get("hash_equals_manifest") and not st.get("mismatches")),
                                       "files": st.get("total_files"), "bytes": st.get("total_bytes"), "manifest_sha": J.get("manifest_sha")}
     sv = J.get("staged_vs_lustre") or {}
     R["staged_batches_byte_equal_lustre"] = {"pass": bool(sv.get("all_equal") and (sv.get("batches") or 0) >= 8), "batches": sv.get("batches")}
-    R["peak_memory_le_85pct"] = {"pass": mem.get("peak_le_85pct") is True, "peak_over_request": mem.get("peak_over_request"),
-                                 "note": None if mem.get("peak_le_85pct") is not None else "cgroup peak / limit unreadable"}
+    mr = mem.get("rule") if isinstance(mem.get("rule"), dict) else {}
+    R["peak_memory_le_85pct_of_request"] = {**mr, "pass": mr.get("pass") is True and bool(mem.get("sampled_from_allocation")),
+                                            "sampled_from_allocation": mem.get("sampled_from_allocation")}
     sp_ok, sp_why = score_parity if score_parity else (False, "not checked")
     R["scorer_parity_off_slice"] = {"pass": bool(sp_ok), "why": sp_why}
     R["six_valid_donors"] = {"pass": bool(fc.get("donor_plan_ok")), "receivers": len(fc.get("donor_plan") or {})}
-    R["panel_rehearsal_byte_equal"] = {"pass": bool(rehearsal and rehearsal.get("pass")),
-                                       "why": (rehearsal or {}).get("why", "no rehearsal record")}
-    R["forecast_ge_13200_one_panel"] = {"pass": bool(fc.get("floor_12k_reachable") and (fc.get("updates") or 0) >= UPDATE_TARGET),
-                                        "updates": fc.get("updates"), "target": UPDATE_TARGET, "floor_12k_reachable": fc.get("floor_12k_reachable")}
+    rh = rehearsal or {}
+    R["panel_rehearsal_byte_equal"] = {"pass": bool(rh.get("pass") and rh.get("fresh_all_ticks") and rh.get("ckpt_sha")
+                                                    and rh.get("ckpt_sha") == J.get("ckpt_sha16")),
+                                       "why": rh.get("why", "no rehearsal record"), "ckpt_sha": rh.get("ckpt_sha"), "timing_ckpt_sha": J.get("ckpt_sha16"),
+                                       "fresh_all_ticks": rh.get("fresh_all_ticks")}
+    inp = fc.get("inputs") or {}
+    le = fc.get("ledger_evidence") or {}
+    ok_f = (fc.get("floor_12k_reachable") and (fc.get("updates") or 0) >= UPDATE_TARGET and fc.get("n_panels") == 1 and inp.get("n_panels") == 1
+            and inp.get("budget_h") == BUDGET_H and inp.get("job_h") == JOB_H and fc.get("panel_plan_complete") is True
+            and _num(fc.get("panel_h_total")) and fc["panel_h_total"] > 0 and inp.get("panel_h") == fc.get("panel_h_total") and le.get("ok"))
+    R["forecast_ge_13200_one_panel"] = {"pass": bool(ok_f), "updates": fc.get("updates"), "target": UPDATE_TARGET, "n_panels": fc.get("n_panels"),
+                                        "budget_h": inp.get("budget_h"), "job_h": inp.get("job_h"), "panel_h_total": fc.get("panel_h_total"),
+                                        "ledger_evidence": le}
+    R["evidence_code_identity"] = {"pass": bool(J.get("evidence_sha") and J.get("evidence_sha") == fc.get("evidence_sha")),
+                                   "timing": J.get("evidence_sha"), "forecast": fc.get("evidence_sha")}
     failing = [k for k, v in R.items() if not v["pass"]]
     return {"rules": R, "all_pass": not failing, "failing": failing}
 
 
-def retime_gate(tj, micro, grad_ckpt):
-    """overfit / resume test / train / extend precondition -> (ok, why): the newest re-time passed every rule and selected exactly
-    this (micro, grad_ckpt)"""
+def plan_fresh(pt_runs, expected):
+    """Astra t1 item 6: every requested run rendered every requested tick in THIS process (wan_rollout.py skips files that
+    already exist: a reused RGB would show up as fewer ticks rendered). pt_runs = plan_timing.json "runs", expected = ticks
+    each run must render (same order) -> (ok, why)"""
+    got = [int(r.get("ticks_rendered", -1)) for r in pt_runs]
+    if len(got) != len(expected):
+        return False, f"{len(got)} runs rendered, {len(expected)} requested"
+    bad = [(i, g, e) for i, (g, e) in enumerate(zip(got, expected)) if g != e]
+    return not bad, (f"runs rendered fewer / other ticks than requested (index, rendered, requested): {bad[:4]}" if bad else "ok")
+
+
+def dir_empty(d):
+    return not os.path.exists(d) or not os.listdir(d)
+
+
+def refresh_forecast(fc, used_h, done_kinds, start_step=0):
+    """Astra t1 item 11: the stored forecast re-run against the ACTUAL ledger now (every job since the timing charged) and the gate
+    registry -> (ok, refreshed). Before production: >= UPDATE_TARGET; a production resume: start_step + affordable >= floor."""
+    inp = dict(fc.get("inputs") or {})
+    if not inp:
+        return False, {"why": "forecast has no inputs (legacy)"}
+    inp.update(used_h=used_h, done_kinds=set(done_kinds))
+    r = forecast_s1(inp)
+    need = UPDATE_TARGET if start_step == 0 else FLOOR_UPDATES
+    r["start_step"] = start_step; r["need"] = need; r["used_h"] = round(used_h, 3)
+    return (start_step + r["updates"]) >= need, r
+
+
+def retime_gate(tj, micro, grad_ckpt, evidence=None, used_h=None, done_kinds=(), start_step=0):
+    """overfit / resume test / train / extend precondition -> (ok, why): the newest re-time passed every rule, selected exactly
+    this (micro, grad_ckpt), was produced by the CURRENT evidence code, and its forecast still holds against the actual ledger"""
     sel = (tj or {}).get("selected_setting")
     rp = (tj or {}).get("retime_pass") or {}
     if not sel:
@@ -745,6 +953,13 @@ def retime_gate(tj, micro, grad_ckpt):
         return False, f"--micro {micro} --grad_ckpt {grad_ckpt} != the re-time selection micro {sel['micro']} grad_ckpt {sel['grad_ckpt']}"
     if not rp.get("all_pass"):
         return False, f"re-time rule failed: {rp.get('failing') or 'no retime_pass block (run scripts/wan_forecast.py)'}"
+    if evidence is not None and (tj.get("evidence_sha") != evidence or (tj.get("forecast_final") or {}).get("evidence_sha") != evidence):
+        return False, f"evidence code changed since the re-time ({tj.get('evidence_sha')} -> {evidence}): re-run MODE=timing"
+    if used_h is not None:
+        ok, r = refresh_forecast(tj.get("forecast_final") or {}, used_h, done_kinds, start_step)
+        if not ok:
+            return False, (f"refreshed forecast against the actual ledger ({used_h:.2f} h used): {start_step} + {r.get('updates')} updates < "
+                           f"{r.get('need')}: report to the owner")
     return True, "ok"
 
 

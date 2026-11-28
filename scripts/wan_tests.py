@@ -344,7 +344,7 @@ for _args, _name in ((["--out", "runs/wan_timing_followup", "--production", "--t
     _msg = _r.stderr + _r.stdout
     if "No module named" in _msg:
         print(f"SKIP S1g 4a repro: {_name} (trainer imports unavailable here; runs in every slurm job)"); continue
-    check(f"S1g 4a repro: {_name} refused", _r.returncode != 0 and ("cannot be combined" in _msg or "bounded 16-update" in _msg), _msg[-160:])
+    check(f"S1g 4a repro: {_name} refused", _r.returncode != 0 and ("overlapping run modes" in _msg or "bounded 16-update" in _msg), _msg[-160:])
 for _w, _ok in ((5, True), (2, False), (None, False)):
     try:
         WP.train_reserve_h({**FC_OK, "rollout_window_latents": _w}, 1); _got = True
@@ -497,7 +497,7 @@ check("re-time: peak incl. staged files <= 85 % of the request", WS.peak_rule(85
       and WS.peak_rule(None, 100) == (None, None))
 _tsh = open("slurm/wan_teacher.sh").read()
 check("F1: wan_teacher.sh EXIT trap removes the stage dir; memcheck refuses (exit 9) before work",
-      'cleanup() { stop_beat; [ -n "$STAGE" ] && rm -rf "$STAGE"; }' in _tsh and "trap cleanup EXIT" in _tsh and "mrv.wan_stage memcheck" in _tsh and "exit 9" in _tsh)
+      'cleanup() { stop_beat; kill $MEMS 2>/dev/null; [ -n "$STAGE" ] && rm -rf "$STAGE" "$GEOM"; }' in _tsh and "trap cleanup EXIT" in _tsh and "mrv.wan_stage memcheck" in _tsh and "exit 9" in _tsh)
 check("F1/F2/F5: every trainer call gets --manifest / --micro / --grad_ckpt / --stage_dir; MICRO / GRAD_CKPT unset refuses",
       "--manifest $MANIFEST --micro $MICRO --grad_ckpt $GRAD_CKPT --stage_dir $STAGE" in _tsh and '[ -n "$MICRO" ] && [ -n "$GRAD_CKPT" ] ||' in _tsh)
 check("F2: the per-start re-hash (--verify_cache) is gone", "verify_cache" not in _tsh.split("--verify_cache) is gone")[0] and "--verify_cache 1" not in _tsh)
@@ -550,56 +550,188 @@ for _args, _want, _name in (([], "must be passed explicitly", "--micro / --grad_
         print(f"SKIP CONVERGED repro: {_name} (trainer imports unavailable here; runs in every slurm job)"); continue
     check(f"CONVERGED repro: trainer {_name} -> refused", _r.returncode != 0 and _want in _msg, _msg[-200:])
 
-# re-time rule (CONVERGED item 7)
+# re-time rule (CONVERGED item 7 + Astra t1 items 1-9, 11)
+CAN = {"train": [f"scene-{i:04d}" for i in range(144)], "dev": [f"scene-{i:04d}" for i in range(900, 906)]}
+def _sw():
+    return {f"gc{g}_m{m}": {"micro": m, "grad_ckpt": g, "gpu_s": 3.0 + m / 10, "fwd_s": 1.0} for g in (1, 0) for m in (1, 2, 4, 8)}
 def _J(**kw):
-    J = {"train_drives": 144, "stage": {"cold": True, "hash_equals_manifest": True, "mismatches": [], "total_files": 600, "total_bytes": 9e10},
-         "startup": {"alloc_to_first_update_s": 900.0, "process_to_first_update_s": 880.0, "stage_in_s": 780.0},
-         "production_loop": {"updates": 224, "blocks": WS.block_stats([{"wall_s": 4.0, "gpu_s": 3.9, "queue_wait_s": 0.01}] * 224, 32)},
-         "selected_setting": {"micro": 1, "grad_ckpt": 0}, "matched_update": {"all_ok": True}, "token_geometry": {"pass": True},
-         "init_parity": {"pass": True}, "update0_sensitivity": {"pass": True}, "staged_vs_lustre": {"all_equal": True, "batches": 8},
-         "memory": {"peak_le_85pct": True, "peak_over_request": 0.7}, "manifest_sha": "m"}
+    J = {"train_drives": 144, "dev_drives": 6, "train_ids_sha": WP.ids_sha(CAN["train"]), "dev_ids_sha": WP.ids_sha(CAN["dev"]),
+         "batch": 8, "use_tokens": True, "sweep": _sw(), "evidence_sha": "E", "ckpt_sha16": "C" * 16, "job": "3760001",
+         "stage": {"cold": True, "hash_equals_manifest": True, "mismatches": [], "total_files": 600, "total_bytes": 9e10},
+         "startup": {"components": {k: 10.0 for k in WP.STARTUP_PARTS}},
+         "production_loop": {"updates": 224, "block": 32, "micro": 1, "grad_ckpt": 0,
+                             "blocks": WS.block_stats([{"wall_s": 4.0, "gpu_s": 3.9, "queue_wait_s": 0.01}] * 224, 32)},
+         "selected_setting": {"key": "gc0_m1", "micro": 1, "grad_ckpt": 0},
+         "matched_update": {"method": "per_tensor_adam_delta", "rows": {"gc0_m1": {"ok": True, "delta": {"ok": True}}}},
+         "token_geometry": {"pass": True, "manifest_verified": True}, "init_parity": {"pass": True},
+         "init_inertness": {"pass": True, "opt_step": 0}, "early_sensitivity": {"pass": True, "opt_step": WP.SENS_STEP, "micro": 1, "grad_ckpt": 0},
+         "staged_vs_lustre": {"all_equal": True, "batches": 8},
+         "memory": {"rule": {"pass": True, "ratio": 0.7}, "sampled_from_allocation": True}, "manifest_sha": "m"}
     J.update(kw); return J
-FCP = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {} for i in range(6)}, "floor_12k_reachable": True, "updates": 14000, "startup_info": {"extrapolated": False}}
-RHP_ = {"pass": True, "why": "byte-equal"}
-RTa = WP.retime_rules(_J(), FCP, 144, (True, "ok"), RHP_)
-check("re-time: a complete passing record -> all 13 rules pass", RTa["all_pass"] and len(RTa["rules"]) == 13, RTa["failing"])
+FCP = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {} for i in range(6)}, "floor_12k_reachable": True, "updates": 14000, "n_panels": 1,
+       "panel_plan_complete": True, "panel_h_total": 2.1, "inputs": {"n_panels": 1, "budget_h": 24.0, "job_h": 12.0, "panel_h": 2.1},
+       "startup_info": {"complete": True}, "ledger_evidence": {"ok": True, "timing_allocations": ["3756964", "3760001"]}, "evidence_sha": "E"}
+RHP_ = {"pass": True, "why": "byte-equal", "fresh_all_ticks": True, "ckpt_sha": "C" * 16}
+RTa = WP.retime_rules(_J(), FCP, CAN, (True, "ok"), RHP_)
+check("re-time: a complete passing record -> all 17 rules pass", RTa["all_pass"] and len(RTa["rules"]) == 17, RTa["failing"])
+L48 = {"train": CAN["train"][:48], "dev": CAN["dev"]}
+J48 = _J(train_drives=48, train_ids_sha=WP.ids_sha(L48["train"]))
+check("T1 item 3 repro (Astra): a 48-drive timing with a 48-drive forecast list -> exact_production_lists FAILS",
+      "exact_production_lists" in WP.retime_rules(J48, FCP, CAN, (True, ""), RHP_)["failing"]
+      and "exact_production_lists" in WP.retime_rules(J48, FCP, {**L48, "dev": CAN["dev"]}, (True, ""), RHP_)["failing"])
+J100 = _J(production_loop={"updates": 200, "block": 100, "micro": 1, "grad_ckpt": 0,
+                           "blocks": WS.block_stats([{"wall_s": 4.0, "gpu_s": 3.9, "queue_wait_s": 0.01}] * 200, 100)})
+check("T1 item 4 repro (Astra): two 100-update blocks -> blocks_32_consecutive FAILS",
+      "blocks_32_consecutive" in WP.retime_rules(J100, FCP, CAN, (True, ""), RHP_)["failing"])
+FC0 = {**FCP, "n_panels": 0, "inputs": {**FCP["inputs"], "n_panels": 0}, "updates": 16000}
+check("T1 item 5 repro (Astra): a zero-panel forecast with >= 13,200 updates -> forecast rule FAILS",
+      "forecast_ge_13200_one_panel" in WP.retime_rules(_J(), FC0, CAN, (True, ""), RHP_)["failing"])
 for name_, J_, fc_, sp_, rh_, rule_ in (
-        ("timing on the 48-drive list", _J(train_drives=48), FCP, (True, ""), RHP_, "full_production_list_cold_allocation"),
-        ("a warm (reused) stage", _J(stage={**_J()["stage"], "cold": False}), FCP, (True, ""), RHP_, "full_production_list_cold_allocation"),
-        ("start-up not measured from allocation", _J(startup={"process_to_first_update_s": 800.0}), FCP, (True, ""), RHP_, "full_production_list_cold_allocation"),
-        ("only 64 production updates (2 x 32)", _J(production_loop={"updates": 64, "blocks": _J()["production_loop"]["blocks"][:2]}), FCP, (True, ""), RHP_, "production_updates_ge_200"),
-        ("one block with 6 % queue wait", _J(production_loop={"updates": 224, "blocks": _J()["production_loop"]["blocks"][:6] + [{"queue_frac": 0.06, "wall_over_gpu": 1.05}]}),
+        ("T1 item 1: inertness not measured at optimizer step 0", _J(init_inertness={"pass": True, "opt_step": 250}), FCP, (True, ""), RHP_, "gates_final_recipe"),
+        ("T1 item 1 repro: 'update-0' sensitivity read after 250 Adam steps", _J(early_sensitivity={"pass": True, "opt_step": 250, "micro": 1, "grad_ckpt": 0}), FCP, (True, ""), RHP_, "gates_final_recipe"),
+        ("T1 item 1: early sensitivity on another setting than the selection", _J(early_sensitivity={"pass": True, "opt_step": WP.SENS_STEP, "micro": 8, "grad_ckpt": 1}), FCP, (True, ""), RHP_, "gates_final_recipe"),
+        ("T1 item 2 repro: scalar-only matched check (no per-tensor Adam deltas)", _J(matched_update={"rows": {"gc0_m1": {"ok": True}}, "all_ok": True}), FCP, (True, ""), RHP_, "matched_update_selected"),
+        ("T1 item 2: selected setting's per-tensor delta failed", _J(matched_update={"method": "per_tensor_adam_delta", "rows": {"gc0_m1": {"ok": True, "delta": {"ok": False}}}}), FCP, (True, ""), RHP_, "matched_update_selected"),
+        ("T1 item 3: a duplicated ID padding a 143-drive list to 144", _J(train_ids_sha=WP.ids_sha(CAN["train"][:143] + CAN["train"][:1])), FCP, (True, ""), RHP_, "exact_production_lists"),
+        ("T1 item 4: blocks not starting at the first production update", _J(production_loop={**_J()["production_loop"], "blocks": [{**b, "first": b["first"] + 5} for b in _J()["production_loop"]["blocks"]]}), FCP, (True, ""), RHP_, "blocks_32_consecutive"),
+        ("T1 item 4: a sweep cell missing (gc0_m8 never measured, no OOM)", _J(sweep={k: v for k, v in _sw().items() if k != "gc0_m8"}), FCP, (True, ""), RHP_, "declared_recipe_and_sweep"),
+        ("T1 item 4: global batch 4", _J(batch=4), FCP, (True, ""), RHP_, "declared_recipe_and_sweep"),
+        ("T1 item 4: tokens off", _J(use_tokens=False), FCP, (True, ""), RHP_, "declared_recipe_and_sweep"),
+        ("T1 item 4: production loop on another setting than the selection", _J(production_loop={**_J()["production_loop"], "micro": 8}), FCP, (True, ""), RHP_, "declared_recipe_and_sweep"),
+        ("T1 item 5: budget 30 h", _J(), {**FCP, "inputs": {**FCP["inputs"], "budget_h": 30.0}}, (True, ""), RHP_, "forecast_ge_13200_one_panel"),
+        ("T1 item 5: 24 h jobs", _J(), {**FCP, "inputs": {**FCP["inputs"], "job_h": 24.0}}, (True, ""), RHP_, "forecast_ge_13200_one_panel"),
+        ("T1 item 5: no ledger evidence for both timing allocations", _J(), {**FCP, "ledger_evidence": {"ok": False}}, (True, ""), RHP_, "forecast_ge_13200_one_panel"),
+        ("T1 item 5: panel cost unmeasured", _J(), {**FCP, "panel_h_total": None}, (True, ""), RHP_, "forecast_ge_13200_one_panel"),
+        ("T1 item 6 repro: a rehearsal of ANOTHER checkpoint", _J(), FCP, (True, ""), {**RHP_, "ckpt_sha": "D" * 16}, "panel_rehearsal_byte_equal"),
+        ("T1 item 6 repro: a rehearsal that reused existing RGB", _J(), FCP, (True, ""), {**RHP_, "fresh_all_ticks": False}, "panel_rehearsal_byte_equal"),
+        ("T1 item 7: start-up components incomplete (no frozen snapshot / guard)", _J(startup={"components": {"pre_trainer_s": 1.0, "process_to_ready_s": 800.0}}), FCP, (True, ""), RHP_, "cold_allocation_startup_measured"),
+        ("T1 item 7: start-up not from the allocation", _J(startup={"components": {**{k: 10.0 for k in WP.STARTUP_PARTS}, "pre_trainer_s": None}}), FCP, (True, ""), RHP_, "cold_allocation_startup_measured"),
+        ("T1 item 8: peak not sampled from the allocation start", _J(memory={"rule": {"pass": True, "ratio": 0.7}, "sampled_from_allocation": False}), FCP, (True, ""), RHP_, "peak_memory_le_85pct_of_request"),
+        ("T1 item 8: peak over 85 % of the request", _J(memory={"rule": {"pass": False, "ratio": 0.97}, "sampled_from_allocation": True}), FCP, (True, ""), RHP_, "peak_memory_le_85pct_of_request"),
+        ("T1 item 9: geometry read unhashed inputs", _J(token_geometry={"pass": True}), FCP, (True, ""), RHP_, "gates_final_recipe"),
+        ("T1 item 11: timing and forecast produced by different evidence code", _J(evidence_sha="E2"), FCP, (True, ""), RHP_, "evidence_code_identity"),
+        ("one block with 6 % queue wait", _J(production_loop={**_J()["production_loop"], "blocks": _J()["production_loop"]["blocks"][:6] + [{**_J()["production_loop"]["blocks"][6], "queue_frac": 0.06}]}),
          FCP, (True, ""), RHP_, "queue_wait_le_5pct_each_block"),
-        ("one block at wall 1.12 x gpu", _J(production_loop={"updates": 224, "blocks": _J()["production_loop"]["blocks"][:6] + [{"queue_frac": 0.01, "wall_over_gpu": 1.12}]}),
+        ("one block at wall 1.12 x gpu", _J(production_loop={**_J()["production_loop"], "blocks": _J()["production_loop"]["blocks"][:6] + [{**_J()["production_loop"]["blocks"][6], "wall_over_gpu": 1.12}]}),
          FCP, (True, ""), RHP_, "wall_le_1.10_gpu_each_block"),
-        ("no matched setting", _J(selected_setting=None), FCP, (True, ""), RHP_, "matched_update_selected"),
-        ("update-0 sensitivity failed", _J(update0_sensitivity={"pass": False}), FCP, (True, ""), RHP_, "gates_final_recipe"),
-        ("token geometry missing", _J(token_geometry=None), FCP, (True, ""), RHP_, "gates_final_recipe"),
+        ("a warm (reused) stage", _J(stage={**_J()["stage"], "cold": False}), FCP, (True, ""), RHP_, "cold_allocation_startup_measured"),
+        ("only 64 production updates", _J(production_loop={**_J()["production_loop"], "updates": 64, "blocks": _J()["production_loop"]["blocks"][:2]}), FCP, (True, ""), RHP_, "production_updates_ge_200"),
         ("a staged hash mismatch", _J(stage={**_J()["stage"], "mismatches": ["x"]}), FCP, (True, ""), RHP_, "staged_hashes_eq_manifest"),
         ("7 of 8 batches equal", _J(staged_vs_lustre={"all_equal": False, "batches": 8}), FCP, (True, ""), RHP_, "staged_batches_byte_equal_lustre"),
-        ("peak 0.9 of the request", _J(memory={"peak_le_85pct": False, "peak_over_request": 0.9}), FCP, (True, ""), RHP_, "peak_memory_le_85pct"),
-        ("peak unreadable", _J(memory={"peak_le_85pct": None}), FCP, (True, ""), RHP_, "peak_memory_le_85pct"),
         ("no 2080 Ti scorer parity yet", _J(), FCP, (False, "no record"), RHP_, "scorer_parity_off_slice"),
         ("five valid donors", _J(), {**FCP, "donor_plan_ok": False}, (True, ""), RHP_, "six_valid_donors"),
-        ("rehearsal not byte-equal", _J(), FCP, (True, ""), {"pass": False, "why": "RGB differs"}, "panel_rehearsal_byte_equal"),
-        ("no rehearsal", _J(), FCP, (True, ""), None, "panel_rehearsal_byte_equal"),
+        ("rehearsal not byte-equal", _J(), FCP, (True, ""), {**RHP_, "pass": False}, "panel_rehearsal_byte_equal"),
         ("12,900 updates (floor met, < 13,200)", _J(), {**FCP, "updates": 12900}, (True, ""), RHP_, "forecast_ge_13200_one_panel")):
-    rt_ = WP.retime_rules(J_, fc_, 144, sp_, rh_)
+    rt_ = WP.retime_rules(J_, fc_, CAN, sp_, rh_)
     check(f"re-time repro: {name_} -> rule {rule_} fails, overall FAIL", not rt_["all_pass"] and rule_ in rt_["failing"], rt_["failing"])
-su, si_ = WP.startup_for_forecast(_J(), 144)
-check("CONVERGED 7: start-up on the production list is used as measured from allocation (no 48 -> 144 extrapolation)",
-      su == 900.0 and not si_["extrapolated"] and si_["from_allocation"], (su, si_))
-su48, si48 = WP.startup_for_forecast(_J(train_drives=48), 144)
-check("CONVERGED 7: a 48-drive timing scales ONLY the stage-in by drives and is flagged extrapolated",
-      abs(su48 - (900 + 780 * 2)) < 1e-9 and si48["extrapolated"], (su48, si48))
-TJok = {"selected_setting": {"micro": 1, "grad_ckpt": 0}, "retime_pass": {"all_pass": True}}
-check("CONVERGED 7: overfit / train allowed only with the selected setting and an all-pass re-time", WP.retime_gate(TJok, 1, 0)[0])
+# item 1: init inertness / early sensitivity definitions
+check("T1 item 1: init inert = guide exactly 0 and tokens within 1e-3 |v| at optimizer step 0",
+      WP.init_inert({"trained": {"finite": True, "guide": 0.0, "tokens": 1e-6, "v_abs": 1.0}})
+      and not WP.init_inert({"trained": {"finite": True, "guide": 1e-5, "tokens": 0.0, "v_abs": 1.0}})
+      and not WP.init_inert({"trained": {"finite": True, "guide": 0.0, "tokens": 0.01, "v_abs": 1.0}}))
+check("T1 item 1: timing probes the untouched init BEFORE any update, restores init weights + a fresh optimizer, then requires "
+      "check_sensitivity after exactly SENS_STEP optimizer steps", _trs.index("S0 = sens_probe()") < _trs.index("for gc in GCS:")
+      and "model.load_trainable(INIT_W); opt.load_state_dict(copy.deepcopy(INIT_OPT))" in _trs and "prec = probe(WP.SENS_STEP)" in _trs
+      and '"opt_step": opt_step(), "required_step": WP.SENS_STEP' in _trs and "update0_sensitivity" not in _trs)
+# item 2: per-tensor Adam deltas
+_rows = {"a": {"ref": 1.0, "diff": 0.01, "norm": 1.0}, "b": {"ref": 0.5, "diff": 0.001, "norm": 0.5}, "z": {"ref": 0.0, "diff": 0.0, "norm": 0.0}}
+check("T1 item 2: matching per-tensor Adam deltas pass", WP.delta_check(_rows)["ok"])
+check("T1 item 2 repro: a REVERSED update on one tensor (same loss / grad norm) fails", not WP.delta_check({**_rows, "b": {"ref": 0.5, "diff": 1.0, "norm": 0.5}})["ok"])
+check("T1 item 2 repro: a PERMUTED update (same norm, 30 % different) fails", not WP.delta_check({**_rows, "a": {"ref": 1.0, "diff": 0.3, "norm": 1.0}})["ok"])
+check("T1 item 2: a moved tensor whose reference did not move fails", not WP.delta_check({**_rows, "z": {"ref": 0.0, "diff": 0.1, "norm": 0.1}})["ok"])
+_mu2 = WP.matched_updates({"gc1_m1": {"loss": 0.5, "grad_norm": 1.0}, "gc0_m1": {"loss": 0.5, "grad_norm": 1.0}}, "gc1_m1")
+_mu2["rows"]["gc0_m1"]["ok"] = _mu2["rows"]["gc0_m1"]["ok"] and False  # delta failed
+check("T1 item 2: identical loss / grad norm but a failed delta -> not selectable",
+      WP.select_setting({"gc1_m1": {"micro": 1, "grad_ckpt": 1, "gpu_s": 3.6}, "gc0_m1": {"micro": 1, "grad_ckpt": 0, "gpu_s": 2.8}}, _mu2)["key"] == "gc1_m1")
+check("T1 item 2: timing compares per-tensor deltas after ONE Adam step from restored weights + optimizer state, releases the batch",
+      "opt.load_state_dict(copy.deepcopy(SNAP_OPT))" in _trs and "WP.delta_check(rows_t)" in _trs and "del BFIX, DREF, SNAP_W, SNAP_OPT" in _trs)
+# item 3: list identity
+check("T1 item 3: exact canonical 144 + 6 accepted", WP.check_lists(CAN["train"], CAN["dev"], CAN, "full")[0])
+for nm_, tr_, dv_, md_ in (("48 train drives (full mode)", CAN["train"][:48], CAN["dev"], "full"),
+                           ("143 + one duplicate", CAN["train"][:143] + CAN["train"][:1], CAN["dev"], "full"),
+                           ("a dev ID in the train list", CAN["train"][:143] + CAN["dev"][:1], CAN["dev"][1:], "full"),
+                           ("a gate subset with a dev drive among train", CAN["train"][:47] + CAN["dev"][:1], CAN["dev"], "gate")):
+    check(f"T1 item 3 repro: {nm_} -> refused", not WP.check_lists(tr_, dv_, CAN, md_)[0])
+check("T1 item 3: a gate subset inside its original splits is allowed", WP.check_lists(CAN["train"][:48], CAN["dev"], CAN, "gate")[0])
+check("T1 item 3: the trainer checks the lists against data/temporal_lists.json and the manifest split",
+      'WP.check_lists(list(LISTS["train"]), list(LISTS["dev"]), CANON' in _trs and '(MAN.get("split") or {}).get("train") != sorted(CANON["train"])' in _trs)
+# item 4: sweep evidence
+_swo = {**_sw(), "gc0_m4": {"micro": 4, "grad_ckpt": 0, "oom": "CUDA out of memory"}, "gc0_m8": {"micro": 8, "grad_ckpt": 0, "skipped_after_oom": "gc0_m4"}}
+check("T1 item 4: an OOM row with the larger micro marked skipped-after-OOM is complete evidence", WP.sweep_complete(_swo)[0])
+check("T1 item 4 repro: 'skipped' without an OOM at a smaller micro is not evidence",
+      not WP.sweep_complete({**_sw(), "gc0_m8": {"micro": 8, "grad_ckpt": 0, "skipped_after_oom": "gc1_m4"}})[0])
+check("T1 item 4: blocks_ok on 7 x 32 consecutive", WP.blocks_ok(_J()["production_loop"])[0])
+# item 5: forecast inputs
+check("T1 item 5: ledger evidence needs both timing allocations, this job included",
+      WP.ledger_evidence({"alloc-3756964-1-1": {"kind": "alloc_timing"}, "alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3760001")["ok"]
+      and not WP.ledger_evidence({"alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3760001")["ok"]
+      and not WP.ledger_evidence({"alloc-3756964-1-1": {"kind": "alloc_timing"}, "alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3770000")["ok"])
+_fsrc = open("scripts/wan_forecast.py").read()
+check("T1 item 5: a missing ledger refuses the forecast (never zero spend)", "a missing ledger is never zero spend" in _fsrc and "WP.ledger_evidence(" in _fsrc)
+# item 6
+check("T1 item 6: plan_fresh catches a skipped (reused) run", WP.plan_fresh([{"ticks_rendered": 174}, {"ticks_rendered": 0}], [174, 174])[0] is False
+      and WP.plan_fresh([{"ticks_rendered": 174}], [174])[0])
+_psrc = open("scripts/wan_panel.py").read()
+check("T1 item 6: rehearsal needs an empty folder, fresh ticks in both paths and the timing checkpoint's digest; render refuses reuse",
+      "a rehearsal must render fresh" in _psrc and "WP.plan_fresh(PF[\"runs\"], [n_r])" in _psrc and "CK_SHA16" in _psrc and "panel not rendered fresh" in _psrc)
+check("T1 item 6: a failed rehearsal fails the timing job", '[ $REH -ne 0 ] && { echo "REHEARSAL FAILED' in _tsh)
+# item 7
+su, si_ = WP.startup_for_forecast(_J())
+check("T1 item 7: start-up = sum of the selected recipe's measured production start components", su == 10.0 * len(WP.STARTUP_PARTS) and si_["complete"], (su, si_))
+check("T1 item 7: incomplete components -> no start-up (the forecast refuses)", WP.startup_for_forecast(_J(startup={"components": {"pre_trainer_s": 5.0}}))[0] is None)
+check("T1 item 7: timing measures frozen snapshot / first update incl. Adam / guard verify with production's own functions; geometry excluded",
+      "snap = frozen_snapshot()" in _trs and "guard_verify(0, snap)" in _trs and "SNAP0 = frozen_snapshot()" in _trs and "guard_verify(step, SNAP0)" in _trs
+      and "MRV_TIMING_ONLY_S" in _trs and "export MRV_TIMING_ONLY_S" in _tsh)
+# item 8
+check("T1 item 8: Slurm request from SLURM_MEM_PER_NODE / per-CPU / scontrol", WS.slurm_requested_bytes({"SLURM_MEM_PER_NODE": "148480"}) == 145 * (1 << 30)
+      and WS.slurm_requested_bytes({"SLURM_MEM_PER_CPU": "1024", "SLURM_CPUS_ON_NODE": "8"}) == 8 * (1 << 30)
+      and WS.slurm_requested_bytes({}, "JobId=1 MinMemoryNode=145G") == 145 * (1 << 30) and WS.slurm_requested_bytes({}, "") is None)
+mr_ = WP.memory_rule([140e9, None, 120e9], 145 * (1 << 30) * 0 + 145e9)
+check("T1 item 8 repro: 140 GB peak under a 2 TB ancestor limit but a 145 GB request -> FAIL (ratio over the request)",
+      WS.peak_rule(140e9, 2e12)[0] is True and mr_["pass"] is False and mr_["ratio"] > 0.85, mr_)
+check("T1 item 8: the largest of the allocation sampler, memory.peak and the trainer sampler is used; no request -> unknown",
+      WP.memory_rule([100e9, 120e9, None], 145e9)["peak"] == 120e9 and WP.memory_rule([100e9], None)["pass"] is None)
+with _tf.TemporaryDirectory() as td:
+    check("T1 item 8: job-level cgroup = the job_<id> ancestor", WS.job_cgroup_dir([("v2", "/sys/fs/cgroup/system.slice/slurmstepd.scope/job_77/step_batch/user/task_0")])
+          == ("v2", "/sys/fs/cgroup/system.slice/slurmstepd.scope/job_77"))
+check("T1 item 8: slurm starts the job-level sampler at allocation start, before staging; trainer divides by the request",
+      _tsh.index("mrv.wan_stage sample") < _tsh.index("run_fg $T") and "MEM_REQUEST = WS.slurm_requested_bytes()" in _trs
+      and "WP.memory_rule([AS.get(\"peak\"), AS.get(\"max_current\"), CG[\"peak\"], SAMP], MEM_REQUEST)" in _trs)
+# item 9: reused staged files are rehashed
+with _tf.TemporaryDirectory() as td:
+    R9, W9 = _fixture(td)
+    mp9 = f"{td}/m/manifest.json"; os.makedirs(f"{td}/m"); _vm(td, R9, W9, mp9); man9, msha9 = WS.load_manifest(mp9)
+    roots9 = {k: WS.norm(v) for k, v in R9.items()}
+    st9 = f"{td}/stage"; os.makedirs(st9)
+    jobs9, _ = WS.stage_plan(man9, ["scene-0001"], roots9, st9)
+    r1_ = WS.stage_reuse(jobs9, f"{st9}/STAGED.json", "J1", msha9)
+    tgt = [j for j in jobs9 if j[1].endswith("tokens/scene-0001.pt")][0][1]
+    b9 = bytearray(open(tgt, "rb").read()); b9[3] ^= 1; open(tgt, "wb").write(bytes(b9))  # same-size edit between resume legs
+    r2_ = WS.stage_reuse(jobs9, f"{st9}/STAGED.json", "J1", msha9)
+    check("T1 item 9 repro: a same-size edit of a staged file between legs is re-hashed, detected and recopied",
+          r1_["cold"] and r2_["rehashed_files"] == len(jobs9) and r2_["recopied_after_rehash"] == 1 and r2_["reused_files"] == len(jobs9) - 1
+          and all(WS.sha256_file(j[1]) == j[2] for j in jobs9), (r2_["rehashed_files"], r2_["recopied_after_rehash"]))
+    r3_ = WS.stage_reuse(jobs9, f"{st9}/STAGED.json", "J2", msha9)
+    check("T1 item 9: another job id never reuses (full copy + hash)", r3_["reused_files"] == 0 and r3_["files"] == len(jobs9))
+    _r = _sp.run([sys.executable, "-m", "mrv.wan_stage", "copy", "--manifest", mp9, "--dst", f"{td}/geom", f"{R9['guides']}/scene-0001.pt", f"{R9['tokens']}/scene-0001.pt"],
+                 capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    check("T1 item 9: geometry inputs copied + hashed against the manifest", _r.returncode == 0 and os.path.exists(f"{td}/geom/wan_tok_v1/scene-0001.pt"), _r.stderr[-200:])
+    b9 = bytearray(open(f"{R9['guides']}/scene-0002.pt", "rb").read()); b9[0] ^= 1; open(f"{R9['guides']}/scene-0002.pt", "wb").write(bytes(b9))
+    _r = _sp.run([sys.executable, "-m", "mrv.wan_stage", "copy", "--manifest", mp9, "--dst", f"{td}/geom2", f"{R9['guides']}/scene-0002.pt"],
+                 capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    check("T1 item 9 repro: a geometry guide file that differs from the manifest is refused", _r.returncode != 0)
+check("T1 item 9: the trainer stages through stage_reuse (re-hash) and the geometry check reads the hashed copies",
+      "WS.stage_reuse(_jobs, _RECEIPT" in _trs and "--guides $GEOM/guides_v1 --tokens $GEOM/wan_tok_v1" in _tsh)
+# item 11 (gate): evidence identity + refreshed forecast
+TJok = {"selected_setting": {"micro": 1, "grad_ckpt": 0}, "retime_pass": {"all_pass": True}, "evidence_sha": "E",
+        "forecast_final": {"evidence_sha": "E", "inputs": {**T_, "n_panels": 1, "done_kinds": []}}}
+check("CONVERGED 7: overfit / train allowed only with the selected setting and an all-pass re-time", WP.retime_gate(TJok, 1, 0, evidence="E")[0])
 for nm_, tj_, mc_, gc_ in (("micro mismatch", TJok, 8, 0), ("grad_ckpt mismatch", TJok, 1, 1),
                            ("re-time failed", {**TJok, "retime_pass": {"all_pass": False, "failing": ["x"]}}, 1, 0),
                            ("legacy timing.json (no selection)", {"retime_pass": {"all_pass": True}}, 1, 0), ("no retime_pass block", {"selected_setting": TJok["selected_setting"]}, 1, 0)):
     check(f"CONVERGED 7 repro: {nm_} -> overfit / resume test / train refused", not WP.retime_gate(tj_, mc_, gc_)[0])
 check("CONVERGED 7: the trainer gates every non-timing mode on the re-time and the timing's gate key",
-      "WP.retime_gate(TJ, a.micro, a.grad_ckpt)" in _trs and 'TJ.get("gate_key") != GATE_KEY' in _trs)
+      "WP.retime_gate(TJ, a.micro, a.grad_ckpt" in _trs and 'TJ.get("gate_key") != GATE_KEY' in _trs)
 
 # panel cost: rendering only, one model load; scoring priced separately with its cap
 check("F3: slice panel cost = ONE load + 5 x ticks x 2 seeds at the load-once rate (+ shared references)",

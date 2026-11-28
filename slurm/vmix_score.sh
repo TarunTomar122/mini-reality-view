@@ -23,7 +23,7 @@ cont() {  # stage-2 resume 12k -> 16k (caller holds the gate lock and has checke
     [ "$STEP" = 12000 ] || { echo "SCORE_FAIL runs/vmix/ckpt.pt step $STEP != 12000"; exit 1; }
     RHO=$(grep -o " rho=[0-9.]*" $G2/SUBMITTED | cut -d= -f2); GREC=$(grep -o " gate=[^ ]*" $G2/SUBMITTED | cut -d= -f2)
     CREC=$(grep -o " cache_record=[^ ]*" $G2/SUBMITTED | cut -d= -f2)
-    case "$RHO" in 1.0|0.95) ;; *) echo "SCORE_FAIL no rho in SUBMITTED"; exit 1;; esac
+    [ "$RHO" = 1.0 ] || { echo "SCORE_FAIL rho '$RHO' in SUBMITTED: this path assumes rho 1.0 (signed A as own cold) (Neon 04:30)"; exit 1; }
     [ -s "$GREC" ] && [ -s "$CREC" ] || { echo "SCORE_FAIL gate / cache record from SUBMITTED missing ($GREC, $CREC)"; exit 1; }
     echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING && [ -s $G2/CONT_PENDING ] || { echo "SCORE_FAIL cannot write the continuation intent"; exit 1; }
     J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=3:00:00 -J vmix -o logs2/%x-%j.out \

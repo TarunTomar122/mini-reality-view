@@ -162,7 +162,15 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <img src="figs/vpriv_2k.png" alt="2k check: private-noise version is less jumpy than A on car jumps and much less than the first live model at 2k" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
     <p class="small">Blue = private-noise version at 2k, grey = the first live model at 2k. Below zero = smoother. Look-only: the bars that count start at 8k. Car accuracy is near its limit (0.417 vs A 0.446; allowed down to 0.416) and more fake cars linger (12 vs 4 per drive).</p>
 
-    <h3>Watch it (live model at 16k)</h3>
+    <h3>Watch it: private-noise version at 2k (look-only)</h3>
+    <div class="vids">
+      <figure><video src="videos/scene-0396_vpriv2k.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Panels: game answer key | A (no memory) | A with memory off at noise 0.95 | private-noise version at 2k.</figcaption></figure>
+      <figure><video src="videos/scene-0234_vpriv2k.mp4" controls muted loop playsinline preload="metadata"></video>
+        <figcaption>Turn past parked cars, same panels.</figcaption></figure>
+    </div>
+
+    <h3>Watch it (first live model at 16k)</h3>
     <div class="vids">
       <figure><video src="videos/scene-0396_vlive16k.mp4" controls muted loop playsinline preload="metadata"></video>
         <figcaption>Road lined with parked cars. Panels: game answer key | A (no memory) | A with memory off at the same noise | live model at 16k. The live model's cars come out paler and it drops the person on the left; look for flicker between frames.</figcaption></figure>
@@ -201,7 +209,7 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <path d="M644 65 H672" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="676" y="30" width="194" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5" stroke-dasharray="5 4"/>
   <text x="773" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Make it fast</text>
-  <text x="773" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">now 3.4 s/frame · goal 0.1 s</text>
+  <text x="773" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">now 1.6 s/frame (0.3 s at 4 steps) · goal 0.1 s</text>
   <text x="440" y="125" text-anchor="middle" font-size="12" fill="var(--ink-3)">bars from 8k: &gt;9.4% smoother than A, cars within 0.03 of A, drift &lt;= +0.03 · two misses in a row stop</text>
   </svg></div>
 <!--/PLAN-->

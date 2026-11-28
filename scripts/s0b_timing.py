@@ -15,7 +15,8 @@ from transformers import AutoModelForDepthEstimation
 
 dev = "cuda"; W = "Wan-AI/Wan2.1-T2V-1.3B-Diffusers"
 bf16 = torch.cuda.is_bf16_supported(including_emulation=False); DT = torch.bfloat16 if bf16 else torch.float16
-res = {"gpu": torch.cuda.get_device_name(), "dtype": str(DT)}
+free_, total_ = torch.cuda.mem_get_info()
+res = {"gpu": torch.cuda.get_device_name(), "gpu_total_gb": round(total_ / 1e9, 1), "sm_count": torch.cuda.get_device_properties(0).multi_processor_count, "dtype": str(DT)}  # MIG slice vs full GPU (Neon 06:30)
 
 
 def timed(fn, n=20, warm=3):
@@ -26,7 +27,7 @@ def timed(fn, n=20, warm=3):
     ts.sort(); return ts[len(ts) // 2], out
 
 
-tf = WanTransformer3DModel.from_pretrained(W, subfolder="transformer", torch_dtype=DT).to(dev).eval()
+tf = WanTransformer3DModel.from_pretrained(W, subfolder="transformer", torch_dtype=DT, local_files_only=True).to(dev).eval()
 res["transformer_params_M"] = round(sum(p.numel() for p in tf.parameters()) / 1e6, 1)
 ctx = torch.randn(1, 256, 4096, device=dev, dtype=DT)
 for F in (1, 2, 5):
@@ -39,7 +40,7 @@ for F in (1, 2, 5):
         print(F, rows, res[f"tf_F{F}_rows{rows}"], flush=True)
 del tf; torch.cuda.empty_cache()
 
-vae = AutoencoderKLWan.from_pretrained(W, subfolder="vae", torch_dtype=torch.float32).to(dev).eval()
+vae = AutoencoderKLWan.from_pretrained(W, subfolder="vae", torch_dtype=torch.float32, local_files_only=True).to(dev).eval()
 with torch.no_grad():
     z1 = torch.randn(1, 16, 1, 32, 64, device=dev); z2 = torch.randn(1, 16, 2, 32, 64, device=dev)
     res["vae_decode_1latent_ms"] = round(timed(lambda: vae.decode(z1).sample, n=10)[0], 1)
@@ -48,8 +49,8 @@ with torch.no_grad():
     res["vae_encode_5frames_ms"] = round(timed(lambda: vae.encode(v5).latent_dist.mode(), n=10)[0], 1)
 del vae; torch.cuda.empty_cache()
 
-for name, rid in (("depth_metric_outdoor_small", "depth-anything/Depth-Anything-V2-Metric-Outdoor-Small-hf"), ("depth_small", "depth-anything/Depth-Anything-V2-Small-hf")):
-    m = AutoModelForDepthEstimation.from_pretrained(rid, torch_dtype=torch.float16).to(dev).eval()
+for name, rid in (("depth_metric_vkitti_small", "depth-anything/Depth-Anything-V2-Metric-VKITTI-Small-hf"), ("depth_small", "depth-anything/Depth-Anything-V2-Small-hf")):
+    m = AutoModelForDepthEstimation.from_pretrained(rid, torch_dtype=torch.float16, local_files_only=True).to(dev).eval()
     x = torch.randn(6, 3, 294, 518, device=dev, dtype=torch.float16)  # 6 views, multiple of 14
     with torch.no_grad():
         res[name + "_6views_ms"] = round(timed(lambda: m(pixel_values=x).predicted_depth)[0], 1)

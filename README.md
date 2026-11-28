@@ -20,7 +20,7 @@ and its surroundings, seen from a camera floating behind it, comes out. Drawn by
 | 4 | Real photos in, clean game-style third-person view out (single-frame model "A") | done |
 | 5 | Smooth video with a one-frame memory on top of A | closed: smoother, but drift and car mistakes grew |
 | 6 | Live video by bolting small time layers onto the frozen image model | closed: see below |
-| 7 | **Switch to a real pretrained video model (~1.3-2B), made live and camera-conditioned** | **planning now** |
+| 7 | **Switch to a real pretrained video model (Wan 2.1, 1.3B), made live and camera-conditioned** | **plan signed, first checks running** |
 
 **Now (28 Nov):** we stopped trying to turn an image model into a video model. Two overnight runs added time layers to
 the frozen Stable Diffusion model A: with shared noise it got 58% jumpier than A; with private noise it got smoother
@@ -28,8 +28,8 @@ the frozen Stable Diffusion model A: with shared noise it got 58% jumpier than A
 rule stopped it. These layers only compare the same pixel across frames, while everything in a driving view moves, and
 they start from nothing with about 4 hours of driving to learn from. The next step is a model that has already learned
 motion from millions of videos (open-weight, about 1.3 to 2 billion parameters, e.g. Wan 2.1 1.3B, LTX-Video 2B or
-Cosmos-Predict2 2B), conditioned on our six cameras and made causal and fast for live use. A research council is
-choosing the backbone and the plan ([brief](council/pivot-video-r1.md)); A stays as the single-frame reference and
+Cosmos-Predict2 2B), conditioned on our six cameras and made causal and fast for live use. The research council chose Wan 2.1 (1.3B) and a
+camera-geometry-first way to feed it our six cameras ([plan](council/PLAN-video.md)); A stays as the single-frame reference and
 the signed smoothness / accuracy / drift checks stay the same.
 
 ## The problem

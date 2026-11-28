@@ -1,4 +1,4 @@
-# PLAN-video (DRAFT for signature) — pretrained video model pivot, 28 Nov ~06:40 UTC
+# PLAN-video — pretrained video model pivot (drafted 28 Nov ~06:24 UTC; SIGNED by Astra + Fable ~06:30; earlier '~06:40 / 06:50' labels in this file were ahead of the clock — Neon)
 Sources: council/pivot-video-r1{,-astra,-fable,-neon}.md, council/pivot-cond-r1{,-astra,-fable,-neon}.md. Owner directives: pivot
 to a ~1.3-2B pretrained video model with a deep council plan; "make sure we find the best way to connect our images to the video
 model dont try to reuse and loose".
@@ -44,7 +44,7 @@ S3 few-step distillation (2-4 steps) + small decoder; live timing (p50 / p95 cam
 3. S1 budget, resolution (512x256 vs a Wan-native size) and LoRA rank / which blocks train.
 4. Kill thresholds for S1 / S2 in hours.
 
-## SIGNATURE ROUND RESULT (28 Nov ~06:50 UTC) — supersedes the open points above
+## SIGNATURE ROUND RESULT (28 Nov ~06:30 UTC) — supersedes the open points above
 Sources: PLAN-video-{astra,fable}.md, PLAN-video-swap-{astra,fable}.md. Fable's corrections C1-C9 accepted by both seats (tie rule
 as Fable revised; S0c keeps the LiDAR-depth ceiling arm, wrong-drive control and "still improving -> unresolved" rule; lag = 300 ms
 first-to-fourth-tick wait at 10 Hz + compute (est. 0.4-0.5 s on a 4090, 0.6-0.7 s on a 2080 Ti; S0b measures); per-tick still
@@ -69,11 +69,11 @@ too). Builder merge of the final numbers (Fable's final = midpoint inside the ra
 - OWNER DECISION before S1 (after S0 numbers): latency contract (native 4-tick groups ~0.4-0.7 s behind vs per-tick stills).
 - All hour caps are restated in updates once S0b measures the rate. Worst case ~4-5 days on one slice (Fable estimate).
 
-## OWNER DECISION — latency contract (28 Nov ~06:35 UTC, verbatim): "im okay with the delay go go go"
+## OWNER DECISION — latency contract (28 Nov ~06:30 UTC, verbatim): "im okay with the delay go go go"
 Native Wan 4-tick latent groups are accepted: 10 Hz playback with a fixed lag (~0.3 s group wait + compute; S0b measures). The
 per-tick still mode is no longer required (kept only as an S0a measurement). S1 proceeds with native 17-tick clips.
 
-## Neon fact check (council/PLAN-video-neon.md, 28 Nov ~06:50)
+## Neon fact check (council/PLAN-video-neon.md, 28 Nov ~06:35)
 - Wan2.1 VAE confirmed: 4x temporal, 8x8 spatial, 16 latent channels, 1+4k frames; DiT patch [1,2,2] -> 16x16 px tokens.
 - Licences: nuScenes is CC BY-NC-SA 4.0 + Motional terms -> every nuScenes-trained checkpoint (S1-S3) is NON-COMMERCIAL with
   attribution. Depth: use "Depth-Anything-V2-Metric-VKITTI-Small" (Apache-2.0 tag; VKITTI2 data itself is NC); the untagged
@@ -82,3 +82,10 @@ per-tick still mode is no longer required (kept only as an S0a measurement). S1 
   our 40 slice-hours are viable only because 512x256x17f is ~12.8x fewer tokens and our teacher is 1.3B; the causal ODE-init is
   budgeted INSIDE S2's 40 h; gradient accumulation to a global batch ~32-64; S0b / pre-S2 must time the 3-network DMD / SiD step
   on 71 GB.
+
+## Notes recorded with the signatures (Fable final sign; Neon 06:30)
+- S1 floor = 12k updates at batch 8 (global batch via accumulation); after the 12 h extension the pass bar stays car F1 >= A
+  (0.4456): still below A -> stop and re-council.
+- S0a reading (Fable 06:30): the informative comparison is Wan round trip vs the SD round trip / the key itself scored DIRECTLY on
+  RGB (scripts/score_rgb.py, unchanged signed scorer): a Wan drop of > 0.03 car F1 or more flicker vs the key = problem.
+- S0c is not a launch gate for S1 (S1 trains both inputs with input dropout).

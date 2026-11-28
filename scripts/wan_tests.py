@@ -131,6 +131,27 @@ check("forecast skips charged kinds", "overfit_h" not in WP.forecast_s1({**T_, "
 check("forecast floor flag", WP.forecast_s1({**T_, "wall_s": 7.0})["floor_12k_reachable"] is False)
 check("panel cost", abs(WP.panel_cost_h(1000, 0.5, 60, 1.0, 120) - (5 * (60 + 500) + 8 * (120 + 1000)) / 3600) < 1e-9)
 
+# --- joint dropout / overfit reading (Fable 07:30) ----------------------------------------------------------------------
+import random as _r
+_r.seed(0); U = [_r.random() for _ in range(200000)]
+gd, td = WP.drop_masks(U, 0.10, 0.10, 0.10)
+both = sum(1 for g_, t_ in zip(gd, td) if g_ and t_) / len(U); gm = sum(gd) / len(U); tm = sum(td) / len(U)
+check("joint dropout: both 10 %, guide 20 %, tokens 20 %", abs(both - 0.10) < 0.005 and abs(gm - 0.20) < 0.005 and abs(tm - 0.20) < 0.005, (both, gm, tm))
+gd0, td0 = WP.drop_masks(U[:1000], 0, 0, 0)
+check("joint dropout: all zero shares drop nothing", not any(gd0) and not any(td0))
+try:
+    WP.drop_masks([0.5], 0.5, 0.4, 0.2); ok_ = False
+except ValueError:
+    ok_ = True
+check("joint dropout: shares over 1 refused", ok_)
+H = [(i * 100, 1.0 - 0.01 * i) for i in range(21)]
+check("overfit: both gates -> PASS", WP.overfit_status(1.0, H, True, True, True) == "PASS")
+check("overfit: loss missed, still falling -> NOT_REACHED", WP.overfit_status(1.0, H, False, False, True).startswith("NOT_REACHED"))
+check("overfit: loss missed, placement passing -> NOT_REACHED", WP.overfit_status(1.0, [(0, 1.0), (100, 1.0)], False, True, True).startswith("NOT_REACHED"))
+check("overfit: loss flat and placement failing -> FAIL", WP.overfit_status(1.0, [(i * 100, 0.5) for i in range(10)], False, False, True) == "FAIL")
+check("overfit: loss ok but placement failing -> FAIL", WP.overfit_status(1.0, H, True, False, True) == "FAIL")
+check("overfit: no round-trip cars -> FAIL", WP.overfit_status(1.0, H, True, True, False).startswith("FAIL"))
+
 # --- split membership (S1b item 2) --------------------------------------------------------------------------------------
 LS = {"train": ["scene-0001", "scene-0002"], "dev": ["scene-0010"], "decision": ["scene-0100"], "final": ["scene-0200"]}
 check("splits: train + dev accepted", WP.check_split_membership(["scene-0001", "scene-0010"], LS) == ["scene-0001", "scene-0010"])

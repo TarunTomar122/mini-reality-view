@@ -1,9 +1,11 @@
 #!/bin/bash
+#SBATCH --signal=B:USR1@300
 # PLAN-video S1: Wan2.1-T2V-1.3B bidirectional teacher on the H200-3g slice (docs/PLAN-video-impl.md). EVERY mode debits the
 # S1 ledger runs/wan_s1_ledger.jsonl (24 h S1 budget incl. timing, bug gate, resume test, panels; Astra item 11).
 #   MODE=timing     : trainer timing sweep (global batch 8, microbatch 1/2/4/8, peak alloc / reserved, probe, save, window, VAE),
 #                     then one 81-tick dev rollout + the RGB scorer on it, each timed  -> runs/wan_timing_<job>/
-#   MODE=overfit    : bug gate: 8 distinct clips, 2,000 updates, fixed-noise eval + decoded placement check (exit 4 = FAIL)
+#   MODE=overfit    : bug gate: 8 distinct clips, 2,000 updates, fixed-noise eval + decoded placement check, hybrid + tokens-only
+#                     + none samples (exit 0 PASS, 6 NOT_REACHED = rerun longer / lr 3e-4, 4 FAIL)
 #   MODE=resume_test: 16 updates uninterrupted vs 8 + resume 8; scripts/wan_resume_check.py must pass
 #   MODE=train      : the S1 run, runs/wan_s1, resumable; stops when ledger + 2 h panel reserve reaches 24 h
 #   MODE=extend     : the one signed 12 h extension (budget 36 h), only after the 24 h panel said EXTEND
@@ -25,7 +27,22 @@ export WAN_LEDGER_OUTER=1
 $PY -m mrv.wan_plan beat $LEDGER alloc_$MODE & BEAT=$!
 stop_beat() { kill -TERM $BEAT 2>/dev/null; wait $BEAT 2>/dev/null; }
 trap stop_beat EXIT
-trap 'stop_beat; exit 143' TERM INT
+# Fable 07:30: Slurm sends USR1 to this shell 300 s before the time limit (#SBATCH --signal above; pass it on the sbatch line
+# too if you override the script header); it and TERM are forwarded to the running trainer, which saves an atomic rolling
+# checkpoint at its next update boundary and exits cleanly (< 1 update lost); resubmit with the same line (--resume).
+TPID=
+on_sig() {
+  if [ -n "$TPID" ] && kill -0 $TPID 2>/dev/null; then echo "forwarding $1 to trainer $TPID"; kill -$1 $TPID
+  elif [ "$1" != USR1 ]; then stop_beat; exit 143; fi
+}
+trap 'on_sig USR1' USR1
+trap 'on_sig TERM' TERM
+trap 'on_sig INT' INT
+run_fg() {  # run in the background and wait, so the shell can forward signals while the trainer runs
+  "$@" & TPID=$!; local rc
+  while :; do wait $TPID; rc=$?; kill -0 $TPID 2>/dev/null || break; done
+  TPID=; return $rc
+}
 $PY scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
 T="$PY scripts/train_wan_teacher.py --ledger $LEDGER"
 case $MODE in
@@ -52,14 +69,14 @@ P
     $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER
     rc=$? ;;
   overfit)
-    $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_guide_drop 0 --p_tok_drop 0 --p_holes 0 \
-       --val_every 0 --save_every 1000 "$@"; rc=$? ;;
+    run_fg $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_both 0 --p_guide_only 0 --p_tok_only 0 --p_holes 0 \
+       --val_every 0 --save_every 500 "$@"; rc=$? ;;
   resume_test)
     A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
-    $T --out $A $C "$@" && $T --out $B $C --max_steps_this_job 8 "$@" && $T --out $B $C --resume "$@" \
+    run_fg $T --out $A $C "$@" && run_fg $T --out $B $C --max_steps_this_job 8 "$@" && run_fg $T --out $B $C --resume "$@" \
       && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt; rc=$? ;;
-  train)  $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_hours 2 --resume "$@"; rc=$? ;;
-  extend) $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_hours 1 --resume "$@"; rc=$? ;;
+  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_hours 2 --resume "$@"; rc=$? ;;
+  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_hours 1 --resume "$@"; rc=$? ;;
   *) echo "unknown MODE=$MODE"; exit 2 ;;
 esac
 echo "end $(date -u) rc=$rc"

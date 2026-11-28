@@ -42,6 +42,38 @@ def check_split_membership(drives, lists, allowed=("train", "dev"), unseal=False
     return list(drives)
 
 
+# ------------------------------------------------------------------------------------------------------------ dropout
+def drop_masks(u, p_both, p_guide_only, p_tok_only):
+    """JOINT input dropout (Fable 07:30 c1): one uniform u per clip picks exactly one of: both dropped (the unconditional
+    branch CFG / S2 distillation need), guide dropped only, tokens dropped only, nothing dropped. Returns (gdrop, tdrop) lists.
+    Marginals: guide p_both + p_guide_only, tokens p_both + p_tok_only."""
+    if min(p_both, p_guide_only, p_tok_only) < 0 or p_both + p_guide_only + p_tok_only > 1:
+        raise ValueError("drop shares must be >= 0 and sum to <= 1")
+    g, t = [], []
+    for x in u:
+        both = x < p_both
+        go = p_both <= x < p_both + p_guide_only
+        to = p_both + p_guide_only <= x < p_both + p_guide_only + p_tok_only
+        g.append(bool(both or go)); t.append(bool(both or to))
+    return g, t
+
+
+def overfit_status(loss0, hist, loss_ok, f1_ok, rt_ok, falling_window=3):
+    """pre-registered overfit reading (Fable 07:30): PASS = both declared gates; NOT_REACHED (not a bug: rerun longer / lr 3e-4)
+    = the loss gate missed while the placement gate passed, or while the fixed-noise eval loss was still falling (each of the
+    last `falling_window` evals, 100 updates apart, below the one before); FAIL otherwise (and always if the round trip found
+    no cars: the check could not run)."""
+    if not rt_ok:
+        return "FAIL (round trip found no cars: placement check invalid)"
+    if loss_ok and f1_ok:
+        return "PASS"
+    vals = [v for _, v in hist]
+    falling = len(vals) > falling_window and all(vals[-k] < vals[-k - 1] for k in range(1, falling_window + 1))
+    if not loss_ok and (f1_ok or falling):
+        return "NOT_REACHED (loss ratio missed with " + ("placement passing" if f1_ok else "loss still falling") + "): rerun longer / lr 3e-4"
+    return "FAIL"
+
+
 # ------------------------------------------------------------------------------------------------------------ segments
 def segments(ticks, hard):
     """maximal runs of non-hard ticks with consecutive tick ids (seq changes at soft rejects do NOT break a run)"""

@@ -167,6 +167,32 @@ Adam moments).
 Below 12k updates the result is unresolved. The 24 h read happens once (marker `runs/wan_s1/S1_24H_DECISION.json`). The final
 read requires that marker to say EXTEND, and the bar stays 0.4456.
 
+## Before MODE=train (Fable 07:30)
+
+**Save on signal.** The trainer catches SIGTERM and SIGUSR1. It writes the atomic rolling checkpoint at the next update
+boundary and exits cleanly, so a time limit loses less than one update. `slurm/wan_teacher.sh` asks Slurm for USR1 300 s before
+the limit (`#SBATCH --signal=B:USR1@300`) and forwards USR1 / TERM to the trainer (it runs in the background under
+`run_fg`). Timing is unchanged.
+
+**Joint dropout.** One draw per clip, defaults `--p_both 0.10 --p_guide_only 0.10 --p_tok_only 0.10`, recorded in
+`args.json` → `dropout`.
+- Marginals: guide 20% (as signed in C9), tokens 20% (signed: 10%).
+- The both-dropped case (the CFG / S2 unconditional branch) rises from 2% to 10%.
+- The token marginal has to exceed the both share, or the tokens-dropped / guide-kept case (the guide-only ablation) would
+  never be trained.
+
+**Overfit controls.** The same 8 clips and noise are also sampled tokens-only and with no inputs, and car F1 is reported for
+all three. The gate itself is read on hybrid. Pre-registered:
+- the loss ratio is missed while placement passes, or while the fixed-noise eval loss is still falling (each of the last 3
+  evals below the one before) → `NOT_REACHED`, exit 6: rerun longer or with lr 3e-4. This is not a bug.
+- `FAIL` is exit 4.
+
+The eval history is saved in every checkpoint. If a signal or budget stop ends the run before 2,000 updates, it reads as
+`OVERFIT_PENDING`.
+
+**Text slot.** The default is still one zero row. The trainer logs a NOTE (also stored in `args.json` → `prompt_note`)
+suggesting an off-cluster umT5 embedding of a plain scene caption via `--prompt_embed` before production.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

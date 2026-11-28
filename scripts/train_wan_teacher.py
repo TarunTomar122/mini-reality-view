@@ -12,8 +12,12 @@ Recipe
 - objective: rectified flow (x_s = (1 - s) x0 + s eps, v = eps - x0, timestep 1000 s), MSE fp32; one sigma per clip,
   shifted-uniform with shift --shift 2.0 (Wan 480p uses 3.0 for 32.8k tokens; the SD3 sqrt(token) rule gives 1.7 per frame /
   0.84 per clip for our 2,560; kept above the rule because car placement is decided at high noise; median sigma 0.67).
-- dropout, independent per clip: guide 20 % (latent + source planes zeroed), else holes w.p. 0.5; tokens 10 %. Updates 1 and 2
-  (absolute steps 0 / 1) use NO dropout / holes, so the first-update guard and the gate-open gradient check are deterministic.
+- JOINT input dropout (Fable 07:30): one draw per clip -> both dropped --p_both 0.10 (the unconditional branch CFG / S2 need;
+  independent 20 % / 10 % gave only 2 %), guide only --p_guide_only 0.10, tokens only --p_tok_only 0.10 (marginals guide 20 %,
+  tokens 20 %; recorded in args.json "dropout"); a kept guide gets holes w.p. 0.5. Updates 1 and 2 (absolute steps 0 / 1) use
+  NO dropout / holes, so the first-update guard and the gate-open gradient check are deterministic.
+- signals: SIGTERM / SIGUSR1 (slurm/wan_teacher.sh asks Slurm for USR1 300 s before the time limit and forwards it) -> atomic
+  rolling checkpoint at the next update boundary, clean exit (WAN_TEACHER_SIGNAL_STOP), resume with --resume.
 - trainable: LoRA r32 on the 10 targets x 30 blocks (asserted) + extra patch conv + projector + gates, fp32, seeded init; base
   bf16 + VAE frozen. AdamW 1e-4, no weight decay, 500-update warm-up, clip 1.0, bf16 autocast, per-block checkpointing,
   global batch 8 (--micro < 8 = accumulation).
@@ -41,7 +45,9 @@ Modes
 - --overfit 8 (item 8): 8 DISTINCT fixed clips (6 mid-stream + 2 true starts) as every batch; fixed-noise / fixed-sigma eval of
   the SAME 8 every 100 updates; PASS = final eval loss <= --overfit_ratio (0.25) x the update-0 eval loss AND decoded samples
   (30 Euler steps, hybrid) reach car F1 >= --overfit_f1_frac (0.8) x the Wan-VAE round-trip car F1 against the keys (signed
-  scorer's segmentation + 0.3 matcher), the round trip itself > 0; both gates read at update 2,000 only (--steps 2000 required;
+  scorer's segmentation + 0.3 matcher), the round trip itself > 0; tokens-only and none samples of the same 8 clips / noise are
+  reported as controls; pre-registered: a missed loss ratio with placement passing or a still-falling eval loss = NOT_REACHED
+  (exit 6: rerun longer / lr 3e-4), not a bug; both gates read at update 2,000 only (--steps 2000 required;
   a shorter job prints OVERFIT_PENDING and resumes); the update-0 eval loss is stored in every checkpoint; sampling runs in the
   fitting microbatch -> overfit.json, exit 4 on FAIL.
   python scripts/train_wan_teacher.py --out runs/wan_s1 --steps 40000 --budget_hours 24 --ledger runs/wan_s1_ledger.jsonl --resume
@@ -73,8 +79,9 @@ p.add_argument("--warmup", type=int, default=500)
 p.add_argument("--shift", type=float, default=2.0)
 p.add_argument("--sigma_dist", default="shifted_uniform", choices=["shifted_uniform", "logit_normal"])
 p.add_argument("--p_start", type=float, default=0.15)
-p.add_argument("--p_guide_drop", type=float, default=0.2)
-p.add_argument("--p_tok_drop", type=float, default=0.1)
+p.add_argument("--p_both", type=float, default=0.10, help="joint dropout: both inputs dropped (unconditional branch for CFG / S2)")
+p.add_argument("--p_guide_only", type=float, default=0.10, help="joint dropout: guide dropped, tokens kept")
+p.add_argument("--p_tok_only", type=float, default=0.10, help="joint dropout: tokens dropped, guide kept")
 p.add_argument("--p_holes", type=float, default=0.5)
 p.add_argument("--save_every", type=int, default=500)
 p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,16000,20000,24000,28000,32000,36000,40000")
@@ -231,8 +238,8 @@ def make_batch(step):
     pm = torch.randint(0, len(MID), (B,), generator=g).tolist(); ps = torch.randint(0, max(1, len(START)), (B,), generator=g).tolist()
     sig = sample_sigma(g, B)
     eps = torch.randn(B, 16, NL, 32, 64, generator=g)
-    gdrop = torch.rand(B, generator=g) < a.p_guide_drop
-    tdrop = torch.rand(B, generator=g) < a.p_tok_drop
+    gd_, td_ = WP.drop_masks(torch.rand(B, generator=g).tolist(), a.p_both, a.p_guide_only, a.p_tok_only)  # joint dropout
+    gdrop, tdrop = torch.tensor(gd_), torch.tensor(td_)
     holes = torch.rand(B, generator=g) < a.p_holes
     hole_boxes = [[(int(torch.randint(3, 13, (1,), generator=g)), int(torch.randint(4, 25, (1,), generator=g)),
                     float(torch.rand(1, generator=g)), float(torch.rand(1, generator=g))) for _ in range(3)] for _ in range(B)]
@@ -260,6 +267,13 @@ def make_batch(step):
 
 # --------------------------------------------------------------------------------------------------------- model
 prompt = torch.load(a.prompt_embed, map_location="cpu") if a.prompt_embed else None
+PROMPT_NOTE = (f"text slot = cached embedding {a.prompt_embed}" if a.prompt_embed else
+               "text slot = ONE all-zero 4096-d row (default; stock Wan never saw an all-zero prompt: Fable 07:30 suggests an "
+               "off-cluster umT5 embedding of a plain scene caption via --prompt_embed before MODE=train)")
+print("NOTE", PROMPT_NOTE, flush=True)
+DROP = {"p_both": a.p_both, "p_guide_only": a.p_guide_only, "p_tok_only": a.p_tok_only, "guide_marginal": a.p_both + a.p_guide_only,
+        "tokens_marginal": a.p_both + a.p_tok_only, "holes_if_guide_kept": a.p_holes, "updates_1_2": "no dropout (guards)"}
+WP.drop_masks([0.5], a.p_both, a.p_guide_only, a.p_tok_only)  # validates the shares
 model, DIAG = WC.build(a.wan, rank=a.rank, tok_ticks=a.tok_ticks, use_tokens=bool(a.use_tokens), dtype=AMP, device=dev, prompt=prompt,
                        grad_ckpt=bool(a.grad_ckpt), parity=True, seed=a.seed)
 print("init diagnostics", DIAG, flush=True)
@@ -278,10 +292,10 @@ if VAE_SHAS != {VAE_SHA}:
     raise SystemExit(f"cache latents were made with another VAE ({VAE_SHAS}) than the one on disk ({VAE_SHA})")
 opt = torch.optim.AdamW(params, lr=a.lr, betas=(0.9, 0.999), weight_decay=0.0)
 RECIPE = {k: getattr(a, k) for k in ("seed", "lists", "cache", "tokens", "rank", "tok_ticks", "use_tokens", "batch", "lr", "warmup", "shift",
-                                     "sigma_dist", "p_start", "p_guide_drop", "p_tok_drop", "p_holes", "overfit", "prompt_embed", "wan")}
+                                     "sigma_dist", "p_start", "p_both", "p_guide_only", "p_tok_only", "p_holes", "overfit", "prompt_embed", "wan")}
 CFG = {"rank": a.rank, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "shift": a.shift, "n_extra": WC.N_EXTRA,
        "prompt_embed": a.prompt_embed, "wan": a.wan, "clip_latents": NL, "tok_grid": WC.TOK_GRID, "seed": a.seed}
-start, ck, CHAIN, OF0 = 0, f"{a.out}/ckpt.pt", "", None
+start, ck, CHAIN, OF0, OF_HIST = 0, f"{a.out}/ckpt.pt", "", None, []
 if os.path.exists(ck):
     if not a.resume:
         raise SystemExit(f"{ck} exists: pass --resume or use a fresh --out")
@@ -296,7 +310,7 @@ if os.path.exists(ck):
             raise SystemExit(f"incompatible resume: {k_} {s_.get(k_)} != {v_}")
     model.load_trainable(s_["trainable"]); opt.load_state_dict(s_["opt"])
     start, CHAIN = s_["step"], s_["pick_chain"]
-    OF0 = s_.get("overfit_eval0")
+    OF0 = s_.get("overfit_eval0"); OF_HIST = list(s_.get("overfit_hist") or [])
     if a.overfit and OF0 is None:
         raise SystemExit("resumed overfit run without its update-0 eval loss in the checkpoint")
     torch.set_rng_state(s_["rng"]["torch"]); torch.cuda.set_rng_state(s_["rng"]["cuda"]); random.setstate(s_["rng"]["python"]); np.random.set_state(s_["rng"]["numpy"])
@@ -304,13 +318,13 @@ if os.path.exists(ck):
 json.dump({**vars(a), "kind": KIND, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "init_sha": INIT_SHA,
            "guide_version": GUIDE_VERSION, "mid_clips": len(MID), "start_clips": len(START), "clips_per_drive": PER_DRIVE,
            "drives_without_clips": no_clip, "trainable_lora_M": round(n_lora / 1e6, 2), "trainable_new_M": round(n_new / 1e6, 3),
-           "init_diagnostics": DIAG, "cfg": CFG, "ledger_hours_at_start": LEDGER.hours()}, open(f"{a.out}/args.json", "w"), indent=1)
+           "init_diagnostics": DIAG, "cfg": CFG, "ledger_hours_at_start": LEDGER.hours(), "prompt_note": PROMPT_NOTE, "dropout": DROP}, open(f"{a.out}/args.json", "w"), indent=1)
 
 
 def save(step, path):
     d = {"trainable": model.trainable_state(), "opt": opt.state_dict(), "step": step, "hours": LEDGER.hours(), "recipe": RECIPE, "cfg": CFG,
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "guide_version": GUIDE_VERSION,
-         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a), "overfit_eval0": OF0,
+         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a), "overfit_eval0": OF0, "overfit_hist": OF_HIST,
          "rng": {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state(), "python": random.getstate(), "numpy": np.random.get_state()}}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
@@ -530,6 +544,8 @@ if a.overfit:
         model.train()
         rec = {"update": step, "overfit_eval": [round(x, 5) for x in ls], "mean": round(float(np.mean(ls)), 5)}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
+        if not OF_HIST or OF_HIST[-1][0] != step:
+            OF_HIST.append((step, float(np.mean(ls))))  # saved in every checkpoint (pre-registered "still falling" reading)
         return float(np.mean(ls))
 
 # ------------------------------------------------------------------------------------------------ prefetch + loop
@@ -541,7 +557,25 @@ acc = {"data": 0.0, "gpu": 0.0, "wait": 0.0, "n": 0}
 stopped, last_wall = None, None
 if a.overfit and start == 0:
     OF0 = overfit_eval(0)  # persisted in every checkpoint: a resumed run keeps the update-0 baseline
+import signal as _signal
+SIG = {"got": None}
+
+
+def _on_signal(signum, frame):  # Fable 07:30: time limit / preemption notice -> rolling save at the next update boundary
+    SIG["got"] = _signal.Signals(signum).name
+    print(f"received {SIG['got']}: saving at the next update boundary", flush=True)
+
+
+for _s in (_signal.SIGTERM, _signal.SIGUSR1):
+    _signal.signal(_s, _on_signal)
 for step in range(start, end):
+    if SIG["got"]:  # atomic rolling checkpoint of every completed update, then a clean exit (resume with --resume)
+        if step > start:
+            save(step, ck)
+        stopped = step
+        rec = {"signal_stop": step, "signal": SIG["got"], "ledger_hours": round(LEDGER.hours(), 3)}
+        print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
+        break
     if KIND == "train":  # remaining-hours check BEFORE the update (item 11)
         used = LEDGER.hours(); est = (last_wall or 0.0) / 3600
         if used + est + a.reserve_hours >= a.budget_hours:
@@ -609,8 +643,9 @@ for step in range(start, end):
     last_wall = time.time() - tstep
 
 # ------------------------------------------------------------------------------------------------ overfit verdict
-if a.overfit and end < OVERFIT_STEPS:
-    print(f"OVERFIT_PENDING at update {end} (gates are read at {OVERFIT_STEPS}); resume with --resume", flush=True)
+DONE_STEP = stopped if stopped is not None else end  # a signal / budget stop ends before `end`
+if a.overfit and DONE_STEP < OVERFIT_STEPS:
+    print(f"OVERFIT_PENDING at update {DONE_STEP} (gates are read at {OVERFIT_STEPS}); resume with --resume", flush=True)
     LEDGER.stop(); raise SystemExit(0)
 if a.overfit:
     OFN = overfit_eval(end)
@@ -629,8 +664,22 @@ if a.overfit:
                               bt["ray"][sl] if bt["ray"] is not None else None, bt["tkeep"][sl]).float()
                 zz = zz + (sg[i + 1] - sg[i]) * v
             z[sl] = zz
+    zs = {"hybrid": z}
+    for mode in ("tokens_only", "none"):  # controls (Fable 07:30): same 8 clips, same noise, guide removed / both removed
+        zm = torch.randn(a.overfit, 16, NL, 32, 64, generator=torch.Generator().manual_seed(31337)).to(dev)
+        exm = torch.zeros_like(ex); keep = bt["tkeep"] if mode == "tokens_only" else torch.zeros_like(bt["tkeep"])
+        with torch.no_grad():
+            for i0 in range(0, a.overfit, a.micro):
+                sl = slice(i0, i0 + a.micro); zz = zm[sl]
+                for i in range(30):
+                    with torch.autocast("cuda", dtype=AMP):
+                        v = model(zz, exm[sl], (sg[i] * 1000).expand(zz.shape[0]), bt["tok"][sl] if bt["tok"] is not None else None,
+                                  bt["ray"][sl] if bt["ray"] is not None else None, keep[sl]).float()
+                    zz = zz + (sg[i + 1] - sg[i]) * v
+                zm[sl] = zz
+        zs[mode] = zm
     NS = GD.import_signed_scorer(a.out)  # signed scorer namespace: segment / iou_mat / hungarian (unchanged file)
-    tp = {"sample": [0, 0, 0], "roundtrip": [0, 0, 0]}; strips = []
+    tp = {"sample": [0, 0, 0], "roundtrip": [0, 0, 0], "tokens_only": [0, 0, 0], "none": [0, 0, 0]}; strips = []
     for b, ((kind, d), (sc, spans)) in enumerate(zip(OF, OF_SPANS)):
         c = C_TR[sc]
         if kind == "mid":  # decode with the stream's true preceding latents as causal context, keep the clip's 20 frames
@@ -641,10 +690,11 @@ if a.overfit:
             dec = lambda zc: WC.wan_decode(vae, zc)[0]
             frames = [spans[0][0]] + [i for sp in spans[1:] for i in sp]
         xs, xr = dec(z[b:b + 1]), dec(bt["key"][b:b + 1])
+        xt_, xn_ = dec(zs["tokens_only"][b:b + 1]), dec(zs["none"][b:b + 1])
         for q, i in enumerate(frames):
             kimg = GD.key_image(a.keys, sc, int(c["ticks"][i]))
             kc = NS["segment"](kimg)[0]
-            for name, xx in (("sample", xs), ("roundtrip", xr)):
+            for name, xx in (("sample", xs), ("roundtrip", xr), ("tokens_only", xt_), ("none", xn_)):
                 from PIL import Image
                 im = Image.fromarray(((xx[:, q] + 1) * 127.5).round().byte().permute(1, 2, 0).cpu().numpy())
                 rc = NS["segment"](im)[0]
@@ -656,14 +706,19 @@ if a.overfit:
     loss_ok = OFN <= a.overfit_ratio * OF0
     rt_ok = f1["roundtrip"] > 0 and tp["roundtrip"][0] + tp["roundtrip"][2] > 0  # key cars exist and the codec keeps some
     f1_ok = rt_ok and f1["sample"] >= a.overfit_f1_frac * f1["roundtrip"]
+    status = WP.overfit_status(OF0, OF_HIST, loss_ok, f1_ok, rt_ok)
     res = {"eval_loss_update0": OF0, "eval_loss_final": OFN, "ratio": OFN / OF0, "declared_ratio": a.overfit_ratio, "loss_pass": loss_ok,
            "car_f1_sample": f1["sample"], "car_f1_roundtrip": f1["roundtrip"], "declared_f1_frac": a.overfit_f1_frac, "f1_pass": f1_ok,
-           "roundtrip_positive": rt_ok, "counts": tp, "clips": [(k, list(d)) for k, d in OF], "updates": end,
-           "declared_updates": OVERFIT_STEPS, "PASS": bool(end == OVERFIT_STEPS and loss_ok and f1_ok)}
+           "car_f1_controls": {"hybrid": f1["sample"], "tokens_only": f1["tokens_only"], "none": f1["none"]},
+           "roundtrip_positive": rt_ok, "counts": tp, "eval_history": OF_HIST, "clips": [(k, list(d)) for k, d in OF], "updates": end,
+           "declared_updates": OVERFIT_STEPS, "status": status, "PASS": bool(end == OVERFIT_STEPS and status == "PASS"),
+           "preregistered": "loss ratio missed while placement passes or the eval loss is still falling = NOT_REACHED (rerun longer / "
+                            "lr 3e-4), not a bug; the gate verdict is read on hybrid only, tokens-only / none are informational"}
     from PIL import Image
     Image.fromarray(np.concatenate(strips, 0)).save(f"{a.out}/overfit_samples.png")
     json.dump(res, open(f"{a.out}/overfit.json", "w"), indent=1)
     print("OVERFIT_GATE", json.dumps(res), flush=True)
-    LEDGER.stop(); raise SystemExit(0 if res["PASS"] else 4)
+    LEDGER.stop(); raise SystemExit(0 if res["PASS"] else (6 if status.startswith("NOT_REACHED") else 4))
 LEDGER.stop()
-print("WAN_TEACHER_BUDGET_STOP" if stopped is not None else "WAN_TEACHER_DONE", stopped if stopped is not None else end)
+print(("WAN_TEACHER_SIGNAL_STOP" if SIG["got"] else "WAN_TEACHER_BUDGET_STOP") if stopped is not None else "WAN_TEACHER_DONE",
+      stopped if stopped is not None else end)

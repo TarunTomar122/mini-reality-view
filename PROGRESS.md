@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 03:52 UTC — round r2 converged: AGREED A5 "vmix"; code built; cache + clean suite running
+- r2 (Astra + Fable): proposals vclean+jitter (Astra) vs vself (Fable) -> swaps crossed (Astra moved to vself, Fable to a mix) -> Astra SIGNED Fable's "vmix": updates 1-2000 memory = real key latents, then one of two clips per update reads CACHED memory-off A@20k generated latents; per-clip memory timestep jitter (1, 41, 81); real key target; rollout / gate (rho 1.0) / bars / N1 as A4. A4's probe predicate replaced by a cache parity check. Text: AGREED A5.
+- Code 0a7545c (new / own files only): batched cache builder (8 ticks / batch), cache_check (all 144 train drives, parity vs unchanged causal_rollout on one drive < 0.01, train vs dev cache-to-key MSE), trainer --arm vmix (jitter + coin RNG streams saved for resume; holds at update 2000 without a verified cache record; --cache_pending lets the launch precede the cache per A5), gate --arm vmix, suite T7b.
+- Running: cache shards 3756319-28 (10 x 2080 Ti; 21,294 usable train ticks) + cache_check 3756329; clean suite 3756330 (H200-3g slice; T1-T7 + T7b + 100-update timing); Astra code review of vmix. Speed: merged-LoRA timing runs 3756308-09.
+
 ## 2026-11-28 03:36 UTC — Neon 03:30 corrections + unreported results
 - CORRECTION: the vpriv 8k LODO ranges in the 03:20 entry were wrong; raw lodo_P8k_vs_A20k.json: F1 -0.062..-0.040, late +0.036..+0.044, W -1.4%..+1.7% (both safety misses still hold in every subset).
 - CORRECTION: "vclean full-model GPU tests ALL PASS" referred to the PRE-review code (job 3756247 on a70a8ad, T0 / T1 / T3a / T4 only). The reviewed suite slurm/clean_tests.sh (3756259) is HELD / not run, and ec7c94f is not yet signed by Astra.

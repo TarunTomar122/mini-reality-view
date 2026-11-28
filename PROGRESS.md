@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 09:33 UTC — timing started; full guide build done (150 guides); full-train caches submitted; council 09:30 asked
+- MODE=timing 3756964 started 09:29 on the H200 3g slice (saxa). Its first log lines include an argparse "ambiguous option --sw" usage message: that is stderr from a wan_tests.py case that checks abbreviated rollout options are refused (expected), not a failure.
+- Full guide build complete: data/guides_v1 holds 150 guides (144 train + 6 dev).
+- Tokens + latent caches for all 144 train + 6 dev drives submitted (wtokF0-2 3757004 / 06 / 08, wcacheF0-2 3757005 / 07 / 09; 2080 Ti; the 54 S0c drives are skipped when their sidecars and upstream hashes still match). Account at the 16-job cap (incl. the live-VSR session's v4* jobs).
+- Hourly council 09:30 (council/review-20261128-0930.md): Astra, Fable, Neon asked.
+
 ## 2026-11-28 09:19 UTC — tick: caches 16 / 18 drives per shard; S0c guide + LiDAR readers finished; full guide build 3 / 4 shards done
 - VPN had dropped (ssh banner timeout at 09:18); reconnected via FortiTray, ssh fine at 09:19. Kerberos valid to 17:48.
 - Tokens + latent caches (wtok / wcache 0-2): 16 of 18 drives each, ~3.5 min / drive -> done ~09:27; MODE=timing 3756964 then starts.

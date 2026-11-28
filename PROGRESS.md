@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 02:30 UTC — vpriv 2k (informational, A1: no verdict): far smoother than vlive was; F1 near its floor; more lingering ghosts
+- P2k signed panel (6 dev x 2 seeds, signed tools, cold = off at 0.95): vs A@20k ID 0.0906 vs 0.0994 (-8.8%), W 29.80 vs 29.13 (+2.3%), car F1 0.417 vs 0.4456 (-0.0285; floor -0.03), recall +0.009, late gap +0.012 (cap +0.03), lingering ghosts (>= 0.5 s) 12.0 vs 4.33. vs own cold: ID -27.2%, W -4.0%, F1 -0.028, ghosts 12.0 vs 3.42. For comparison vlive at 2k: ID +61.5% / W +30.7% vs A. docs/figs/vpriv_2k.png.
+- Reading (informational only): taking the shared-noise shortcut away changed the direction of the effect at 2k (less jumpy than its own cold, especially car jumps), at a cost in car F1 and lingering ghosts. Bars apply from 8k (panel scoring now). Two-noise probes for 2k / 8k are written (runs/probe/vpriv_noise_*), not yet read.
+- vpriv 11,100 updates at 02:29; council review 02:30 dispatched.
+
 ## 2026-11-28 02:18 UTC — vlive 16k copy warnings complete; vpriv 9,800 updates; 8k panel admitted at once (priority watcher works)
 - vlive 16k copy warnings (AGREED r1 reports): (1) per-tick latent change ratio vs A 3.01 (warn < 0.7) -> none; (2) long minus short memory (--reset_at 134, scripts/reset_gap.py, ticks 150-169, 10 runs / 5 drives with keys) LPIPS -0.0001 (warn > +0.01) -> none; (3) --swap lag (signed scorer, swap at tick 50): median start 2.5, centre 4.5, end 6.5 ticks -> the centre lag EXCEEDS the 3-tick warning line (start does not). No A baseline exists for the lag (A20k has no swap rollouts); the metric's 5-tick window alone adds ~2 ticks, so a memory-off swap run is needed before reading this as copying. Reported, not used for any decision (vlive is closed).
 - vpriv: ckpt_8000 saved ~02:03; the watcher submitted all 9 jobs of the 8k panel within the minute (one 4k shard went in at 01:56 before that). 2k metrics running; 8k rollouts running (shard 0 done in 13 min). Training at 9,800 updates at 02:18 (12k ~02:37).

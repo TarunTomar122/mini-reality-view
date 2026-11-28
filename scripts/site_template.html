@@ -154,6 +154,10 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <img src="figs/vlive_2k_16k.png" alt="Live video model vs A at 2k to 16k: jumpier than A at every check; car accuracy and drift fine" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
     <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k were look-only; 8k, 12k and 16k counted: no pass on smoothness at any of them, Car accuracy stayed just inside its limit (16k: 0.435 vs A 0.446, allowed down to 0.416, but the error margin reaches below the limit) and it found slightly fewer real cars; drift was near zero (+0.002, limit +0.03). Dropping any one drive does not change the verdict.</p>
 
+    <h3>Private-noise version: first look (2k, look-only)</h3>
+    <img src="figs/vpriv_2k.png" alt="2k check: private-noise version is less jumpy than A on car jumps and much less than the first live model at 2k" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
+    <p class="small">Blue = private-noise version at 2k, grey = the first live model at 2k. Below zero = smoother. Look-only: the bars that count start at 8k. Car accuracy is near its limit (0.417 vs A 0.446; allowed down to 0.416) and more fake cars linger (12 vs 4 per drive).</p>
+
     <h3>Watch it (live model at 16k)</h3>
     <div class="vids">
       <figure><video src="videos/scene-0396_vlive16k.mp4" controls muted loop playsinline preload="metadata"></video>

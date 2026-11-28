@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 12:02 UTC — Astra T3c SIGNED timing; ten evidence files FROZEN; MODE=timing (re-time, 144 drives) running 3757153
+- council/codereview-wan-t3c-astra.md: Neon C closed (Astra's six-drive case records 10,664 s = 10,240 s rendering + 424 s cache fills); SIGNED timing yes / overfit no / production no (their existing gates still apply in code).
+- Freeze: council/FREEZE-s1.md records the sha256 of mrv/{wan_cond,wan_plan,wan_stage,guide}.py, slurm/wan_teacher.sh, scripts/{train_wan_teacher,wan_forecast,wan_panel,wan_rollout,wan_token_check}.py at 233d5ec; cluster copies identical and made read-only.
+- Re-time 3757153 on saxa (H200 3g slice, --mem 170G, MICRO=1 GRAD_CKPT=1 as submitted; the sweep selects): stage-in with hash-on-copy, token geometry, init probe, grad_ckpt x micro sweep with per-tensor matched-update check, --use_tokens 0 diagnostic, sensitivity at step 32, 200 production updates, Lustre byte-equality, load-once panel rehearsal, forecast. Scorer parity 3757143-47 still running (needed for retime_pass).
+
 ## 2026-11-28 12:01 UTC — Astra T3b: items 8 and 12 closed; Neon C narrowed (shared swaps priced at full length) -> fixed (233d5ec); T3c running
 - Swaps are now priced at their planned per-receiver length (n for a shared-mode donor), fills likewise; Astra's six-drive case gives exactly 10,664 s (88 s less than before). WAN_TESTS FAILS=0 locally and in the cluster venv. Scorer parity 3757143-46 still running (~9 min in).
 

@@ -18,6 +18,14 @@ PY=.venv/bin/python; MODE=${MODE:-timing}; J=${SLURM_JOB_ID:-manual}; LEDGER=run
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 sha256sum mrv/wan_cond.py mrv/wan_plan.py scripts/train_wan_teacher.py scripts/wan_rollout.py scripts/score_rgb.py slurm/wan_teacher.sh
 echo "start $(date -u) on $(hostname) mode=$MODE"
+# S1b item 10: ONE heartbeat charges the WHOLE allocation (every step below, the timing scorer and the shell included);
+# python processes inside only read the ledger (WAN_LEDGER_OUTER). SIGTERM (end / preemption notice) writes the end beat;
+# a hard kill leaves no end beat and the ledger then charges the last interval as well.
+export WAN_LEDGER_OUTER=1
+$PY -m mrv.wan_plan beat $LEDGER alloc_$MODE & BEAT=$!
+stop_beat() { kill -TERM $BEAT 2>/dev/null; wait $BEAT 2>/dev/null; }
+trap stop_beat EXIT
+trap 'stop_beat; exit 143' TERM INT
 $PY scripts/wan_tests.py > /dev/null || { echo "WAN_TESTS failed"; exit 3; }
 T="$PY scripts/train_wan_teacher.py --ledger $LEDGER"
 case $MODE in
@@ -34,18 +42,20 @@ case $MODE in
     t1=$(date +%s.%N)
     $PY scripts/score_rgb.py --rgb $O/roll --out $O/m_roll.json || exit $?
     t2=$(date +%s.%N)
-    $PY - <<P
+    $PY - <<P || exit $?
 import json; j = json.load(open("$O/timing.json"))
 j["rollout_81ticks_s"] = round($t1 - $t0, 1); j["score_rgb_81ticks_s"] = round($t2 - $t1, 1)
 import torch; r = torch.load("$O/roll/${DRV}_s0.pt", map_location="cpu", weights_only=False); j["rollout_breakdown"] = r["timing"]
 json.dump(j, open("$O/timing.json", "w"), indent=1); print("WAN_TIMING_FULL", json.dumps(j))
 P
+    # S1b item 5: the forecast is recomputed only now, after the scorer, with every deduction
+    $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER
     rc=$? ;;
   overfit)
     $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_guide_drop 0 --p_tok_drop 0 --p_holes 0 \
        --val_every 0 --save_every 1000 "$@"; rc=$? ;;
   resume_test)
-    A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"
+    A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
     $T --out $A $C "$@" && $T --out $B $C --max_steps_this_job 8 "$@" && $T --out $B $C --resume "$@" \
       && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt; rc=$? ;;
   train)  $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_hours 2 --resume "$@"; rc=$? ;;

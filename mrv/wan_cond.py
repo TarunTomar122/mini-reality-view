@@ -392,14 +392,45 @@ def check_parity(diag, tol_rel=0.02):
 
 
 @torch.no_grad()
-def sensitivity(model, x, extra, t, tok, ray, dtype=torch.bfloat16):
-    """mean |v(full inputs) - v(guide off)| and |v(full) - v(tokens off)| on one batch: 0 at init, > 0 once trained (item 4)"""
+def _sens_once(model, x, extra, t, tok, ray, dtype):
     B = x.shape[0]; on = torch.ones(B, dtype=torch.bool, device=x.device)
     with torch.autocast("cuda", dtype=dtype):
         full = model(x, extra, t, tok, ray, on).float()
-        ng = model(x, torch.zeros_like(extra), t, tok, ray, on).float()
-        nt = model(x, extra, t, tok, ray, ~on).float()
-    return {"guide": (full - ng).abs().mean().item(), "tokens": (full - nt).abs().mean().item(), "v_abs": full.abs().mean().item()}
+        ng = model(x, torch.zeros_like(extra), t, tok, ray, on).float()  # guide removed: same channel count
+        res = {"guide": (full - ng).abs().mean().item(), "v_abs": full.abs().mean().item(), "finite": bool(torch.isfinite(full).all() and torch.isfinite(ng).all())}
+        if tok is not None:
+            # token VALUES perturbed at a FIXED context length: views cyclically shifted, rays kept (S1b item 3; on / off would
+            # change the sequence length and could pass on a rounding difference alone)
+            tp = model(x, extra, t, torch.roll(tok, 1, dims=3), ray, on).float()
+            res["tokens"] = (full - tp).abs().mean().item(); res["finite"] = res["finite"] and bool(torch.isfinite(tp).all())
+    return res
+
+
+@torch.no_grad()
+def sensitivity(model, x, extra, t, tok, ray, dtype=torch.bfloat16):
+    """trained response to the guide (removed) and to the tokens (values perturbed, same length), next to the INIT CONTROL:
+    the same measurement with the guide conv and all token gates temporarily zeroed (= their init values; LoRA kept)."""
+    trained = _sens_once(model, x, extra, t, tok, ray, dtype)
+    ex_w = model.tf.patch_embedding.extra.weight; g_ = [m.gate for m in model.xattn]
+    saved = [ex_w.detach().clone()] + [q.detach().clone() for q in g_]
+    try:
+        ex_w.zero_(); [q.zero_() for q in g_]
+        control = _sens_once(model, x, extra, t, tok, ray, dtype)
+    finally:
+        ex_w.copy_(saved[0]); [q.copy_(v) for q, v in zip(g_, saved[1:])]
+    return {"trained": trained, "control": control}
+
+
+def check_sensitivity(sens, use_tokens, rel=1e-3, factor=10.0):
+    """pass = everything finite and, per path, change > max(factor x init control, rel x mean |v|); returns (ok, why)"""
+    tr, ct = sens["trained"], sens["control"]
+    if not (tr["finite"] and ct["finite"]):
+        return False, "non-finite output"
+    for k in ("guide",) + (("tokens",) if use_tokens else ()):
+        need = max(factor * ct.get(k, 0.0), rel * tr["v_abs"])
+        if not (tr.get(k, 0.0) > need):
+            return False, f"{k} change {tr.get(k)} <= {need:.3g} (control {ct.get(k)}, |v| {tr['v_abs']:.3g})"
+    return True, "ok"
 
 
 def tensor_sha(named):

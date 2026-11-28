@@ -69,23 +69,67 @@ check("swap snapped to the next window start", s == 57, s)
 def cmp(car, road=0.50, roadA=0.49, idr=-0.2, wr=-0.2, cp=True):
     return {"drives": 6, "runs": 12, "unpaired_drives": [], "cold_ref": "B", "car_f1": {"A": car, "B": 0.4456},
             "road_iou": {"A": road, "B": roadA}, "ID": {"rel": idr, "can_pass": cp}, "W": {"rel": wr, "can_pass": cp}}
-check("below 12k: unresolved", WP.decide_s1(cmp(0.50), 11999, "24h", True)["verdict"].startswith("unresolved"))
-check("24h pass", WP.decide_s1(cmp(0.46), 12000, "24h", True)["verdict"].startswith("PASS"))
-check("24h extension band", WP.decide_s1(cmp(0.43), 14000, "24h", True)["verdict"].startswith("EXTEND"))
-check("24h extension band lower edge 0.4156", WP.decide_s1(cmp(0.4156), 14000, "24h", True)["verdict"].startswith("EXTEND"))
-check("24h below band: stop", WP.decide_s1(cmp(0.41), 14000, "24h", True)["verdict"].startswith("STOP"))
-check("24h band but W fails: stop", WP.decide_s1(cmp(0.43, wr=-0.05), 14000, "24h", True)["verdict"].startswith("STOP"))
-check("24h band but swap fails: stop", WP.decide_s1(cmp(0.43), 14000, "24h", False)["verdict"].startswith("STOP"))
-check("final in band: stop (bar stays 0.4456)", WP.decide_s1(cmp(0.44), 20000, "final", True)["verdict"].startswith("STOP"))
-check("final pass", WP.decide_s1(cmp(0.45), 20000, "final", True)["verdict"].startswith("PASS"))
-check("road below A fails", not WP.decide_s1(cmp(0.46, road=0.48), 12000, "24h", True)["all_pass"])
-check("ineligible ID fails", not WP.decide_s1(cmp(0.46, cp=False), 12000, "24h", True)["all_pass"])
-check("NaN car F1 fails", not WP.decide_s1(cmp(float("nan")), 12000, "24h", True)["all_pass"])
-check("incomplete panel fails", not WP.decide_s1({**cmp(0.46), "runs": 11}, 12000, "24h", True)["all_pass"])
-check("check stage gives no verdict", WP.decide_s1(cmp(0.46), 12000, "check", True)["verdict"].startswith("informational"))
-d = WP.donor_following({"a": 0.5, "b": 0.4}, {"a": 0.2, "b": 0.1}, [0, 1, 1])
-check("donor following", d["ok"], d)
-check("not donor following (lag)", not WP.donor_following({"a": 0.5}, {"a": 0.1}, [3, 4, float("inf")])["ok"])
+PROD = WP.production_ok({"timing": False, "recipe": {"batch": 8, "overfit": 0}, "args": {"kind": ""}})
+MODES = {"ok": True, "why": []}
+D = lambda c, st, stage, sw=True, prod=PROD, modes=MODES, prior=None: WP.decide_s1(c, st, stage, {"ok": sw}, prod, modes, prior)
+check("production checkpoint ok", PROD["ok"], PROD)
+check("batch 4 is not production", not WP.production_ok({"timing": False, "recipe": {"batch": 4, "overfit": 0}, "args": {}})["ok"])
+check("timing / overfit / resume_test kinds are not production",
+      not any(WP.production_ok(m)["ok"] for m in ({"timing": True, "recipe": {"batch": 8}}, {"recipe": {"batch": 8, "overfit": 8}},
+                                                  {"recipe": {"batch": 8}, "args": {"kind": "resume_test"}})))
+check("below 12k: unresolved", D(cmp(0.50), 11999, "24h")["verdict"].startswith("unresolved"))
+check("24h pass", D(cmp(0.46), 12000, "24h")["verdict"].startswith("PASS"))
+check("24h extension band", D(cmp(0.43), 14000, "24h")["verdict"].startswith("EXTEND"))
+check("24h extension band lower edge 0.4156", D(cmp(0.4156), 14000, "24h")["verdict"].startswith("EXTEND"))
+check("24h below band: stop", D(cmp(0.41), 14000, "24h")["verdict"].startswith("STOP"))
+check("24h band but W fails: stop", D(cmp(0.43, wr=-0.05), 14000, "24h")["verdict"].startswith("STOP"))
+check("24h band but swap fails: stop", D(cmp(0.43), 14000, "24h", sw=False)["verdict"].startswith("STOP"))
+check("24h read only once", D(cmp(0.46), 14000, "24h", prior="EXTEND 12 h")["verdict"].startswith("INVALID"))
+check("24h needs a production checkpoint", D(cmp(0.46), 14000, "24h", prod={"ok": False, "why": ["batch 4"]})["verdict"].startswith("INVALID"))
+check("24h needs the four full-length modes", D(cmp(0.46), 14000, "24h", modes={"ok": False, "why": ["tokens missing"]})["verdict"].startswith("INVALID"))
+check("final without EXTEND: invalid", D(cmp(0.46), 20000, "final")["verdict"].startswith("INVALID"))
+check("final without EXTEND (prior STOP): invalid", D(cmp(0.46), 20000, "final", prior="STOP -> re-council")["verdict"].startswith("INVALID"))
+check("final in band: stop (bar stays 0.4456)", D(cmp(0.44), 20000, "final", prior="EXTEND 12 h")["verdict"].startswith("STOP"))
+check("final pass", D(cmp(0.45), 20000, "final", prior="EXTEND 12 h")["verdict"].startswith("PASS"))
+check("road below A fails", not D(cmp(0.46, road=0.48), 12000, "24h")["all_pass"])
+check("ineligible ID fails", not D(cmp(0.46, cp=False), 12000, "24h")["all_pass"])
+check("NaN car F1 fails", not D(cmp(float("nan")), 12000, "24h")["all_pass"])
+check("incomplete panel fails", not D({**cmp(0.46), "runs": 11}, 12000, "24h")["all_pass"])
+check("check stage gives no verdict", D(cmp(0.46), 12000, "check")["verdict"].startswith("informational"))
+
+
+def swaprun(df=0.5, rf=0.2, frames=20, wm=True, excl=False, rec=True, start=0):
+    return {"donor_f1": df, "receiver_f1": rf, "donor_frames": frames, "receiver_frames": frames, "windows_match": wm,
+            "lag": {"excluded": excl, "recovered": rec, "start": start if rec else None}}
+RUNS = {f"scene-{d:04d}_s{sd}": swaprun() for d in range(6) for sd in (0, 1)}
+check("donor following on full paired evidence", WP.donor_following(RUNS)["ok"], WP.donor_following(RUNS))
+check("swap: missing run id blocks", not WP.donor_following({k: v for k, v in list(RUNS.items())[1:]})["ok"])
+check("swap: one drive and one lag value does not pass", not WP.donor_following({"scene-0000_s0": swaprun()})["ok"])
+check("swap: mismatched windows block", not WP.donor_following({**RUNS, "scene-0003_s1": swaprun(wm=False)})["ok"])
+check("swap: unequal frames block", not WP.donor_following({**RUNS, "scene-0002_s0": {**swaprun(), "receiver_frames": 19}})["ok"])
+check("swap: zero frames block", not WP.donor_following({**RUNS, "scene-0002_s0": swaprun(frames=0)})["ok"])
+check("swap: a drive without lag evidence blocks",
+      not WP.donor_following({**RUNS, "scene-0004_s0": swaprun(excl=True), "scene-0004_s1": swaprun(excl=True)})["ok"])
+r_ = WP.donor_following({**RUNS, "scene-0004_s0": swaprun(excl=True)})
+check("swap: exclusions reported, other seed carries the drive", r_["ok"] and r_["lag_excluded_runs"] == ["scene-0004_s0"], r_)
+nr = {k: (swaprun(rec=False) if i < 7 else v) for i, (k, v) in enumerate(RUNS.items())}
+check("swap: non-recoveries count as infinity", WP.donor_following(nr)["median_lag_start"] == float("inf") and not WP.donor_following(nr)["ok"])
+check("swap: margin 0.10 not met", not WP.donor_following({k: swaprun(df=0.29, rf=0.2) for k in RUNS})["ok"])
+check("swap: margin met with room", WP.donor_following({k: swaprun(df=0.31, rf=0.20) for k in RUNS})["ok"])
+
+# --- forecast (S1b item 5) --------------------------------------------------------------------------------------------
+T_ = {"budget_h": 24.0, "used_h": 1.0, "done_kinds": {"timing"}, "wall_s": 2.0, "startup_s": 300.0, "probe_s": 30.0, "val_every": 500,
+      "save_s": 20.0, "save_every": 500, "n_numbered": 10, "job_h": 12.0, "panel_h": 1.0, "n_panels": 2, "overfit_updates": 2000,
+      "resume_updates": 32, "overfit_verdict_h": 0.2}
+fc = WP.forecast_s1(T_)
+exp_pend = (300 + 2000 * 2) / 3600 + 0.2 + (900 + 64) / 3600 + 2.0
+exp_avail = 24 - 1 - exp_pend - 10 * 20 / 3600
+check("forecast deducts overfit / resume test / panels / numbered saves", abs(fc["available_h"] - exp_avail) < 1e-3, fc)
+exp_ups = int((exp_avail - 2 * 300 / 3600) * 3600 / (2.0 + 30 / 500 + 20 / 500))
+check("forecast updates after job starts and recurring probes / saves", fc["updates"] == exp_ups and fc["training_jobs"] == 2, (fc, exp_ups))
+check("forecast skips charged kinds", "overfit_h" not in WP.forecast_s1({**T_, "done_kinds": {"overfit", "resume_test"}})["pending"])
+check("forecast floor flag", WP.forecast_s1({**T_, "wall_s": 7.0})["floor_12k_reachable"] is False)
+check("panel cost", abs(WP.panel_cost_h(1000, 0.5, 60, 1.0, 120) - (5 * (60 + 500) + 8 * (120 + 1000)) / 3600) < 1e-9)
 
 # --- split membership (S1b item 2) --------------------------------------------------------------------------------------
 LS = {"train": ["scene-0001", "scene-0002"], "dev": ["scene-0010"], "decision": ["scene-0100"], "final": ["scene-0200"]}
@@ -107,18 +151,25 @@ check("splits: sealed allowed with unseal", WP.check_split_membership(["scene-01
 with tempfile.TemporaryDirectory() as td:
     path = f"{td}/ledger.jsonl"
     now = time.time()
-    with open(path, "w") as f:  # a preempted job: two beats, no end record; plus a torn last line
-        f.write(json.dumps({"job": "j1", "kind": "train", "t0": now - 7200, "t": now - 7200}) + "\n")
-        f.write(json.dumps({"job": "j1", "kind": "train", "t0": now - 7200, "t": now - 3600}) + "\n")
-        f.write(json.dumps({"job": "j2", "kind": "panel", "t0": now - 1800, "t": now - 900}) + "\n")
+    with open(path, "w") as f:  # j1 preempted (no end, stale beat), j2 finished, j4 still beating, torn last line
+        f.write(json.dumps({"job": "j1", "kind": "train", "t0": now - 7200, "t": now - 7200, "beat_s": 60}) + "\n")
+        f.write(json.dumps({"job": "j1", "kind": "train", "t0": now - 7200, "t": now - 3600, "beat_s": 60}) + "\n")
+        f.write(json.dumps({"job": "j2", "kind": "panel", "t0": now - 1800, "t": now - 900, "beat_s": 60, "note": "end"}) + "\n")
+        f.write(json.dumps({"job": "j4", "kind": "alloc_timing", "t0": now - 600, "t": now - 30, "beat_s": 60}) + "\n")
         f.write('{"job": "j3", "ki')
-    L = WP.Ledger(path, "train")
+    L = WP.Ledger(path, "train", write=False)
     h = L.hours(live=False)
-    check("ledger charges preempted work up to the last beat", abs(h - 1.25) < 1e-6, h)
-    check("ledger by kind", {k: round(v, 3) for k, v in L.by_kind().items()} == {"train": 1.0, "panel": 0.25}, L.by_kind())
-    L.start(); L.stop()
-    own = [json.loads(x) for x in open(path) if x.strip().startswith("{") and x.strip().endswith("}") and L.job in x]
-    check("ledger appends own beats after a torn line", len(own) >= 2, own)
+    exp = (3600 + 60) / 3600 + 0.25 + 600 / 3600
+    check("ledger: preempted job charged its last interval, live job up to now, finished job exactly", abs(h - exp) < 2e-3, (h, exp))
+    bk = L.by_kind()
+    check("ledger by kind", abs(bk["train"] - (3660 / 3600)) < 1e-6 and abs(bk["panel"] - 0.25) < 1e-6 and abs(bk["alloc_timing"] - 600 / 3600) < 2e-3, bk)
+    W_ = WP.Ledger(path, "panel", write=True); W_.start(); W_.stop()
+    own = [json.loads(x) for x in open(path) if x.strip().startswith("{") and x.strip().endswith("}") and W_.job in x]
+    check("ledger appends own beats after a torn line", len(own) >= 2 and own[-1].get("note") == "end", own)
+    os.environ["WAN_LEDGER_OUTER"] = "1"
+    R_ = WP.Ledger(path, "train"); n0 = sum(1 for _ in open(path)); R_.start(); R_.stop()
+    check("ledger: inner processes under an outer allocation beat only read", sum(1 for _ in open(path)) == n0)
+    del os.environ["WAN_LEDGER_OUTER"]
 
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

@@ -15,7 +15,9 @@ Extensions (Astra item 9):
       per-run field must equal the signed result; exit 1 otherwise).
   --as_receiver  : strip the swap (swap_from = -1, src_ticks = ticks): a swapped render scored against the RECEIVER's keys.
   --post_swap_only : keep only ticks from swap_from on; with --as_receiver vs the receiver keys, else vs the DONOR keys (written
-      under the donor's scene name with the donor's ticks, no lag test), for the donor-following check of scripts/wan_panel.py.
+      under the donor's scene name with the donor's ticks, no lag test), for the donor-following check of scripts/wan_panel.py;
+      only positions whose receiver AND donor ticks are placement ticks (% 5 == 0) with both keys present stay accepted, so the
+      two scores use identical frames ("common_frames" recorded).
 Pseudo-rollouts go to a FRESH directory (<rgb>_roll_<tag>_<pid>_<time>, refused if it exists), never reused.
   python scripts/score_rgb.py --rgb runs/wroll/s1_12k_hybrid_dev --out runs/wroll/m_s1_12k_hybrid_dev.json
   python scripts/score_rgb.py --rgb runs/wroll/s1_12k_swap_dev --lag_ref runs/troll/A20k_indep_dev --out runs/wroll/m_s1_12k_swap_dev.json
@@ -29,6 +31,7 @@ p.add_argument("--rgb", default=""); p.add_argument("--from_lat", default=""); p
 p.add_argument("--lag_ref", default=""); p.add_argument("--cold", default="")
 p.add_argument("--as_receiver", action="store_true"); p.add_argument("--post_swap_only", action="store_true")
 p.add_argument("--parity_ref", default=""); p.add_argument("--tag", default="")
+p.add_argument("--keys", default="data/sim/keys_tpv10", help="key folder (post-swap common-frame selection only)")
 a = p.parse_args()
 if bool(a.rgb) == bool(a.from_lat):
     raise SystemExit("give exactly one of --rgb / --from_lat")
@@ -75,6 +78,14 @@ for f in sorted(glob.glob(f"{SRC}/*_s[0-9]*.pt")):
     if a.post_swap_only:
         if sf < 0:
             raise SystemExit(f"{b}: --post_swap_only needs a swapped rollout")
+        # S1b item 8: the donor-keyed and receiver-keyed scores must use the SAME frames: keep as accepted only positions whose
+        # receiver tick AND donor tick are placement ticks (% 5 == 0) with both key files present; everything else ok = False
+        rt_, dt_ = R["ticks"].tolist(), R["src_ticks"].tolist()
+        common = [i >= sf and int(rt_[i]) % 5 == 0 and int(dt_[i]) % 5 == 0 and bool(R["ok"][i]) and not bool(R["hard"][i])
+                  and os.path.exists(f"{a.keys}/{sc}/t{int(rt_[i]):04d}.jpg") and os.path.exists(f"{a.keys}/{R['other']}/t{int(dt_[i]):04d}.jpg")
+                  for i in range(len(rt_))]
+        R["ok"] = torch.tensor(common, dtype=torch.bool)
+        R["common_frames"] = int(sum(common))
         for k in PER_TICK:
             if k in R and torch.is_tensor(R[k]):
                 R[k] = R[k][sf:].clone()

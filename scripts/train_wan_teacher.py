@@ -41,7 +41,9 @@ Modes
 - --overfit 8 (item 8): 8 DISTINCT fixed clips (6 mid-stream + 2 true starts) as every batch; fixed-noise / fixed-sigma eval of
   the SAME 8 every 100 updates; PASS = final eval loss <= --overfit_ratio (0.25) x the update-0 eval loss AND decoded samples
   (30 Euler steps, hybrid) reach car F1 >= --overfit_f1_frac (0.8) x the Wan-VAE round-trip car F1 against the keys (signed
-  scorer's segmentation + 0.3 matcher) -> overfit.json, exit 4 on FAIL.
+  scorer's segmentation + 0.3 matcher), the round trip itself > 0; both gates read at update 2,000 only (--steps 2000 required;
+  a shorter job prints OVERFIT_PENDING and resumes); the update-0 eval loss is stored in every checkpoint; sampling runs in the
+  fitting microbatch -> overfit.json, exit 4 on FAIL.
   python scripts/train_wan_teacher.py --out runs/wan_s1 --steps 40000 --budget_hours 24 --ledger runs/wan_s1_ledger.jsonl --resume
 """
 import argparse, hashlib, json, os, queue, random, threading, time
@@ -99,6 +101,9 @@ if a.batch % a.micro:
     raise SystemExit("--batch must be a multiple of --micro")
 if a.overfit and a.batch != a.overfit:
     raise SystemExit("--overfit N trains on exactly N clips per update: --batch N")
+OVERFIT_STEPS = 2000  # declared: both overfit gates are read at update 2,000 (S1b item 6)
+if a.overfit and a.steps != OVERFIT_STEPS:
+    raise SystemExit(f"--overfit is declared at {OVERFIT_STEPS} updates: --steps {OVERFIT_STEPS}")
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 KIND = a.kind or ("timing" if a.timing and not a.overfit else ("overfit" if a.overfit else "train"))
@@ -276,7 +281,7 @@ RECIPE = {k: getattr(a, k) for k in ("seed", "lists", "cache", "tokens", "rank",
                                      "sigma_dist", "p_start", "p_guide_drop", "p_tok_drop", "p_holes", "overfit", "prompt_embed", "wan")}
 CFG = {"rank": a.rank, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "shift": a.shift, "n_extra": WC.N_EXTRA,
        "prompt_embed": a.prompt_embed, "wan": a.wan, "clip_latents": NL, "tok_grid": WC.TOK_GRID, "seed": a.seed}
-start, ck, CHAIN = 0, f"{a.out}/ckpt.pt", ""
+start, ck, CHAIN, OF0 = 0, f"{a.out}/ckpt.pt", "", None
 if os.path.exists(ck):
     if not a.resume:
         raise SystemExit(f"{ck} exists: pass --resume or use a fresh --out")
@@ -291,6 +296,9 @@ if os.path.exists(ck):
             raise SystemExit(f"incompatible resume: {k_} {s_.get(k_)} != {v_}")
     model.load_trainable(s_["trainable"]); opt.load_state_dict(s_["opt"])
     start, CHAIN = s_["step"], s_["pick_chain"]
+    OF0 = s_.get("overfit_eval0")
+    if a.overfit and OF0 is None:
+        raise SystemExit("resumed overfit run without its update-0 eval loss in the checkpoint")
     torch.set_rng_state(s_["rng"]["torch"]); torch.cuda.set_rng_state(s_["rng"]["cuda"]); random.setstate(s_["rng"]["python"]); np.random.set_state(s_["rng"]["numpy"])
     print(f"resumed at update {start}; ledger {LEDGER.hours():.2f} h used", flush=True)
 json.dump({**vars(a), "kind": KIND, "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "init_sha": INIT_SHA,
@@ -302,7 +310,7 @@ json.dump({**vars(a), "kind": KIND, "code_sha": CODE_SHA, "base_sha": BASE_SHA, 
 def save(step, path):
     d = {"trainable": model.trainable_state(), "opt": opt.state_dict(), "step": step, "hours": LEDGER.hours(), "recipe": RECIPE, "cfg": CFG,
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "vae_sha": VAE_SHA, "data_sha": DATA_SHA, "guide_version": GUIDE_VERSION,
-         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a),
+         "init_sha": INIT_SHA, "pick_chain": CHAIN, "timing": bool(TEST), "args": vars(a), "overfit_eval0": OF0,
          "rng": {"torch": torch.get_rng_state(), "cuda": torch.cuda.get_rng_state(), "python": random.getstate(), "numpy": np.random.get_state()}}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
@@ -370,7 +378,8 @@ def probe(step):
     xt = 0.4 * bt["key"] + 0.6 * bt["eps"]
     sens = WC.sensitivity(model, xt, torch.cat([bt["guide"], bt["src"]], 1), torch.full((2,), 600.0, device=dev), bt["tok"], bt["ray"], AMP)
     model.train()
-    rec = {"update": step, "probe": res, "sensitivity_sigma0.6": {k: round(v, 6) for k, v in sens.items()}, "code_sha": CODE_SHA}
+    ok_s, why_s = WC.check_sensitivity(sens, bool(a.use_tokens))
+    rec = {"update": step, "probe": res, "sensitivity_sigma0.6": sens, "sensitivity_pass": ok_s, "sensitivity_why": why_s, "code_sha": CODE_SHA}
     print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
 
 
@@ -432,7 +441,8 @@ def qget(Q_, step):
 
 # ------------------------------------------------------------------------------------------------- timing mode
 if a.timing and not a.overfit:
-    rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "micro": {}}
+    rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "micro": {},
+           "startup_s": round(time.time() - LEDGER.t0, 1)}  # process start -> ready to train (loads, hashes, parity)
     s_ = 0
     # (1) microbatch sweep at global batch 8 (synchronous batches; forward / backward / Adam timed separately)
     for mb in [int(x) for x in a.timing_micro.split(",") if a.batch % int(x) == 0]:
@@ -529,7 +539,8 @@ SAVE = set(int(x) for x in a.save_at.split(","))
 T_WIN, N_WIN = time.time(), 0
 acc = {"data": 0.0, "gpu": 0.0, "wait": 0.0, "n": 0}
 stopped, last_wall = None, None
-OF0 = overfit_eval(0) if a.overfit else None
+if a.overfit and start == 0:
+    OF0 = overfit_eval(0)  # persisted in every checkpoint: a resumed run keeps the update-0 baseline
 for step in range(start, end):
     if KIND == "train":  # remaining-hours check BEFORE the update (item 11)
         used = LEDGER.hours(); est = (last_wall or 0.0) / 3600
@@ -598,6 +609,9 @@ for step in range(start, end):
     last_wall = time.time() - tstep
 
 # ------------------------------------------------------------------------------------------------ overfit verdict
+if a.overfit and end < OVERFIT_STEPS:
+    print(f"OVERFIT_PENDING at update {end} (gates are read at {OVERFIT_STEPS}); resume with --resume", flush=True)
+    LEDGER.stop(); raise SystemExit(0)
 if a.overfit:
     OFN = overfit_eval(end)
     from mrv import guide as GD
@@ -606,11 +620,15 @@ if a.overfit:
     z = torch.randn(a.overfit, 16, NL, 32, 64, generator=torch.Generator().manual_seed(31337)).to(dev)
     sg = WC.sigma_shift(torch.linspace(1.0, 0.0, 31), a.shift).to(dev)
     ex = torch.cat([bt["guide"], bt["src"]], 1)
-    with torch.no_grad():
-        for i in range(30):
-            with torch.autocast("cuda", dtype=AMP):
-                v = model(z, ex, (sg[i] * 1000).expand(a.overfit), bt["tok"], bt["ray"], bt["tkeep"]).float()
-            z = z + (sg[i + 1] - sg[i]) * v
+    with torch.no_grad():  # sampled in the fitting microbatch size (S1b item 6)
+        for i0 in range(0, a.overfit, a.micro):
+            sl = slice(i0, i0 + a.micro); zz = z[sl]
+            for i in range(30):
+                with torch.autocast("cuda", dtype=AMP):
+                    v = model(zz, ex[sl], (sg[i] * 1000).expand(zz.shape[0]), bt["tok"][sl] if bt["tok"] is not None else None,
+                              bt["ray"][sl] if bt["ray"] is not None else None, bt["tkeep"][sl]).float()
+                zz = zz + (sg[i + 1] - sg[i]) * v
+            z[sl] = zz
     NS = GD.import_signed_scorer(a.out)  # signed scorer namespace: segment / iou_mat / hungarian (unchanged file)
     tp = {"sample": [0, 0, 0], "roundtrip": [0, 0, 0]}; strips = []
     for b, ((kind, d), (sc, spans)) in enumerate(zip(OF, OF_SPANS)):
@@ -636,10 +654,12 @@ if a.overfit:
                     strips.append(np.concatenate([np.asarray(im), np.asarray(kimg)], 1))
     f1 = {k: 2 * v[0] / max(1, 2 * v[0] + v[1] + v[2]) for k, v in tp.items()}
     loss_ok = OFN <= a.overfit_ratio * OF0
-    f1_ok = f1["sample"] >= a.overfit_f1_frac * f1["roundtrip"]
+    rt_ok = f1["roundtrip"] > 0 and tp["roundtrip"][0] + tp["roundtrip"][2] > 0  # key cars exist and the codec keeps some
+    f1_ok = rt_ok and f1["sample"] >= a.overfit_f1_frac * f1["roundtrip"]
     res = {"eval_loss_update0": OF0, "eval_loss_final": OFN, "ratio": OFN / OF0, "declared_ratio": a.overfit_ratio, "loss_pass": loss_ok,
            "car_f1_sample": f1["sample"], "car_f1_roundtrip": f1["roundtrip"], "declared_f1_frac": a.overfit_f1_frac, "f1_pass": f1_ok,
-           "counts": tp, "clips": [(k, list(d)) for k, d in OF], "updates": end, "PASS": bool(loss_ok and f1_ok)}
+           "roundtrip_positive": rt_ok, "counts": tp, "clips": [(k, list(d)) for k, d in OF], "updates": end,
+           "declared_updates": OVERFIT_STEPS, "PASS": bool(end == OVERFIT_STEPS and loss_ok and f1_ok)}
     from PIL import Image
     Image.fromarray(np.concatenate(strips, 0)).save(f"{a.out}/overfit_samples.png")
     json.dump(res, open(f"{a.out}/overfit.json", "w"), indent=1)

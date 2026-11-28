@@ -108,6 +108,65 @@ hours are checked before each update. A resumed run must end on the same chained
   - post-swap ticks vs the receiver keys.
 - Pre-registered here for council confirmation: donor-following = donor F1 ≥ receiver F1 + 0.10 and median lag start ≤ 1.
 
+## Changes for Astra's second review (`council/codereview-wan-s1b-astra.md`)
+
+**Tokens (item 1).** A drive's tokens count as complete only if:
+- the depth-weight hash is non-empty and equals the guide's;
+- the shared-depth check passes (finite, at most 1e-3 m).
+
+`MODE=timing` first runs the pinned geometry check with its wrong-camera control and exits 5 if it fails.
+
+**Hash matching and splits (item 2).** The latent and token caches of each drive must record the same guide and enc hashes,
+and those must match the files on disk. This is checked at intake and again per drive at rollout.
+`wan_plan.check_split_membership` checks every resolved scene id, including explicit names and list files. `guide.py` is
+unchanged.
+
+**Sensitivity (item 3).** Token values are perturbed at a fixed context length (views cyclically shifted), next to an init
+control (guide conv and gates zeroed). A checkpoint of 1k+ updates must give a finite change above
+max(10 × control, 1e-3 × |v|) on each path.
+
+**Timing (item 4).** Forward and backward are timed separately. After an OOM, the fastest microbatch that fitted is restored.
+The production prefetch-queue wait is measured.
+
+**Forecast (item 5).** `scripts/wan_forecast.py` runs after the 81-tick scorer and deducts:
+- ledger hours;
+- the pending overfit gate and resume test;
+- recurring probes and saves;
+- numbered saves;
+- trainer starts;
+- `--n_panels` measured full panels.
+
+**Overfit gate (item 6).**
+- Both gates are read only at update 2,000 (a shorter job prints OVERFIT_PENDING).
+- The update-0 eval loss is stored in every checkpoint.
+- The 8 clips are sampled in the fitting microbatch.
+- The round-trip car F1 must be positive.
+
+**Panel parity (item 7).** The A@20k replay goes through the real-SD-to-RGB path. The cached pass is bound to the shas of the
+reference metrics, the reference rollouts, `score_rgb.py`, `temporal_metrics.py` and the SD VAE files. Any change triggers a
+replay.
+
+**Swap (items 8–9).** The check uses paired evidence and blocks unless all of these hold:
+- all 12 run ids are present;
+- donor and receiver keys are scored on the same frames (receiver and donor ticks both ≡ 0 mod 5);
+- each run's windows and noise equal the unswapped hybrid run's, with no donor truncation;
+- every drive has lag-eligible evidence.
+
+Exclusions are reported and non-recoveries count as infinity. The rule itself: donor F1 ≥ receiver F1 + 0.10 and median lag
+start ≤ 1.
+
+**Ledger (item 10).** One outer heartbeat per allocation (`python -m mrv.wan_plan beat`, started by both slurm scripts)
+charges the whole allocation once, including the timing scorer. A job killed without an end beat is also charged its last
+interval. Panels refuse to start over budget and stop at the cap. The resume check uses per-tensor tolerances (weights and
+Adam moments).
+
+**Decision (item 11).** A verdict needs:
+- a production checkpoint (global batch 8, not timing / overfit / test);
+- all four conditioning modes at full length with complete 6 × 2 panels.
+
+Below 12k updates the result is unresolved. The 24 h read happens once (marker `runs/wan_s1/S1_24H_DECISION.json`). The final
+read requires that marker to say EXTEND, and the bar stays 0.4456.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

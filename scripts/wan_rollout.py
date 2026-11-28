@@ -13,9 +13,11 @@ Sampling: --sampler unipc (Wan's solver, flow_prediction, flow sigmas, shift; co
 the end-of-S1 ablation at FIXED noise (noise = crc32("<scene>|<seed>|<segment first tick>|<window first latent>")).
 --swap: from the first window start at or after --swap_at (mrv.wan_plan.snap_swap: same window borders and noise as the
 unswapped run) the guide + tokens of the donor drive (scripts/causal_rollout.py pairing) are fed; swap_from / other / src_ticks
-for the scorer; "swap_boundaries_matched" records whether donor hard ticks changed the segmentation.
-Sensitivity (Astra item 4): once per run the output change from removing the guide / the tokens is measured on the first
-window (sigma 0.6); a checkpoint >= 1000 updates whose guide (or tokens) are inert is refused.
+for the scorer; "windows_match_unswapped" / "swap_boundaries_matched" record whether the run reproduces the window borders and
+noise keys of the unswapped full-length receiver run (donor hard ticks or a shorter donor change them; the panel then blocks).
+Sensitivity (Astra items 4 / S1b 3): once per run, on the first window (sigma 0.6), the output change from removing the guide and
+from perturbing the token VALUES at a fixed context length (views shifted), next to an init control (guide conv + gates zeroed);
+a checkpoint >= 1000 updates must be finite and change by > max(10 x control, 1e-3 x |v|) on each path, else it is refused.
 Sealed splits (decision / final) need --unseal (recipe lock + N1 first). Slice time is debited to --ledger (S1 budget) unless
 --ledger '' (scripts/wan_panel.py debits for its rollouts itself).
 Output <out>/<scene>_s<seed>.pt: ticks, src_ticks, ok, hard, restart, "rgb" uint8 [T,3,256,512] (scripts/score_rgb.py),
@@ -176,9 +178,11 @@ for di, sc in enumerate(drives):
     D = load_drive(sc); E = D["E"]
     other = ALL[(ALL.index(sc) + len(ALL) // 2) % len(ALL)]
     D2 = load_drive(other) if a.swap else None
-    n = len(E["ticks"]) if not a.max_ticks else min(a.max_ticks, len(E["ticks"]))
-    if D2 is not None:
-        n = min(n, len(D2["E"]["ticks"]))
+    n_full = len(E["ticks"]) if not a.max_ticks else min(a.max_ticks, len(E["ticks"]))
+    n = min(n_full, len(D2["E"]["ticks"])) if D2 is not None else n_full
+    # windows (and so noise keys) the UNSWAPPED receiver run uses at full length: a swap run must reproduce them exactly
+    exp_windows = [[int(E["ticks"][sg[0]]), w0, w1, n0] for sg in WP.segments(E["ticks"][:n_full].tolist(), E["hard"][:n_full].tolist())
+                   for w0, w1, n0 in WP.plan_windows(1 + -(-(len(sg) - 1) // 4), a.window_latents)]
     rt, rh = E["ticks"][:n].tolist(), E["hard"][:n].tolist()
     segs0 = WP.segments(rt, rh)
     W = a.window_latents
@@ -238,9 +242,11 @@ for di, sc in enumerate(drives):
                     g0 = torch.Generator().manual_seed(1)
                     x0 = torch.randn(1, 16, w1 - w0, 32, 64, generator=g0).to(dev)
                     SENS = WC.sensitivity(model, x0, ex_w, torch.tensor([600.0], device=dev), tk_w, ry_w, DT)
+                    ok_s, why_s = WC.check_sensitivity(SENS, USE_TOK)
+                    SENS["pass"], SENS["why"] = ok_s, why_s
                     print("sensitivity (sigma 0.6)", SENS, flush=True)
-                    if int(ck.get("step", 0)) >= 1000 and not a.allow_inert and (SENS["guide"] == 0 or (USE_TOK and SENS["tokens"] == 0)):
-                        raise SystemExit(f"trained checkpoint ignores an input path: {SENS}")
+                    if int(ck.get("step", 0)) >= 1000 and not a.allow_inert and not ok_s:
+                        raise SystemExit(f"trained checkpoint fails the input-sensitivity check ({why_s}): {SENS}")
                 gn = torch.Generator().manual_seed(zlib.crc32(f"{sc}|{seed}|{t_first}|{w0}".encode()))
                 z = torch.randn(1, 16, w1 - w0, 32, 64, generator=gn).to(dev)
                 torch.cuda.synchronize(); t0 = time.time()
@@ -258,7 +264,8 @@ for di, sc in enumerate(drives):
         rec = {"ticks": E["ticks"][:n].clone(), "src_ticks": torch.tensor(srct), "ok": torch.tensor(oks), "hard": torch.tensor(hards),
                "restart": torch.tensor(restart), "rgb": rgb, "s": -1.0, "snapshot_step": int(ck.get("step", -1)), "windows": windows,
                "swap_from": swap_pos if swap_pos is not None else -1, "other": other if D2 is not None else "", "seed": seed,
-               "swap_boundaries_matched": (segs == segs0) if D2 is not None else None, "sensitivity": SENS,
+               "swap_boundaries_matched": (segs == segs0 and windows == exp_windows) if D2 is not None else None,
+               "windows_match_unswapped": windows == exp_windows, "truncated_by_donor": n < n_full, "sensitivity": SENS,
                "code_sha": ck.get("code_sha"), "base_sha": ck.get("base_sha"), "batch": 1, **SETTINGS}
         if sdv is not None:
             t0 = time.time(); lats = []

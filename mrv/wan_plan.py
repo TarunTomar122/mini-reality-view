@@ -151,10 +151,29 @@ def _num(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
-def decide_s1(cmp, step, stage, swap_ok):
-    """PLAN-video S1 gates (signed text + Astra item 12). cmp = TCOMPARE dict (candidate A, signed A@20k B, A's k=3 count list,
-    --floor 0 --cold_ref B). stage: 'check' (informational), '24h' (the first read: pass / one 12 h extension / stop),
-    'final' (after the extension: pass bar unchanged). swap_ok: donor-following result (bool) or None (not run)."""
+def production_ok(ck_meta, expected_batch=8):
+    """S1b item 11: only a PRODUCTION checkpoint can carry a verdict: global batch 8, not a timing / overfit / test run.
+    ck_meta: {"timing", "recipe": {...}, "args": {...}}"""
+    why = []
+    if ck_meta.get("timing"):
+        why.append("timing / test checkpoint")
+    rc = ck_meta.get("recipe") or {}
+    if rc.get("batch") != expected_batch:
+        why.append(f"global batch {rc.get('batch')} != {expected_batch}")
+    if rc.get("overfit"):
+        why.append("overfit run")
+    kind = (ck_meta.get("args") or {}).get("kind") or "train"
+    if kind != "train":
+        why.append(f"kind {kind}")
+    return {"ok": not why, "why": why}
+
+
+def decide_s1(cmp, step, stage, swap, prod=None, modes=None, prior_24h=None):
+    """PLAN-video S1 gates (signed text + Astra items 12 / S1b 11). cmp = TCOMPARE dict of the HYBRID mode (candidate A, signed
+    A@20k B, A's k=3 count list, --floor 0 --cold_ref B). stage: 'check' (informational), '24h' (the ONE first read: pass /
+    one 12 h extension / stop), 'final' (only after a 24 h EXTEND verdict; pass bar unchanged).
+    swap: donor_following() result (or bool / None). prod: production_ok() result. modes: {"ok": bool, "why": [...]} = all four
+    conditioning modes rendered at full length with complete 6 x 2 panels. prior_24h: verdict string of an earlier 24 h read."""
     g = {"complete": cmp.get("drives") == 6 and cmp.get("runs") == 12 and not cmp.get("unpaired_drives") and cmp.get("cold_ref") == "B"}
     vals = {}
     for k in ("car_f1", "road_iou"):
@@ -167,54 +186,124 @@ def decide_s1(cmp, step, stage, swap_ok):
     g["road_iou"] = finite and vals["road_iou"][0] >= vals["road_iou"][1]
     g["ID"] = finite and vals["ID"][1] is True and vals["ID"][0] < REL_BAR
     g["W"] = finite and vals["W"][1] is True and vals["W"][0] < REL_BAR
-    g["swap"] = swap_ok is True
-    others = all(g[k] for k in ("complete", "finite", "road_iou", "ID", "W", "swap"))
+    g["swap"] = (swap.get("ok") is True) if isinstance(swap, dict) else (swap is True)
+    g["production"] = bool(prod and prod.get("ok"))
+    g["modes"] = bool(modes and modes.get("ok"))
+    others = all(g[k] for k in ("complete", "finite", "road_iou", "ID", "W", "swap", "production", "modes"))
     all_pass = others and g["car_f1"]
     in_band = finite and EXT_LOW <= vals["car_f1"][0] < PASS_CAR_F1
+    if stage not in ("check", "24h", "final"):
+        raise ValueError(stage)
     if step < FLOOR_UPDATES:
         verdict = "unresolved (below the 12k-update floor; A1)"
     elif stage == "check":
         verdict = "informational check (no verdict)"
+    elif not g["production"] or not g["modes"]:
+        verdict = "INVALID (not a production checkpoint with batch 8, or the four full-length mode panels are incomplete)"
     elif stage == "24h":
-        verdict = "PASS -> S2" if all_pass else ("EXTEND 12 h (car F1 in [A-0.03, A), every other gate passed)" if (others and in_band)
-                                                 else "STOP -> re-council")
-    elif stage == "final":
-        verdict = "PASS -> S2" if all_pass else "STOP -> re-council (the pass bar stays car F1 >= 0.4456)"
-    else:
-        raise ValueError(stage)
-    return {"step": step, "stage": stage, "gates": g, "values": vals, "all_pass": all_pass, "extension_band": in_band, "verdict": verdict}
+        if prior_24h is not None:
+            verdict = "INVALID (the 24 h read happens once; one already exists)"
+        else:
+            verdict = "PASS -> S2" if all_pass else ("EXTEND 12 h (car F1 in [A-0.03, A), every other gate passed)" if (others and in_band)
+                                                     else "STOP -> re-council")
+    else:  # final
+        if not (isinstance(prior_24h, str) and prior_24h.startswith("EXTEND")):
+            verdict = "INVALID (a final read needs the qualifying 24 h EXTEND verdict)"
+        else:
+            verdict = "PASS -> S2" if all_pass else "STOP -> re-council (the pass bar stays car F1 >= 0.4456)"
+    return {"step": step, "stage": stage, "gates": g, "values": vals, "all_pass": all_pass, "extension_band": in_band, "verdict": verdict,
+            "production_why": (prod or {}).get("why"), "modes_why": (modes or {}).get("why")}
 
 
-def donor_following(post_donor_f1, post_receiver_f1, lag_starts, margin=0.10):
-    """camera-swap check (pre-registered here; council to confirm): after the swap the render must follow the DONOR cameras:
-    mean (over drives, seeds pooled) post-swap car F1 vs the donor keys >= vs the receiver keys + margin, and the median
-    recovery START <= 1 tick (the signed interim lag rule; inf = not recovered)."""
-    if not post_donor_f1 or set(post_donor_f1) != set(post_receiver_f1):
-        return {"ok": False, "why": "missing / unpaired post-swap scores"}
-    d = statistics.mean(post_donor_f1.values()); r = statistics.mean(post_receiver_f1.values())
-    lag = statistics.median(lag_starts) if lag_starts else float("inf")
-    ok = d >= r + margin and lag <= 1
-    return {"ok": ok, "donor_f1": d, "receiver_f1": r, "margin": margin, "median_lag_start": lag}
+def donor_following(runs, margin=0.10, drives=6, seeds=("0", "1")):
+    """camera-swap check on PAIRED evidence (S1b items 8-9; rule pre-registered here, council to confirm). runs: run id
+    "<receiver>_s<seed>" -> {"donor_f1", "receiver_f1": post-swap car F1 vs the donor / receiver keys on the SAME frames,
+    "donor_frames", "receiver_frames": placement frames scored, "windows_match": swap run's windows / noise == the unswapped
+    receiver's, "lag": {"excluded": bool, "recovered": bool, "start": int | None}}.
+    Blocks (ok False) unless: exactly drives x seeds run ids; every run's windows match; every run scored the same nonzero
+    frame count for both keys; every drive has >= 1 lag-eligible run. Then ok = mean over drives (seeds pooled) donor F1 >=
+    receiver F1 + margin AND the median recovery START over eligible runs <= 1 tick (non-recoveries = infinity)."""
+    why = []
+    rids = sorted(runs)
+    drv = sorted({r.rsplit("_s", 1)[0] for r in rids})
+    if len(drv) != drives or any({r.rsplit("_s", 1)[1] for r in rids if r.rsplit("_s", 1)[0] == d} != set(seeds) for d in drv) or len(rids) != drives * len(seeds):
+        why.append(f"run ids: {len(rids)} runs over {len(drv)} drives (need {drives} x seeds {list(seeds)})")
+    bad_w = [r for r in rids if runs[r].get("windows_match") is not True]
+    if bad_w:
+        why.append(f"windows / noise differ from the unswapped receiver on {bad_w}")
+    bad_f = [r for r in rids if not (runs[r].get("donor_frames") and runs[r].get("donor_frames") == runs[r].get("receiver_frames"))]
+    if bad_f:
+        why.append(f"no common nonzero placement frames on {bad_f}")
+    no_lag = [d for d in drv if not any(not runs[r]["lag"].get("excluded") for r in rids if r.rsplit("_s", 1)[0] == d)]
+    if no_lag:
+        why.append(f"no lag-eligible run on drives {no_lag}")
+    excluded = [r for r in rids if runs[r]["lag"].get("excluded")]
+    lags = [(runs[r]["lag"]["start"] if runs[r]["lag"].get("recovered") else float("inf")) for r in rids if not runs[r]["lag"].get("excluded")]
+    per = {d: (statistics.mean(runs[r]["donor_f1"] for r in rids if r.rsplit("_s", 1)[0] == d),
+               statistics.mean(runs[r]["receiver_f1"] for r in rids if r.rsplit("_s", 1)[0] == d)) for d in drv} if rids else {}
+    dm = statistics.mean(v[0] for v in per.values()) if per else float("nan")
+    rm = statistics.mean(v[1] for v in per.values()) if per else float("nan")
+    lag = statistics.median(lags) if lags else float("inf")
+    rule = bool(per) and dm >= rm + margin and lag <= 1
+    return {"ok": (not why) and rule, "blocked": why, "donor_f1": dm, "receiver_f1": rm, "margin": margin, "median_lag_start": lag,
+            "lag_values": lags, "lag_excluded_runs": excluded, "per_drive": per}
+
+
+# ------------------------------------------------------------------------------------------------------------ forecast
+def forecast_s1(t):
+    """updates S1 training can still buy (S1b item 5). t: dict with
+      budget_h, used_h (ledger, all kinds), done_kinds (set of ledger kinds already charged, e.g. {'timing', 'overfit'}),
+      wall_s (production-loop seconds / update incl. prefetch wait), startup_s (one trainer start), probe_s, val_every,
+      save_s, save_every, n_numbered (numbered saves in the planned run), job_h (wall limit of one training job),
+      panel_h (measured cost of ONE full panel), n_panels, overfit_updates (2000), resume_updates (16 + 8 + 8),
+      overfit_verdict_h (sampling + decode + scorer of the 8 clips).
+    Pending overfit / resume test are charged at the same per-update cost plus their starts unless already in done_kinds."""
+    per_upd = t["wall_s"] + t["probe_s"] / max(1, t["val_every"]) + t["save_s"] / max(1, t["save_every"])
+    pend = {}
+    if "overfit" not in t["done_kinds"]:
+        pend["overfit_h"] = (t["startup_s"] + t["overfit_updates"] * t["wall_s"]) / 3600 + t["overfit_verdict_h"]
+    if "resume_test" not in t["done_kinds"]:
+        pend["resume_test_h"] = (3 * t["startup_s"] + t["resume_updates"] * t["wall_s"]) / 3600
+    pend["panels_h"] = t["n_panels"] * t["panel_h"]
+    avail = t["budget_h"] - t["used_h"] - sum(pend.values()) - t["n_numbered"] * t["save_s"] / 3600
+    jobs = max(1, math.ceil(max(avail, 0) / t["job_h"]))
+    avail_train = avail - jobs * t["startup_s"] / 3600
+    ups = int(max(0.0, avail_train) * 3600 / per_upd)
+    return {"per_update_s": round(per_upd, 3), "pending": {k: round(v, 3) for k, v in pend.items()}, "available_h": round(avail, 3),
+            "training_jobs": jobs, "updates": ups, "floor_12k_reachable": ups >= FLOOR_UPDATES,
+            "max_s_per_update_for_12k": round(max(0.0, avail_train) * 3600 / FLOOR_UPDATES, 3)}
+
+
+def panel_cost_h(dev_ticks_x_seeds, roll_tick_s, roll_start_s, score_tick_s, score_start_s, n_modes=4):
+    """one full panel: n_modes + 1 (swap) rollouts and n_modes + 3 scorings (swap full / post donor / post receiver) of every
+    dev tick x 2 seeds, plus the one-time A@20k replay scoring (counted in every panel, conservative), at measured rates"""
+    rolls = (n_modes + 1) * (roll_start_s + dev_ticks_x_seeds * roll_tick_s)
+    scores = (n_modes + 3 + 1) * (score_start_s + dev_ticks_x_seeds * score_tick_s)
+    return (rolls + scores) / 3600
 
 
 # ------------------------------------------------------------------------------------------------------------- budget
 class Ledger:
-    """S1 slice-hour ledger (Astra item 11): every S1 GPU job (timing, overfit, resume test, training, panels) appends
-    heartbeats {"job", "kind", "t0", "t"} to ONE jsonl file; a job's charge = last beat - t0, so work lost to a preemption is
-    still debited (at most one beat interval unaccounted). hours() sums all jobs."""
+    """S1 slice-hour ledger (Astra items 11 / S1b 10). ONE jsonl file of heartbeats {"job", "kind", "t0", "t"[, "note"]}.
+    Whole allocation: slurm/wan_teacher.sh and slurm/wan_panel.sh start ONE outer heartbeat for the entire allocation
+    (python -m mrv.wan_plan beat ...; exports WAN_LEDGER_OUTER=1), so every process inside, including the timing scorer and
+    the shell between steps, is charged exactly once; inner Ledger objects then only READ. A job's charge: finished (end
+    note) -> last beat - t0; still beating (last beat within 2 intervals) -> now - t0; dead without an end note (preempted /
+    killed) -> last beat - t0 + one beat interval (the last preemption interval, an upper bound)."""
 
-    def __init__(s, path, kind, beat_s=60.0):
+    def __init__(s, path, kind, beat_s=60.0, write=None):
         s.path, s.kind, s.beat_s = path, kind, beat_s
         s.t0 = time.time()
-        s.job = f"{os.environ.get('SLURM_JOB_ID', 'local')}-{os.getpid()}-{int(s.t0)}"
+        s.write = (not os.environ.get("WAN_LEDGER_OUTER")) if write is None else write
+        s.job = f"{'alloc' if kind.startswith('alloc') else 'proc'}-{os.environ.get('SLURM_JOB_ID', 'local')}-{os.getpid()}-{int(s.t0)}"
         s._stop = threading.Event()
         if path:
             os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
 
     def beat(s, note=None):
-        if not s.path:
+        if not s.path or not s.write:
             return
-        rec = {"job": s.job, "kind": s.kind, "t0": s.t0, "t": time.time()}
+        rec = {"job": s.job, "kind": s.kind, "t0": s.t0, "t": time.time(), "beat_s": s.beat_s}
         if note:
             rec["note"] = note
         with open(s.path, "a") as f:  # leading newline: a torn last line (killed writer) never swallows this beat
@@ -244,17 +333,48 @@ class Ledger:
                 r = json.loads(line)
             except json.JSONDecodeError:
                 continue  # a torn last line after a kill
-            j = jobs.setdefault(r["job"], {"kind": r["kind"], "t0": r["t0"], "t": r["t0"]})
+            j = jobs.setdefault(r["job"], {"kind": r["kind"], "t0": r["t0"], "t": r["t0"], "ended": False, "beat_s": r.get("beat_s", 60.0)})
             j["t"] = max(j["t"], r["t"])
+            j["ended"] = j["ended"] or r.get("note") in ("end", "failed", "parity", "incomplete", "cold_ref", "budget")
         return jobs
+
+    @staticmethod
+    def charge_h(j, now=None):
+        now = time.time() if now is None else now
+        if j["ended"]:
+            return (j["t"] - j["t0"]) / 3600
+        if now - j["t"] <= 2 * j["beat_s"]:
+            return (now - j["t0"]) / 3600  # still beating
+        return (j["t"] - j["t0"] + j["beat_s"]) / 3600  # dead without an end note: charge the last interval too
 
     def hours(s, live=True):
         jobs = Ledger.read(s.path)
-        tot = sum((j["t"] - j["t0"]) for k, j in jobs.items() if k != s.job) / 3600
-        return tot + ((time.time() - s.t0) / 3600 if live else 0.0)
+        tot = sum(Ledger.charge_h(j) for j in jobs.values())
+        if live and s.write and s.job not in jobs:
+            tot += (time.time() - s.t0) / 3600
+        return tot
 
     def by_kind(s):
         out = {}
-        for k, j in Ledger.read(s.path).items():
-            out[j["kind"]] = out.get(j["kind"], 0.0) + (j["t"] - j["t0"]) / 3600
+        for j in Ledger.read(s.path).values():
+            out[j["kind"]] = out.get(j["kind"], 0.0) + Ledger.charge_h(j)
         return out
+
+
+def _beat_main(argv):
+    """python -m mrv.wan_plan beat <ledger> <kind>: heartbeat for a whole allocation until SIGTERM / SIGINT (writes 'end')"""
+    import signal
+    L = Ledger(argv[0], argv[1], write=True).start()
+    done = threading.Event()
+    for sig in (signal.SIGTERM, signal.SIGINT):
+        signal.signal(sig, lambda *_: done.set())
+    done.wait()
+    L.stop("end")
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) >= 4 and sys.argv[1] == "beat":
+        _beat_main(sys.argv[2:4])
+    else:
+        raise SystemExit("usage: python -m mrv.wan_plan beat <ledger.jsonl> <kind>")

@@ -1,124 +1,184 @@
-"""PLAN-video S1 dev panel (Astra items 9, 10, 12): one checkpoint -> full six-drive x two-seed panel through the SIGNED comparator.
+"""PLAN-video S1 dev panel (Astra items 9, 10, 12; S1b items 7-11): one checkpoint -> full six-drive x two-seed panel through the
+SIGNED comparator, then the S1 decision.
 
-1. RGB-path parity (once per run folder): signed A@20k rollouts replayed through scripts/score_rgb.py --from_lat must reproduce
-   the signed metrics field by field (--parity_ref); otherwise the panel stops (the RGB entry is not trusted).
-2. For each conditioning mode (hybrid, guide, tokens, none; same seeds = FIXED noise and window borders): scripts/wan_rollout.py
-   -> scripts/score_rgb.py -> signed scripts/temporal_compare.py exactly as specified: candidate FIRST, A@20k SECOND
-   (runs/troll/m_A20k_indep_dev.json), A's k=3 count list (runs/count/count_A20k_dev_k3.json), --floor 0 --cold_ref B; the
-   panel must be complete (6 drives, 12 runs, nothing unpaired).
-3. Camera swap (hybrid, --swap; window borders and noise as the unswapped run): scored three ways with the same RGB: full run vs
-   the donor keys with the lag test against the DONOR's signed A@20k cold reference (decoded with the real SD VAE inside
-   score_rgb), post-swap ticks vs the donor keys, post-swap ticks vs the receiver keys -> mrv.wan_plan.donor_following.
-4. Decision: mrv.wan_plan.decide_s1 on the hybrid compare (car F1 >= 0.4456, road IoU >= A, eligible ID and W each down > 9.4 %,
-   donor-following swap); below 12k updates = unresolved; --stage 24h: pass / one 12 h extension only for car F1 in
-   [0.4156, 0.4456) with every other gate passed / stop; --stage final: bar 0.4456. The four modes are reported side by side.
-The panel debits its wall time to the S1 ledger (rollouts run with --ledger ''). Dev only (sealed splits never touched).
-Writes <wroot>/<name>_panel.json.
+1. RGB-path parity (S1b 7): the signed A@20k SD-latent rollouts are decoded with the REAL SD VAE into RGB (score_rgb.py
+   --from_lat, the scorer's own arithmetic) and scored through the RGB entry; every per-run field must equal the signed metrics.
+   The cached pass is reused only if its binding still holds: sha of the signed metrics file, of every reference rollout file,
+   of scripts/score_rgb.py (adapter), scripts/temporal_metrics.py (scorer) and of the SD VAE files. Any change -> replay.
+2. Production check (S1b 11): the checkpoint must be a production one (global batch 8, not timing / overfit / test).
+3. Four conditioning modes (hybrid, guide, tokens, none; same seeds = FIXED noise and windows), each at FULL length (every run's
+   tick count == the drive's; --max_ticks refused): wan_rollout.py -> score_rgb.py -> signed temporal_compare.py with
+   candidate FIRST, A@20k SECOND, A's k=3 count list, --floor 0 --cold_ref B; each panel complete (6 drives, 12 runs).
+4. Camera swap on PAIRED evidence (S1b 8-9): hybrid --swap; per run: windows / noise == the unswapped hybrid run of the same drive
+   and seed (from both files) and no donor truncation; post-swap car F1 vs donor keys and vs receiver keys on the SAME frames
+   (score_rgb --post_swap_only common-frame selection; equal nonzero placement counts); lag from the full run vs the donor's
+   signed A@20k cold reference (decoded with the real SD VAE), exclusions reported, non-recoveries infinite, every drive needs
+   lag-eligible evidence -> mrv.wan_plan.donor_following (blocks on any missing / mismatched evidence).
+5. Decision (mrv.wan_plan.decide_s1): < 12k updates unresolved; 'check' informational; '24h' happens ONCE (marker
+   <run dir>/S1_24H_DECISION.json): pass / one 12 h extension only for car F1 in [0.4156, 0.4456) with every other gate passed /
+   stop; 'final' only after a 24 h EXTEND marker, bar 0.4456. Gates need the production checkpoint and all four mode panels.
+Budget (S1b 10): the panel is charged by the allocation's outer ledger beat (slurm/wan_panel.sh); it refuses to start if
+ledger + --panel_estimate_h > --budget_hours and stops (PANEL_FAIL budget) if the ledger reaches the cap between steps.
+Writes <wroot>/<name>_panel.json. Dev only.
   python scripts/wan_panel.py --ckpt runs/wan_s1/ckpt_12000.pt --name s1_12k --stage check
 """
-import argparse, json, os, statistics, subprocess, sys, time
+import argparse, glob, hashlib, json, os, subprocess, sys, time
 from mrv import wan_plan as WP
 
 p = argparse.ArgumentParser()
 p.add_argument("--ckpt", required=True); p.add_argument("--name", required=True)
 p.add_argument("--stage", default="check", choices=["check", "24h", "final"])
-p.add_argument("--conds", default="hybrid,guide,tokens,none")
 p.add_argument("--wroot", default="runs/wroll")
 p.add_argument("--a_metrics", default="runs/troll/m_A20k_indep_dev.json")
 p.add_argument("--a_roll", default="runs/troll/A20k_indep_dev")
 p.add_argument("--count_list", default="runs/count/count_A20k_dev_k3.json")
+p.add_argument("--lists", default="data/temporal_lists.json"); p.add_argument("--enc", default="data/enc_tpv10")
 p.add_argument("--ledger", default="runs/wan_s1_ledger.jsonl")
+p.add_argument("--budget_hours", type=float, default=24.0, help="36 after the one signed extension")
+p.add_argument("--panel_estimate_h", type=float, default=0.0, help="measured full-panel cost (timing.json forecast_final.panel_h)")
 p.add_argument("--swap_at", type=int, default=50)
-p.add_argument("--no_swap", action="store_true")
-p.add_argument("--rollout_args", default="", help="extra flags for wan_rollout.py, e.g. '--steps 30 --cfg 1.0'")
+p.add_argument("--rollout_args", default="", help="extra flags for wan_rollout.py, e.g. '--steps 30 --cfg 1.0' (no --max_ticks)")
 a = p.parse_args()
 PY = sys.executable
-if "hybrid" not in a.conds.split(","):
-    raise SystemExit("the decision is read on the hybrid mode: --conds must include hybrid")
+MODES = ["hybrid", "guide", "tokens", "none"]
+roll_extra = a.rollout_args.split() if a.rollout_args else []
+if any(x.startswith("--max_ticks") or x in ("--swap", "--split", "--cond", "--seeds", "--drive_list") for x in roll_extra):
+    raise SystemExit("--rollout_args may not change length, split, mode, seeds or drives (full-length 6 x 2 panels only)")
 LEDGER = WP.Ledger(a.ledger, "panel").start()
 os.makedirs(a.wroot, exist_ok=True)
 T0 = time.time(); timing = {}
 
 
+def fail(msg, note="failed"):
+    LEDGER.stop(note); raise SystemExit(f"PANEL_FAIL {msg}")
+
+
+def cap():
+    h = LEDGER.hours()
+    if h >= a.budget_hours:
+        fail(f"budget: S1 ledger {h:.2f} h >= {a.budget_hours} h", "budget")
+
+
 def run(cmd, what):
+    cap()
     t = time.time(); print("RUN", " ".join(cmd), flush=True)
     r = subprocess.run(cmd, capture_output=True, text=True)
     timing[what] = round(time.time() - t, 1)
     if r.returncode:
         print(r.stdout[-3000:], r.stderr[-3000:], flush=True)
-        LEDGER.stop("failed"); raise SystemExit(f"PANEL_FAIL {what} (exit {r.returncode})")
+        fail(f"{what} (exit {r.returncode})")
     return r.stdout
+
+
+def sha_file(f):
+    h = hashlib.sha256()
+    with open(f, "rb") as fh:
+        for b in iter(lambda: fh.read(1 << 24), b""):
+            h.update(b)
+    return h.hexdigest()
+
+
+def sha_files(fs):
+    return hashlib.sha256("".join(os.path.basename(f) + sha_file(f) for f in sorted(fs)).encode()).hexdigest()
 
 
 def tcompare(m):
     out = run([PY, "scripts/temporal_compare.py", "--compare", m, a.a_metrics, "--count_list", a.count_list, "--floor", "0", "--cold_ref", "B"], f"compare {m}")
     d = json.loads(out.split("TCOMPARE ", 1)[1].splitlines()[0])
     if not (d["drives"] == 6 and d["runs"] == 12 and not d["unpaired_drives"]):
-        LEDGER.stop("incomplete"); raise SystemExit(f"PANEL_FAIL incomplete panel for {m}: {d['drives']} drives, {d['runs']} runs, unpaired {d['unpaired_drives']}")
-    if d.get("cold_ref") != "B":
-        LEDGER.stop("cold_ref"); raise SystemExit(f"PANEL_FAIL compare for {m} did not run with --cold_ref B")
+        fail(f"incomplete panel for {m}: {d['drives']} drives, {d['runs']} runs, unpaired {d['unpaired_drives']}", "incomplete")
+    if d.get("cold_ref") != "B" or d.get("A") != m or d.get("B") != a.a_metrics:
+        fail(f"compare for {m} not run as specified (A {d.get('A')}, B {d.get('B')}, cold_ref {d.get('cold_ref')})", "cold_ref")
     return d
 
 
-# 1. RGB-path parity of the signed A@20k replay
-par = f"{a.wroot}/a20k_rgbpath_parity.json"
-if not (os.path.exists(par) and json.load(open(par)).get("pass")):
-    out = run([PY, "scripts/score_rgb.py", "--from_lat", a.a_roll, "--parity_ref", a.a_metrics, "--out", f"{a.wroot}/m_A20k_rgbpath.json"], "a20k_parity")
-    json.dump({"pass": "RGB_PATH_PARITY PASS" in out, "log": out[-500:]}, open(par, "w"), indent=1)
-    if "RGB_PATH_PARITY PASS" not in out:
-        LEDGER.stop("parity"); raise SystemExit("PANEL_FAIL A@20k replay through the RGB path differs from the signed metrics")
-roll_extra = a.rollout_args.split() if a.rollout_args else []
-res = {"ckpt": a.ckpt, "name": a.name, "stage": a.stage, "modes": {}}
 import torch
-step = int(torch.load(a.ckpt, map_location="cpu", weights_only=False, mmap=True)["step"])
-res["step"] = step
+used = LEDGER.hours()
+if used + a.panel_estimate_h > a.budget_hours:
+    fail(f"budget: ledger {used:.2f} h + panel estimate {a.panel_estimate_h} h > {a.budget_hours} h", "budget")
+CK = torch.load(a.ckpt, map_location="cpu", weights_only=False, mmap=True)
+step = int(CK["step"])
+PROD = WP.production_ok({"timing": CK.get("timing"), "recipe": CK.get("recipe"), "args": CK.get("args")})
+MARK = os.path.join(os.path.dirname(os.path.abspath(a.ckpt)), "S1_24H_DECISION.json")
+prior = json.load(open(MARK))["verdict"] if os.path.exists(MARK) else None
+if a.stage == "24h" and prior is not None:
+    fail(f"a 24 h decision already exists ({MARK}: {prior}); the 24 h read happens once")
+if a.stage == "final" and not (prior or "").startswith("EXTEND"):
+    fail(f"final read without a qualifying 24 h EXTEND verdict (marker: {prior})")
 
-# 2. conditioning modes at fixed noise
-for cond in a.conds.split(","):
+# 1. RGB-path parity, bound to references, adapter, scorer and decoder
+from huggingface_hub import snapshot_download
+sd_dir = snapshot_download("stabilityai/sd-vae-ft-mse", local_files_only=True)
+BIND = {"a_metrics": sha_file(a.a_metrics), "a_roll": sha_files(glob.glob(f"{a.a_roll}/*_s[0-9]*.pt")), "score_rgb": sha_file("scripts/score_rgb.py"),
+        "temporal_metrics": sha_file("scripts/temporal_metrics.py"), "sd_vae": sha_files([f for f in glob.glob(f"{sd_dir}/**", recursive=True) if os.path.isfile(f)])}
+par = f"{a.wroot}/a20k_rgbpath_parity.json"
+cached = json.load(open(par)) if os.path.exists(par) else {}
+if not (cached.get("pass") and cached.get("binding") == BIND):
+    out = run([PY, "scripts/score_rgb.py", "--from_lat", a.a_roll, "--parity_ref", a.a_metrics, "--out", f"{a.wroot}/m_A20k_rgbpath.json"], "a20k_parity")
+    ok = "RGB_PATH_PARITY PASS" in out
+    json.dump({"pass": ok, "binding": BIND, "log": out[-500:], "when": time.time()}, open(par, "w"), indent=1)
+    if not ok:
+        fail("A@20k replay through the real-SD-to-RGB path differs from the signed metrics", "parity")
+res = {"ckpt": a.ckpt, "name": a.name, "stage": a.stage, "step": step, "production": PROD, "parity_binding": BIND, "modes": {}}
+
+# 2-3. the four modes at fixed noise, full length
+dev = sorted(json.load(open(a.lists))["dev"])
+n_full = {d: len(torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)["ticks"]) for d in dev}
+mode_why, CMP = [], None
+for cond in MODES:
     rd, m = f"{a.wroot}/{a.name}_{cond}_dev", f"{a.wroot}/m_{a.name}_{cond}_dev.json"
     run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--split", "dev", "--seeds", "0,1", "--cond", cond, "--out", rd, "--ledger", ""] + roll_extra, f"rollout {cond}")
+    for d in dev:
+        for sd in (0, 1):
+            R = torch.load(f"{rd}/{d}_s{sd}.pt", map_location="cpu", weights_only=False, mmap=True)
+            if len(R["ticks"]) != n_full[d] or R.get("max_ticks") or R.get("cond") != cond or R.get("ckpt_sha") is None:
+                mode_why.append(f"{cond}: {d}_s{sd} not a full-length {cond} run ({len(R['ticks'])}/{n_full[d]} ticks)")
     run([PY, "scripts/score_rgb.py", "--rgb", rd, "--out", m], f"score {cond}")
-    d = tcompare(m)
-    res["modes"][cond] = {"metrics": m, "car_f1": d["car_f1"], "road_iou": d["road_iou"], "ID": d["ID"], "W": d["W"],
-                          "ghost_ge5": d.get("ghost_ge5"), "recall": d.get("recall"), "flips": d.get("flips")}
+    d_ = tcompare(m)
+    res["modes"][cond] = {"metrics": m, "car_f1": d_["car_f1"], "road_iou": d_["road_iou"], "ID": d_["ID"], "W": d_["W"],
+                          "ghost_ge5": d_.get("ghost_ge5"), "recall": d_.get("recall"), "flips": d_.get("flips")}
     if cond == "hybrid":
-        CMP = d
+        CMP = d_
+MODES_OK = {"ok": not mode_why and set(res["modes"]) == set(MODES), "why": mode_why}
 
-# 3. camera swap (hybrid)
-swap = None
-if not a.no_swap:
-    rd = f"{a.wroot}/{a.name}_swap_dev"
-    run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--split", "dev", "--seeds", "0,1", "--cond", "hybrid", "--swap", "--swap_at", str(a.swap_at),
-         "--out", rd, "--ledger", ""] + roll_extra, "rollout swap")
-    mf, md, mr = (f"{a.wroot}/m_{a.name}_swap_{k}.json" for k in ("full", "postdonor", "postrecv"))
-    run([PY, "scripts/score_rgb.py", "--rgb", rd, "--lag_ref", a.a_roll, "--out", mf], "score swap full")
-    run([PY, "scripts/score_rgb.py", "--rgb", rd, "--post_swap_only", "--out", md], "score swap donor")
-    run([PY, "scripts/score_rgb.py", "--rgb", rd, "--post_swap_only", "--as_receiver", "--out", mr], "score swap receiver")
-    full, dn, rc = (json.load(open(f))["drives"] for f in (mf, md, mr))
-    by = lambda D: {k: statistics.mean(v) for k, v in _group(D).items()}
+# 4. camera swap on paired evidence
+rd, hyb = f"{a.wroot}/{a.name}_swap_dev", f"{a.wroot}/{a.name}_hybrid_dev"
+run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--split", "dev", "--seeds", "0,1", "--cond", "hybrid", "--swap", "--swap_at", str(a.swap_at),
+     "--out", rd, "--ledger", ""] + roll_extra, "rollout swap")
+mf, md, mr = (f"{a.wroot}/m_{a.name}_swap_{k}.json" for k in ("full", "postdonor", "postrecv"))
+run([PY, "scripts/score_rgb.py", "--rgb", rd, "--lag_ref", a.a_roll, "--out", mf], "score swap full")
+run([PY, "scripts/score_rgb.py", "--rgb", rd, "--post_swap_only", "--out", md], "score swap donor")
+run([PY, "scripts/score_rgb.py", "--rgb", rd, "--post_swap_only", "--as_receiver", "--out", mr], "score swap receiver")
+full, dn, rc = (json.load(open(f))["drives"] for f in (mf, md, mr))
+runs = {}
+for d in dev:
+    for sd in (0, 1):
+        rid = f"{d}_s{sd}"
+        if rid not in full or rid not in rc:
+            continue
+        S = torch.load(f"{rd}/{rid}.pt", map_location="cpu", weights_only=False, mmap=True)
+        H = torch.load(f"{hyb}/{rid}.pt", map_location="cpu", weights_only=False, mmap=True)
+        did = f"{S['other']}_s{sd}"
+        if did not in dn:
+            continue
+        wm = (S.get("windows") == H.get("windows") and S.get("windows_match_unswapped") is True and not S.get("truncated_by_donor")
+              and S.get("ckpt_sha") == H.get("ckpt_sha"))
+        q = full[rid]
+        runs[rid] = {"donor_f1": dn[did]["car_f1"], "receiver_f1": rc[rid]["car_f1"], "donor_frames": len(dn[did]["placement_ticks"]),
+                     "receiver_frames": len(rc[rid]["placement_ticks"]), "windows_match": wm, "donor": S["other"],
+                     "lag": {"excluded": bool(q.get("lag_excluded")), "recovered": bool(q.get("lag_recovered")), "start": q.get("lag_start"),
+                             "eligible_windows": q.get("lag_eligible_windows")}}
+SWAP = WP.donor_following(runs)
+res["swap"] = {**SWAP, "runs": runs}
 
-    def _group(D):
-        g = {}
-        for run_, v in D.items():
-            g.setdefault(run_.rsplit("_s", 1)[0], []).append(v["car_f1"])
-        return g
-    # donor-keyed files are named by the donor; pair them back to their receivers through the full-run "other" fields
-    pair = {}
-    for run_ in full:
-        R = torch.load(f"{rd}/{run_}.pt", map_location="cpu", weights_only=False, mmap=True)
-        pair[R["other"] + "_s" + run_.rsplit("_s", 1)[1]] = run_
-    dn_recv = {pair[k]: v for k, v in dn.items()}
-    lag = [(v["lag_start"] if v.get("lag_recovered") else float("inf")) for v in full.values() if "lag_recovered" in v]
-    swap = WP.donor_following(by(dn_recv), by(rc), lag)
-    swap["boundaries_matched"] = all(bool(torch.load(f"{rd}/{r}.pt", map_location="cpu", weights_only=False, mmap=True).get("swap_boundaries_matched")) for r in full)
-    swap["lag_excluded_runs"] = sum(1 for v in full.values() if v.get("lag_excluded"))
-    res["swap"] = swap
-
-# 4. decision
-res["decision"] = WP.decide_s1(CMP, step, a.stage, swap["ok"] if swap else None)
+# 5. decision
+res["decision"] = WP.decide_s1(CMP, step, a.stage, SWAP, PROD, MODES_OK, prior)
 res["timing_s"] = timing; res["panel_hours"] = round((time.time() - T0) / 3600, 3)
 res["ledger_hours"] = round(LEDGER.hours(), 3); res["ledger_by_kind"] = LEDGER.by_kind()
 json.dump(res, open(f"{a.wroot}/{a.name}_panel.json", "w"), indent=1, default=str)
+if a.stage == "24h" and step >= WP.FLOOR_UPDATES and not res["decision"]["verdict"].startswith(("INVALID", "unresolved")):
+    json.dump({"verdict": res["decision"]["verdict"], "panel": f"{a.wroot}/{a.name}_panel.json", "step": step, "ckpt": a.ckpt},
+              open(MARK, "w"), indent=1)
 print("WAN_PANEL", json.dumps({"step": step, "stage": a.stage, "verdict": res["decision"]["verdict"], "gates": res["decision"]["gates"],
-                               "modes": {k: v["car_f1"].get("A") for k, v in res["modes"].items()}}, default=str), flush=True)
+                               "swap_blocked": SWAP["blocked"], "modes": {k: v["car_f1"].get("A") for k, v in res["modes"].items()}}, default=str), flush=True)
 LEDGER.stop()

@@ -5,10 +5,11 @@
 A home-made, open version of Tesla's FSD v15 "Reality View": six ordinary car cameras go in, and a picture of the car
 and its surroundings, seen from a camera floating behind it, comes out. Drawn by a diffusion model, not a game engine.
 
-![Top: three of the six real car cameras at a rainy Boston junction. Bottom: the game-style chase view our model draws from all six, frame by frame, on a street it never saw in training](docs/figs/busy_junction.gif)
+![Top: three of the six real car cameras on a Boston street lined with parked cars. Bottom left: the game-style answer key for the same moment. Bottom right: what our model A draws from the six cameras, on a drive it never saw in training](docs/figs/unseen_drive_A.gif)
 
-*Real cameras in (top), our model's chase view out (bottom), on a street it never saw in training. Early checkpoint
-(2,500 of 10,000 steps); every frame is drawn on its own, with no memory yet. [MP4](docs/media/busy_junction.mp4)*
+*Real cameras in (top). Bottom: the answer key, a game render of the same drive (left), and our best model so far, "A",
+drawing from the six cameras (right), on a drive it never saw in training. 8 seconds at 10 frames a second. A draws
+every frame on its own, with no memory, so cars can shift a little between frames. [Full MP4, two drives](docs/media/unseen_drives_A.mp4)*
 
 ## Where we are
 
@@ -17,71 +18,114 @@ and its surroundings, seen from a camera floating behind it, comes out. Drawn by
 | 1 | Make answer keys from real data (lidar points, then 3D reconstructions) and train a small renderer | done |
 | 2 | Start from Stable Diffusion instead: photo-like pictures, cars roughly in place | done |
 | 3 | Practise in a driving simulator first | done: a head start, not a better model |
-| 4 | Real photos in, clean game-style third-person view out (single-frame model "A") | done |
+| 4 | Real photos in, clean game-style chase view out (single-frame model "A") | **done: our best model** |
 | 5 | Smooth video with a one-frame memory on top of A | closed: smoother, but drift and car mistakes grew |
 | 6 | Live video by bolting small time layers onto the frozen image model | closed: see below |
 | 7 | **Switch to a real pretrained video model (Wan 2.1, 1.3B), made live and camera-conditioned** | **plan signed, first checks running** |
 
-**Now (28 Nov):** we stopped trying to turn an image model into a video model. Two overnight runs added time layers to
-the frozen Stable Diffusion model A: with shared noise it got 58% jumpier than A; with private noise it got smoother
-(15% fewer car jumps, 7% less wobble at 12k) but placed cars worse and left fake cars lingering, so the agreed safety
-rule stopped it. These layers only compare the same pixel across frames, while everything in a driving view moves, and
-they start from nothing with about 4 hours of driving to learn from. The next step is a model that has already learned
-motion from millions of videos (open-weight, about 1.3 to 2 billion parameters, e.g. Wan 2.1 1.3B, LTX-Video 2B or
-Cosmos-Predict2 2B), conditioned on our six cameras and made causal and fast for live use. The research council chose Wan 2.1 (1.3B) and a
-camera-geometry-first way to feed it our six cameras ([plan](council/PLAN-video.md)); A stays as the single-frame reference and
-the signed smoothness / accuracy / drift checks stay the same.
+**Now (28 Nov):** we stopped trying to turn an image model into a video model, and the plan for the replacement is
+signed ([PLAN-video](council/PLAN-video.md)). Two overnight runs had added time layers to the frozen model A: with
+shared noise it got 58% jumpier than A; with private noise it got smoother (15% fewer car jumps, 7% less wobble) but
+placed cars worse and left fake cars lingering, so the agreed safety rule stopped it. Those layers only compare the same
+pixel across frames, while everything in a driving view moves, and they had to learn motion from about 4 hours of
+driving.
+
+The new base is **Wan 2.1 (1.3B)**, an open video model (Apache-2.0) that has already learned motion from millions of
+videos, and the model most open live-streaming work is built on. The plan:
+
+- **First checks (running):** does Wan's picture compressor keep our cars intact, and how fast does it run on our GPUs.
+- **S1:** teach it our task on whole 1.7-second clips, with small add-on layers (the base stays frozen).
+- **S2:** make it causal (it only sees the past) and fast (4 steps), trained on its own earlier frames.
+- **S3:** 2 steps, a tiny decoder, and live timing.
+
+It has to beat A on the same signed checks: car accuracy at least as good as A's, and more than 9.4% smoother. It draws
+frames in groups of four, so the live view runs at 10 frames a second about half a second behind; the owner accepted
+that delay. A stays as the single-frame reference.
 
 ## The problem
 
 A car's cameras sit 1.5 m off the ground and look outwards. Nobody films the car from behind and above, so there is no
 "correct" picture to learn from. We have to make the answer key ourselves, and the model can only be as good as it.
+Our fix: replay each real drive in a driving game (MetaDrive) and film it from a chase camera 7.5 m behind the car. The
+inputs stay real photos; only the answer key is a game picture, which is clean and exact.
 
 ## The idea
 
+What works today (model A, one frame at a time):
+
 ```
-6 car photos ─► DINOv2 (frozen) ─► camera tokens + viewing rays ─► Stable Diffusion 1.5 + adapter ─► view from behind
+6 car photos ─► DINOv2 (frozen) ─► camera tokens + viewing rays ─► Stable Diffusion 1.5 + adapter ─► chase view
 ```
 
 Tesla feeds its driving model's vision features to a ~1B diffusion model. We copy the shape at small scale: frozen
 DINOv2 features from each camera replace Stable Diffusion's text prompt, and small trained layers teach it the task.
 
+What we are building now (a video model that remembers and runs live):
+
+```
+6 car photos ─► depth estimate ─► photos painted into the chase camera ──┐
+             └► raw camera tokens + viewing rays ──────────────────────┴► Wan 2.1 1.3B (frozen + small layers)
+                                                                             ─► chase view, streamed 4 frames at a time
+```
+
+Geometry first: a small depth model (Depth Anything V2-Small) guesses how far away each pixel is, so the six photos can
+be painted straight into the chase camera's view as a rough guide. The raw camera tokens are a second path for what the
+guide misses. Wan then turns this into smooth video.
+
 ## What we got so far
 
-- **It reads the cameras.** On streets it has never seen, it draws the right road, kerbs, trees, parked cars and
-  barriers, mostly in the right places. Given the wrong cameras, its car score drops from 0.29 to 0.03.
-- **Starting from Stable Diffusion was the biggest win:** photo-like streets instead of smeary blobs.
-- **But it is still messy and imprecise.** It copies the flaws of its answer keys, and car placement stopped
-  improving after about 20,000 training steps.
+![Two unseen drives. For each: three of the six real cameras, the game answer key, and model A's chase view](docs/figs/unseen_drives_A.jpg)
 
-![Answer key, our first from-scratch renderer, the Stable Diffusion renderer (unseen streets)](docs/figs/sd40k_final.jpg)
+*Two drives it never saw in training. A gets the road, kerbs, crossings and the rows of parked cars mostly right, and
+draws the people too, though not always in the right spot (bottom: the key has a spread-out group; A bunches them up).*
+
+- **It reads the cameras.** On unseen drives, A draws the right road shape, crossings and parked rows, mostly in the
+  right places (car score 0.446 against the answer key on our 6 check drives). In an early check, given another
+  drive's cameras, its car score collapsed (0.28 to 0.02), so it is not just guessing a typical street.
+- **Clean answer keys fixed the mess.** Real photos in, game picture out: no more smears copied from
+  rough 3D reconstructions.
+- **Starting from Stable Diffusion** gave photo-quality drawing from day one instead of blobs.
+- **But it is not video yet.** A draws each frame on its own, so cars shift a little from frame to frame, and one
+  frame takes about 3.4 s on our 2080 Ti GPUs. That is why we are moving to a video model.
 
 ## What we learned
 
-- **The answer key is everything.** Every flaw in it (gaps, smears, black holes) shows up in the output.
-- **Pixel scores reward blur.** LPIPS and a placement judge track what you see; plain pixel error does not.
-- **A video model must train on its own frames,** or small errors pile up over a scene.
+- **The answer key is everything.** Every flaw in it (gaps, smears, black holes) shows up in the output; switching to
+  clean game keys fixed that.
+- **Pixel scores reward blur.** LPIPS and a car-placement judge track what you see; plain pixel error does not.
+- **A video model must train on its own frames,** or small errors pile up over a drive.
+- **Memory can buy smoothness by holding on to the past.** Both memory designs got smoother partly by keeping old
+  cars around too long and placing cars worse. Our checks now count lingering fake cars and drift, not just jumpiness.
+- **An image model is a poor start for video.** Bolted-on time layers have to learn motion from scratch from 4 hours
+  of driving; a pretrained video model already knows how things move.
 - **A driving game gives a head start, not a better model** (at equal training, real data caught up).
 
-Details, numbers and pictures for all of this: [the full write-up](docs/results.md).
+Details, numbers and pictures for all of this: [the full write-up](docs/results.md) and [lab notes](PROGRESS.md).
 
 ## What did not work
 
+- Training on rough 3D-reconstruction answer keys (blur scored well, looked worse).
 - Mixing game pictures into every training batch (almost no cars drawn).
 - Distilling to one step too early (smoother but worse).
-- Training on rough reconstruction keys (blur scored well, looked worse).
+- A one-frame memory on top of A (smoother, but drift and car mistakes grew with training).
+- Small time layers on the frozen A, with shared or private noise (jumpier, or smoother with worse cars and lingering
+  fakes).
 
 ## Honest limits
 
-- Our answer keys are not ground truth, so scores measure agreement with a key, not with reality.
-- nuScenes labels come at 2 Hz, so our "video" is 2 frames per second.
-- Small scale: about 4 hours of driving and a model far smaller than Tesla's.
+- The answer key is a game replay of the real drive, not the real world: the game's cars and people stand in for the
+  real ones, so scores measure agreement with that replay.
+- nuScenes hand labels come only twice a second. Our cameras and game keys run at 10 frames a second, so positions
+  between labels are filled in and can be slightly off.
+- Small scale: about 4 hours of driving and models far smaller than Tesla's. A is not live; the video model is not
+  trained yet.
 
 ## Follow along
 
+- **[Live page](https://taruntomar122.github.io/mini-reality-view/):** status, latest checks and videos.
 - **[docs/results.md](docs/results.md):** the full write-up, section by section.
 - **[PROGRESS.md](PROGRESS.md):** lab notes, newest first: every run, number and decision.
-- **[council/](council/):** the research plans behind each experiment.
+- **[council/](council/):** the research plans behind each experiment (current: [PLAN-video](council/PLAN-video.md)).
 - **[docs/explainer.html](docs/explainer.html):** what goes in and comes out at each stage (open in a browser).
 
 ## Code

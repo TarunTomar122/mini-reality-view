@@ -37,6 +37,8 @@ p.add_argument("--splat", default="zbuf", choices=["zbuf", "soft"]); p.add_argum
 p.add_argument("--tick_pose", default="keyframe_interp", choices=["keyframe_interp", "sweep"])
 p.add_argument("--lidar_fill", default="est", choices=["est", "none"]); p.add_argument("--densify", type=int, default=4)
 p.add_argument("--out", default="runs/guide_preview")
+p.add_argument("--underlay", action="store_true", help="est / lidar rows with the production flat-ground underlay (photo-car "
+               "scoring still uses depth points only: ground-prior points carry no car label); default off = the preview as first run")
 a = p.parse_args()
 res = tuple(int(x) for x in a.res.split("x"))
 dev_list = G.drive_list("dev", a.lists)
@@ -50,7 +52,7 @@ proc, seg, CAR = tm["proc"], tm["seg"], tm["CAR"]
 nusc = NuScenes(a.version, a.dataroot, verbose=False)
 scale_file = a.scale_file if os.path.exists(a.scale_file) else None
 R = G.GuideRenderer(scale_file=scale_file, res=res, splat=a.splat, chase_dz=a.chase_dz, lidar_fill=a.lidar_fill,
-                    model_id=a.depth_model)
+                    model_id=a.depth_model, underlay=a.underlay)
 idx = G.SceneIndex(nusc, sc)
 rows = json.load(open(a.manifest))[sc]
 E = torch.load(f"{a.enc}/{sc}.pt", map_location="cpu", weights_only=False)
@@ -179,7 +181,7 @@ for k in pick:
 
 score = {"scene": sc, "ticks": [t for t, _ in panels], "scale_file": scale_file, "scale_sha": R.scale_sha,
          "depth": R.depth.info, "chase": G.CHASE, "chase_dz": a.chase_dz, "tick_pose": a.tick_pose, "splat": a.splat,
-         "lidar_fill": a.lidar_fill, "scorer_sha": tm["SCORER_SHA"], "matcher": "signed Hungarian IoU >= 0.3 (imported)",
+         "lidar_fill": a.lidar_fill, "underlay": a.underlay, "scorer_sha": tm["SCORER_SHA"], "matcher": "signed Hungarian IoU >= 0.3 (imported)",
          "est_unscaled": scale_file is None,
          "lidar_over_est_ratio_median_per_cam (dev diagnostic only)": {c: (float(np.median(v)) if v else None) for c, v in ratio.items()}}
 for m in MODES:

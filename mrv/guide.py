@@ -4,7 +4,10 @@ Per tick: the 6 nuScenes camera images -> Depth Anything V2-Small depth per view
 (fitted on TRAIN drives against LiDAR by scripts/fit_depth_scale.py; LiDAR is supervision only) -> unproject every depth pixel
 with the exact nuScenes intrinsics / extrinsics and that image's own ego pose -> tick ego frame -> the answer-key chase camera
 -> z-buffered splat (nearest wins, small footprint-sized squares) -> guide RGB [3,256,512] uint8 + validity mask [1,256,512]
-+ inverse depth [1,256,512].
++ source map [1,256,512] + inverse depth [1,256,512].
+Production default (Fable C9, Astra S1 review item 2): a FLAT-GROUND UNDERLAY. The same pixels are also put on the road
+plane z = 0 of their own ego frame (known camera height) and splatted under the depth points: depth wins wherever a depth
+point lands, the ground prior fills only what no depth point reaches; src = 1 (depth) / 2 (ground prior) / 0 (nothing).
 
 Chase camera = the camera that rendered the answer keys data/sim/keys_tpv10 (scripts/sim_render.py --view tpv: MetaDrive
 camera parented to the agent origin at panda pos [0, -7.5, 2.4] (x right, y forward, z up), hpr [0, -8, 0], lens 60 deg HFOV
@@ -360,7 +363,7 @@ def densify(D, iters=4):
 class GuideRenderer:
     def __init__(s, depth=None, scale_file=None, res=(294, 518), device="cuda", splat="zbuf", rmax=2, chase_dz=0.0,
                  max_depth=None, min_depth=0.5, soft_eps=0.05, lidar_fill="est", model_id=PRIMARY, allow_fallback=True,
-                 no_depth_net=False):
+                 no_depth_net=False, underlay=True):
         if no_depth_net:  # flat-ground warp only
             class _NoNet:
                 info = {"model_id": "none (flat ground)", "kind": "flat", "max_depth": 80.0}; kind = "flat"
@@ -370,7 +373,7 @@ class GuideRenderer:
         s.res, s.device, s.splat_mode, s.rmax, s.dz = tuple(res), device, splat, int(rmax), float(chase_dz)
         assert s.res[0] % 14 == 0 and s.res[1] % 14 == 0, "depth resolution must be a multiple of 14"
         s.max_depth = float(max_depth or s.depth.info.get("max_depth", 80.0)); s.min_depth = min_depth
-        s.soft_eps, s.lidar_fill = soft_eps, lidar_fill
+        s.soft_eps, s.lidar_fill, s.underlay = soft_eps, lidar_fill, bool(underlay)
         s.scales, s.scale_sha, s.scale_file = None, None, scale_file
         if scale_file and s.depth.kind != "flat":
             J = json.load(open(scale_file))
@@ -390,6 +393,8 @@ class GuideRenderer:
                 "scales": None if s.scales is None else dict(zip(CAMS, s.scales.tolist())), "splat": s.splat_mode,
                 "rmax": s.rmax, "soft_eps": s.soft_eps, "chase": CHASE, "chase_dz": s.dz, "max_depth": s.max_depth,
                 "min_depth": s.min_depth, "ego_box": EGO_BOX,
+                "underlay": "flat_ground (road plane z = 0 at the known camera height; depth points win; src 1 = depth, 2 = ground prior)"
+                if s.underlay else None,
                 "code_sha": code_sha(os.path.abspath(__file__))}
 
     def rays(s, K, full_wh=(1600, 900)):
@@ -439,21 +444,27 @@ class GuideRenderer:
             z = z * s.scales[:, None, None]
         return z
 
-    def splat(s, P, col, fp, lab=None):
-        """P [N,3] tick-ego points, col [N,3] uint8, fp [N] metres per source pixel -> rgb uint8 [3,H,W], mask bool [1,H,W], invd [1,H,W]"""
+    def splat(s, P, col, fp, lab=None, prio=None):
+        """P [N,3] tick-ego points, col [N,3] uint8, fp [N] metres per source pixel, lab [N] long (optional), prio [N] long
+        (0 = depth point, 1 = ground-prior point; optional). Per chase pixel the winner is the lowest priority, then the
+        nearest. Returns dict rgb uint8 [3,H,W], mask bool [1,H,W] (any source), src uint8 [1,H,W] (0 none, 1 depth,
+        2 ground prior), invd float [1,H,W] (1 / chase depth), lab long [H,W] (-1 none)."""
         u, v, d = chase_project(P, s.dz)
         ok = (d > 0.5) & torch.isfinite(u) & torch.isfinite(v) & (u > -s.rmax - 1) & (u < GW + s.rmax + 1) & (v > -s.rmax - 1) & (v < GH + s.rmax + 1)
         u, v, d, col, fp = u[ok], v[ok], d[ok], col[ok], fp[ok]
         lab = lab[ok] if lab is not None else None
+        prio = prio[ok] if prio is not None else torch.zeros_like(d, dtype=torch.long)
         N = int(d.numel()); HW = GH * GW
         labmap = torch.full((HW,), -1, dtype=torch.long, device=s.device)
+        src = torch.zeros(HW, dtype=torch.uint8, device=s.device)
         rgb = torch.zeros(HW, 3, dtype=torch.uint8, device=s.device); invd = torch.zeros(HW, device=s.device)
         hit = torch.zeros(HW, dtype=torch.bool, device=s.device)
         if N:
             r = ((FX * fp / d - 1) / 2).ceil().clamp(0, s.rmax).long()   # square side 2r+1 >= projected footprint
             x0, y0 = u.floor().long(), v.floor().long()
             bits = max(1, N.bit_length()); lowmask = (1 << bits) - 1
-            key = ((d * 1000).round().long().clamp(0, (1 << (62 - bits)) - 1) << bits) | torch.arange(N, device=s.device)
+            # key = priority (bit 61) | depth in mm | point index: amin = depth points first, then nearest, ties by index
+            key = (prio << 61) | ((d * 1000).round().long().clamp(0, (1 << (61 - bits)) - 1) << bits) | torch.arange(N, device=s.device)
             LMAX = torch.iinfo(torch.long).max
             zb = torch.full((HW,), LMAX, dtype=torch.long, device=s.device); entries = []
             for dy in range(-s.rmax, s.rmax + 1):
@@ -468,29 +479,47 @@ class GuideRenderer:
                         entries.append((pix, kk))
             hit = zb != LMAX
             win = zb[hit] & lowmask
-            rgb[hit] = col[win]; invd[hit] = 1.0 / d[win]
+            rgb[hit] = col[win]; invd[hit] = 1.0 / d[win]; src[hit] = (prio[win] + 1).to(torch.uint8)
             if lab is not None:
                 labmap[hit] = lab[win]
-            if s.splat_mode == "soft":  # blend near-tied surfaces (within soft_eps relative depth of the nearest)
+            if s.splat_mode == "soft":  # blend near-tied surfaces of the winning source (within soft_eps of the nearest)
                 zmin = torch.full((HW,), float("inf"), device=s.device); zmin[hit] = d[win]
+                wp = torch.full((HW,), -1, dtype=torch.long, device=s.device); wp[hit] = prio[win]
                 acc = torch.zeros(HW, 3, device=s.device); ws = torch.zeros(HW, device=s.device)
                 for pix, kk in entries:
-                    idx = kk & lowmask; dd = d[idx]; zm = zmin[pix]; m = dd <= zm * (1 + s.soft_eps)
+                    idx = kk & lowmask; dd = d[idx]; zm = zmin[pix]
+                    m = (dd <= zm * (1 + s.soft_eps)) & (prio[idx] == wp[pix])
                     w = torch.exp(-3.0 * (dd[m] - zm[m]) / (s.soft_eps * zm[m]))
                     acc.index_add_(0, pix[m], col[idx[m]].float() * w[:, None]); ws.index_add_(0, pix[m], w)
                 rgb[hit] = (acc[hit] / ws[hit, None]).round().clamp(0, 255).to(torch.uint8)
         rgb = rgb.view(GH, GW, 3).permute(2, 0, 1).contiguous(); hit = hit.view(1, GH, GW); invd = invd.view(1, GH, GW)
-        rgb[:, s.own] = 0; hit[:, s.own] = False; invd[:, s.own] = 0
-        labmap = labmap.view(GH, GW); labmap[s.own] = -1
-        return (rgb, hit, invd, labmap) if lab is not None else (rgb, hit, invd)
+        src = src.view(1, GH, GW); labmap = labmap.view(GH, GW)
+        rgb[:, s.own] = 0; hit[:, s.own] = False; invd[:, s.own] = 0; src[:, s.own] = 0; labmap[s.own] = -1
+        return {"rgb": rgb, "mask": hit, "src": src, "invd": invd, "lab": labmap}
+
+    def _points(s, z, rays, cam2tick, K, full_wh):
+        """camera-frame depth z [6,Hd,Wd] -> tick-ego points [6,Hd,Wd,3], footprint (m / source px), valid (range, not ego box)"""
+        Tt = torch.as_tensor(np.asarray(cam2tick), dtype=torch.float32, device=s.device)
+        P = torch.einsum("vij,vhwj->vhwi", Tt[:, :3, :3], rays * z[..., None]) + Tt[:, None, None, :3, 3]
+        fx_d = torch.as_tensor(np.asarray(K)[:, 0, 0] * s.res[1] / full_wh[0], dtype=torch.float32, device=s.device)
+        inbox = (P[..., 0] > EGO_BOX["x"][0]) & (P[..., 0] < EGO_BOX["x"][1]) & (P[..., 1].abs() < EGO_BOX["y"]) & (P[..., 2] < EGO_BOX["z"])
+        valid = torch.isfinite(z) & (z > s.min_depth) & (z < s.max_depth) & ~inbox
+        return P, z / fx_d[:, None, None], valid
 
     @torch.no_grad()
-    def render(s, views, K, cam2tick, cam2ego, depth_override=None, full_wh=(1600, 900), timing=True, mode="est", labels=None):
+    def render(s, views, K, cam2tick, cam2ego, depth_override=None, full_wh=(1600, 900), timing=True, mode="est", labels=None,
+               underlay=None):
         """views uint8 [6,Hd,Wd,3] (numpy or tensor) at the depth resolution; K [6,3,3] full-res; cam2tick / cam2ego [6,4,4].
         depth_override [6,Hd,Wd] (LiDAR ceiling): finite pixels replace the estimate; elsewhere the estimate (lidar_fill='est')
         or nothing (lidar_fill='none'). mode='flat': no depth net, every pixel on the road plane z = 0 of its own ego frame
-        (pixels above the horizon are dropped). labels [6,Hd,Wd] long (-1 = none, optional): the label of
-        the winning point per chase pixel is returned as "lab" [256,512] (used to splat photo car instances). Returns dict rgb [3,256,512] u8, mask [1,256,512] bool, invd [1,256,512] f32, ms."""
+        (pixels above the horizon are dropped). underlay (default: the renderer's setting, production = True; ignored in
+        mode 'flat'): the flat-ground warp of the same pixels is splatted UNDER the depth points (Fable C9 / Astra S1 review):
+        depth points win wherever they land, ground-prior points only fill chase pixels no depth point reaches; "src" tells
+        which (1 depth, 2 ground prior). labels [6,Hd,Wd] long (-1 = none, optional): the label of the winning DEPTH point per
+        chase pixel is returned as "lab" [256,512] (ground-prior points carry -1). Returns dict rgb [3,256,512] u8,
+        mask [1,256,512] bool (any source), src [1,256,512] u8, invd [1,256,512] f32, coverage {valid, depth, prior} (shares
+        of the non-own-car pixels), depth [6,Hd,Wd], lab, ms."""
+        underlay = s.underlay if underlay is None else underlay
         sync = (lambda: torch.cuda.synchronize()) if (timing and str(s.device).startswith("cuda")) else (lambda: None)
         sync(); t0 = time.perf_counter()
         x = torch.as_tensor(views).to(s.device, non_blocking=True).permute(0, 3, 1, 2).contiguous()
@@ -504,22 +533,25 @@ class GuideRenderer:
             o = torch.as_tensor(depth_override, device=s.device, dtype=torch.float32)
             z = torch.where(torch.isfinite(o), o, z if s.lidar_fill == "est" else torch.full_like(z, float("nan")))
         rays = s.rays(K, full_wh)
-        valid = torch.isfinite(z) & (z > s.min_depth) & (z < s.max_depth)
-        Pc = rays * z[..., None]
-        Tt = torch.as_tensor(np.asarray(cam2tick), dtype=torch.float32, device=s.device)
-        P = torch.einsum("vij,vhwj->vhwi", Tt[:, :3, :3], Pc) + Tt[:, None, None, :3, 3]
-        fx_d = torch.as_tensor(np.asarray(K)[:, 0, 0] * s.res[1] / full_wh[0], dtype=torch.float32, device=s.device)
-        fp = z / fx_d[:, None, None]
-        inbox = (P[..., 0] > EGO_BOX["x"][0]) & (P[..., 0] < EGO_BOX["x"][1]) & (P[..., 1].abs() < EGO_BOX["y"]) & (P[..., 2] < EGO_BOX["z"])
-        valid &= ~inbox
         col = x.permute(0, 2, 3, 1)
-        lab = None
-        if labels is not None:
-            rgb, mask, invd, lab = s.splat(P[valid], col[valid], fp[valid], torch.as_tensor(labels, device=s.device).long()[valid])
-        else:
-            rgb, mask, invd = s.splat(P[valid], col[valid], fp[valid])
+        P, fp, valid = s._points(z, rays, cam2tick, K, full_wh)
+        lab_all = torch.as_tensor(labels, device=s.device).long() if labels is not None else None
+        Ps, cs, fs, ls, ps = [P[valid]], [col[valid]], [fp[valid]], [], [torch.zeros(int(valid.sum()), dtype=torch.long, device=s.device)]
+        if lab_all is not None:
+            ls.append(lab_all[valid])
+        if underlay and mode != "flat":
+            zf = s.ground_depth(K, cam2ego, full_wh, dmin=0.0, dmax=s.max_depth)
+            Pf, fpf, vf = s._points(zf, rays, cam2tick, K, full_wh)
+            Ps.append(Pf[vf]); cs.append(col[vf]); fs.append(fpf[vf]); ps.append(torch.ones(int(vf.sum()), dtype=torch.long, device=s.device))
+            if lab_all is not None:
+                ls.append(torch.full((int(vf.sum()),), -1, dtype=torch.long, device=s.device))
+        o = s.splat(torch.cat(Ps), torch.cat(cs), torch.cat(fs), torch.cat(ls) if ls else None, torch.cat(ps))
         sync(); t2 = time.perf_counter()
-        return {"rgb": rgb, "mask": mask, "invd": invd, "depth": z, "lab": lab,
+        free = ~s.own; nf = float(free.sum())
+        cov = {"valid": float(o["mask"][0][free].sum()) / nf, "depth": float((o["src"][0][free] == 1).sum()) / nf,
+               "prior": float((o["src"][0][free] == 2).sum()) / nf}
+        return {"rgb": o["rgb"], "mask": o["mask"], "src": o["src"], "invd": o["invd"], "coverage": cov, "depth": z,
+                "lab": o["lab"] if labels is not None else None,
                 "ms": {"depth": (t1 - t0) * 1000, "splat": (t2 - t1) * 1000, "total": (t2 - t0) * 1000}}
 
 

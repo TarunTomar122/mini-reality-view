@@ -5,7 +5,8 @@ including caching and scoring (every stage appends its wall time to <out>/gpu_ti
 Readers (matched: parameters within 1 %, same updates / batch / lr schedule / training ticks / seed; 48 train drives =
 mrv.guide.drive_list("train48"), every --train_every-th accepted tick), each predicting the KEY's car mask, road mask and car
 instance boundaries at 256x512:
-  guide   pixel-aligned conv encoder (U-Net) on [guide RGB, validity mask, inverse depth, own-car mask, target-ray Fourier map]
+  guide   pixel-aligned conv encoder (U-Net) on [guide RGB, depth-source mask, ground-prior mask (flat-ground underlay),
+          inverse depth, own-car mask, target-ray Fourier map]
           + residual blocks + decoder                                          (data/guides_v1, camera-only)
   lidar   same as guide on the LiDAR-depth guide                               (data/guides_v1_lidar; ceiling, analysis only)
   tokens  same encoder on the target-ray map only (no scene input) -> 2048 target-ray queries (32x64) that cross-attend the
@@ -203,7 +204,7 @@ def build_models():
         def __init__(s, arm, C, blocks, n_res=0, pad_h=0):
             super().__init__()
             s.arm = arm; s.use_g = arm != "tokens"; s.use_t = arm in ("tokens", "hybrid")
-            s.enc = Encoder(RAY_CH + (6 if s.use_g else 0), C)
+            s.enc = Encoder(RAY_CH + (7 if s.use_g else 0), C)
             if s.use_t:
                 s.tok = nn.Sequential(nn.LayerNorm(384), nn.Linear(384, C))
                 s.plk = nn.Sequential(nn.Linear(PLK_CH, C), nn.SiLU(), nn.Linear(C, C))
@@ -220,7 +221,7 @@ def build_models():
             x = s.ray.expand(B, -1, -1, -1)
             if s.use_g:
                 gf = g.float() / 255.0
-                x = torch.cat([gf[:, :3] * 2 - 1, gf[:, 3:5], s.own.expand(B, -1, -1, -1), x], 1)
+                x = torch.cat([gf[:, :3] * 2 - 1, gf[:, 3:6], s.own.expand(B, -1, -1, -1), x], 1)  # rgb, depth / prior masks, invd
             f3, f2, f1, x0 = s.enc(x)
             if s.use_t:
                 q = x0.flatten(2).transpose(1, 2)
@@ -284,10 +285,19 @@ def load_split(names, arm):
         d = {"scene": sc, "ticks": C["ticks"], "seq": C["seq"], "car": C["car"], "road": C["road"], "bnd": C["bnd"],
              "c2t": Gf["cam2tick"][r].clone(), "K": Gf["K"][r].clone(), "prov": Gf["provenance"]}
         if use_g:
-            d["g"] = torch.cat([Gf["rgb"][r], Gf["mask"][r].to(torch.uint8) * 255, Gf["invd"][r]], 1).contiguous()
+            if "src" not in Gf:
+                raise SystemExit(f"{sc}: guide file has no source map (pre-underlay version); rebuild with scripts/build_guides.py")
+            sr = Gf["src"][r]
+            d["g"] = torch.cat([Gf["rgb"][r], (sr == 1).to(torch.uint8) * 255, (sr == 2).to(torch.uint8) * 255, Gf["invd"][r]], 1).contiguous()
         if use_t:
             d["views"] = C["views"]
         del Gf, C
+        if D:  # one guide version per arm (no mixed caches)
+            pk = ("depth_model_id", "scale_sha", "code_sha", "depth_res_hw", "splat", "rmax", "chase_dz", "lidar_ceiling",
+                  "lidar_fill", "densify", "tick_pose", "underlay")
+            diff = {k: (D[0]["prov"].get(k), d["prov"].get(k)) for k in pk if D[0]["prov"].get(k) != d["prov"].get(k)}
+            if diff:
+                raise SystemExit(f"{sc}: guide provenance differs from {D[0]['scene']}: {diff}")
         D.append(d)
     return D
 
@@ -332,6 +342,9 @@ def stage_train():
             q.requires_grad_(False)
     MEAN = torch.tensor([0.485, 0.456, 0.406], device="cuda").view(1, 3, 1, 1); STD = torch.tensor([0.229, 0.224, 0.225], device="cuda").view(1, 3, 1, 1)
     tr = load_split(G.drive_list("train48", a.lists), a.arm); dv = load_split(G.drive_list("dev", a.lists), a.arm)
+    for k_ in ("depth_model_id", "scale_sha", "code_sha", "splat", "chase_dz", "lidar_ceiling", "lidar_fill", "tick_pose", "underlay"):
+        if tr[0]["prov"].get(k_) != dv[0]["prov"].get(k_):
+            raise SystemExit(f"train / dev guides differ in {k_}: {tr[0]['prov'].get(k_)} vs {dv[0]['prov'].get(k_)}")
     items = [(di, j) for di, d in enumerate(tr) for j in range(len(d["ticks"]))]
     print(f"train ticks {len(items)} on {len(tr)} drives; dev ticks {sum(len(d['ticks']) for d in dv)}", flush=True)
     own = torch.from_numpy(G.OWN_NP.copy()).cuda()[None]; valid = (~own).float()

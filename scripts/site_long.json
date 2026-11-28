@@ -158,7 +158,7 @@
   [
    "done",
    "Private-noise version (stopped at 12k)",
-   "smoother each check (12k: -15% car jumps, -7% wobble vs A) but car accuracy and drift over their limits at 8k and 12k -> stopped by the agreed rule"
+   "best smoothness at 12k (-15% car jumps, -7% wobble vs A; bar 9.4%) but car accuracy and the picture offset over their limits at 8k and 12k -> stopped by the agreed rule"
   ],
   [
    "now",

@@ -105,6 +105,6 @@
  },
  {
   "when": "28 Nov, 03:30",
-  "text": "Private-noise version stopped at 12k under the pre-agreed rule (two safety misses in a row): car accuracy and drift were both over their limits at 8k and 12k, although smoothness kept improving (12k: 15% fewer car jumps and 7% less wobble than A; the bar is 9.4% on both). The next design's first test also missed, so the council is designing round 2."
+  "text": "Private-noise version stopped at 12k under the pre-agreed rule (two safety misses in a row): car accuracy and the picture difference to the key were over their limits at 8k and 12k (mostly a constant offset, not growing drift). Smoothness at 12k was its best (15% fewer car jumps and 7% less wobble than A; the bar is 9.4% on both), but it did not improve at every check. The next design's first test also missed, so the council is designing round 2."
  }
 ]

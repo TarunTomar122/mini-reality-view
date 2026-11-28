@@ -18,9 +18,12 @@ for x in "A20k_indep_dev A20k" "Aoff_rho0.95_dev Aoff0.95"; do set -- $x
 done
 case $k in 8|12|16) $PY scripts/a1_decide.py $k || { echo "SCORE_FAIL A1 decision"; exit 1; };; esac
 if [ $k = 12 ]; then  # stage 2: resume 12k -> 16k only if the 12k A1 decision allows (training paused at 12k by design)
-  G2=runs/vpriv_gate; exec 9>$G2/.lock; flock 9
+  G2=runs/vpriv_gate; exec 9>$G2/.lock || { echo "SCORE_FAIL cannot open the gate lock"; exit 1; }
+  flock -w 600 9 || { echo "SCORE_FAIL gate lock not acquired"; exit 1; }
   STOP=$($PY -c "import json;print(json.load(open('$G2/a1_12k.json'))['stop'])") || { echo "SCORE_FAIL reading a1_12k"; exit 1; }
-  if [ "$STOP" = "True" ]; then echo "A1 STOP at 12k (two consecutive safety misses): vpriv is NOT continued"; touch $G2/A1_STOPPED
+  if [ "$STOP" = "True" ]; then
+    touch $G2/A1_STOPPED && [ -e $G2/A1_STOPPED ] || { echo "SCORE_FAIL cannot write the A1 stop marker"; exit 1; }
+    echo "A1 STOP at 12k (two consecutive safety misses): vpriv is NOT continued"
   elif [ -e $G2/CONTINUED ]; then echo "already continued ($(cat $G2/CONTINUED))"
   elif [ -e $G2/CONT_PENDING ]; then echo "SCORE_FAIL ambiguous continuation ($(cat $G2/CONT_PENDING)): reconcile by hand"; exit 1
   else
@@ -29,7 +32,7 @@ if [ $k = 12 ]; then  # stage 2: resume 12k -> 16k only if the 12k A1 decision a
     STEP=$($PY -c "import torch;print(torch.load('runs/vpriv/ckpt.pt',map_location='cpu',weights_only=False)['step'])") || exit 1
     [ "$STEP" = 12000 ] || { echo "SCORE_FAIL runs/vpriv/ckpt.pt step $STEP != 12000"; exit 1; }
     PRIV=$(grep -o "private_clips=[12]" $G2/SUBMITTED | cut -d= -f2); [[ "$PRIV" =~ ^[12]$ ]] || { echo "SCORE_FAIL no private_clips in SUBMITTED"; exit 1; }
-    echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING
+    echo "intent $(date -u +%FT%TZ) resume 12000->16000" > $G2/CONT_PENDING && [ -s $G2/CONT_PENDING ] || { echo "SCORE_FAIL cannot write the continuation intent"; exit 1; }
     J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=3:00:00 -J vpriv -o logs2/%x-%j.out \
         slurm/py.sbatch scripts/train_causal.py --init runs/longA/ckpt_20000.pt --out runs/vpriv --K 4 --rho 0.95 \
         --rho_decision council/rho_decision.json --private_clips $PRIV --steps 16000 --resume)

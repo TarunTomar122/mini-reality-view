@@ -3,7 +3,8 @@
 # runs/vpriv/ckpt_<k>000.pt appears, submit the SAME dev panel as vlive: 6 stream rollout shards on 2080 Tis, signed metrics
 # with --cold runs/troll/Aoff_rho0.95_dev, then slurm/vpriv_score.sh (signed compares vs A@20k and own cold with panel checks,
 # the A1 decision / stop at 8k+, LODO); plus the two-noise probe (shared / private). No GPU waits for a checkpoint.
-# Queue errors are retried, never counted as zero; every submission must return a job id (Astra launch review 2).
+# Queue errors are retried, never counted as zero; one sbatch per job under a unique name, adopted only if exactly one job
+# carries it, else the watcher stops loudly (Astra launch reviews 2-4).
 # Respects the owner's cap (16 active Mini Reality View jobs, held jobs not counted).
 #   sbatch --cpus-per-task=1 --mem=2G --time=9:00:00 -J vpriv-watch -o logs2/%x-%j.out slurm/vpriv_checks.sh
 cd $HOME/mini-reality-view
@@ -14,14 +15,14 @@ room() {  # wait until n more jobs fit: owner cap 16 active MRV jobs (held not c
       m=$(echo "$q" | grep mini-reality-view | grep -vc JobHeldUser); a=$(echo "$q" | grep -c .)
       [ $(( m + $1 )) -le 16 ] && [ $(( a + $1 )) -le 20 ] && return; fi
     sleep 60; done; }
-sub() {  # sub <job name> <sbatch args...>: prints the job id; an ambiguous failure is reconciled by name, never blindly retried
-  local n=$1 j q i; shift
-  for i in 1 2 3; do
-    j=$(sbatch --parsable -J $n "$@") && [[ "$j" =~ ^[0-9]+$ ]] && { echo $j; return; }
-    sleep 30; q=$(squeue -u $USER -h -n $n -o %i) || { echo "WATCH_FAIL ambiguous sbatch for $n (squeue failed): reconcile" >&2; exit 1; }
-    [ -n "$q" ] && { echo $q | tr ' ' '\n' | tail -1; return; }  # it was accepted after all
-  done
-  echo "WATCH_FAIL sbatch $n" >&2; exit 1; }
+sub() {  # sub <job base name> <sbatch args...>: ONE sbatch under a unique name; on a lost / failed receipt adopt the job only if
+         # exactly one job (queued or finished, squeue + sacct) carries that unique name, else exit loudly (never resubmit)
+  local n="$1.$(od -An -N3 -tx1 /dev/urandom | tr -d ' \n')" j q; shift
+  j=$(sbatch --parsable -J $n "$@") && [[ "$j" =~ ^[0-9]+$ ]] && { echo $j; return; }
+  sleep 30
+  q=$( { squeue -u $USER -h -n $n -o %i; sacct -u $USER -X -n -P --name=$n -o JobID; } 2>/dev/null | grep -E '^[0-9]+$' | sort -u)
+  [ "$(echo "$q" | grep -c .)" = 1 ] && { echo $q; return; }
+  echo "WATCH_FAIL ambiguous sbatch for $n (matches: ${q:-none}): reconcile by hand" >&2; exit 1; }
 running() { local q; q=$(squeue -u $USER -h -n vpriv -o %i) || return 0; [ -n "$q" ]; }  # queue error: assume running
 for k in 2 4 8 12 16; do
   ck=runs/vpriv/ckpt_${k}000.pt

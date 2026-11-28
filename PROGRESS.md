@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 06:38 UTC — council review 06:30 (first after the pivot): fixes applied
+- Astra: score Wan's RGB DIRECTLY (the SD re-encode is a second codec) -> scripts/score_rgb.py runs the UNCHANGED signed scorer with a stand-in VAE decode that returns the stored RGB frame; S0a re-run with --save_rgb for the key itself (ceiling), Wan 41-tick windows, Wan whole drive and Wan per-tick stills (jobs s0r-* / s0rm-*). The SD-re-encoded scores (s0m-*) measure the extra codec cost.
+- Fable: S0a kill rule as written (Wan < A) almost cannot fire; the informative reading is Wan vs the key / SD round trip scored directly (> 0.03 car F1 drop or more flicker = problem); no keys missing on any dev drive (no grey-frame tilt); S1 not gated on S0c (trains both inputs with dropout); clips mostly cut mid-stream; raw-view path ~3.5-4.7k tokens / tick with per-latent masks; deliberate timestep shift; first a pinned-drive guide preview (flat-ground vs estimated depth vs LiDAR, overlaid on the key) before fan-out — all passed to the two code helpers.
+- Neon: both S0b timing jobs had CRASHED (OfflineModeIsEnabled: from_pretrained without local_files_only) -> fixed and resubmitted (3756609 2080 Ti, 3756610 H200 slice; now records GPU memory / SM count to tell a MIG slice from a full H200, which earlier jobs may have got); PLAN-video clock labels corrected and Fable's signature notes (batch-8 12k floor; post-extension pass still car F1 >= A) added; README / site status updated; depth: the Apache-tagged Metric-VKITTI-Small exists only in original format, its transformers port is Metric-Outdoor-Small-hf (used, provenance recorded).
+- Ideas logged: training-free guide placement score (Fable); car-weighted loss (to Astra); four-phase latent cache.
+
 ## 2026-11-28 06:31 UTC — OWNER: latency contract accepted ("im okay with the delay go go go")
 - Native Wan 4-tick groups: 10 Hz playback with a fixed lag (~0.3 s + compute). S0b timing jobs running (2080 Ti 3756580, H200 3756581); S0a scoring running. Next: S0c reader test + S1 teacher code.
 

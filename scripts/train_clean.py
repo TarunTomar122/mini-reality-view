@@ -1,4 +1,16 @@
-"""Clean-memory live video adapter "vclean" on the FROZEN A@20k renderer (council/AGREED-causal-r1.md, Amendment A4).
+"""Clean-memory live video adapter on the FROZEN A@20k renderer: arm "vmix" (council/AGREED-causal-r1.md, Amendment A5; default)
+or arm "vclean" (Amendment A4).
+
+A5 "vmix" = A4 below with two changes inside the memory pass (council/r2-swap-fable.md items 3-5):
+  * jitter: per clip, the memory timestep is drawn uniformly from {1, 41, 81} on a SEPARATE resumable RNG (state saved in the
+    checkpoint); the source latents are noised to that timestep with the private memory draws and frozen-A features are
+    collected there (query's camera-dropout context);
+  * source mix: updates 1..mix_from (2000) read the real key latents (bit-identical to the pure key + jitter arm); from update
+    mix_from+1, exactly one of the two clips per update, chosen by a coin on a THIRD resumable RNG, reads the CACHED frozen-A@20k
+    memory-off rho-1.0 latents of the same ticks (--cache, built by scripts/causal_rollout.py; slurm/build_cache.sh). The target
+    is always the real key. Before update mix_from+1 a passing scripts/cache_check.py record (--cache_record; every cache file
+    digest re-verified) is required; without one the job saves and exits cleanly ("holds"); a later --resume continues.
+A4 "vclean" (as signed): memory timestep fixed at t*, real key source only.
 
 Recipe = vpriv (scripts/train_causal.py with --private_clips 2) except where the past comes from. Only the 16 new temporal
 blocks (mrv/clean_video.py) train; the SD 1.5 UNet, A's LoRA and A's CameraAdapter are frozen (asserted). Each update:
@@ -20,10 +32,10 @@ no-joint-pass outcome, valid probe reading LAUNCH, clean suite FAILS=0 with code
 result that fixes the gate rho (1.0 on a matched T2 pass, 0.95 only on a documented numeric T2 failure); --rho_gate must equal
 the record's. --timing runs skip the gate (throwaway weights, *timing* / *ctest* dirs only).
 Logged every 100 updates (every update with --timing): loss, grad norm, out-norm, age-bias size, step_s, data_s, mem_s, peak GB,
-batch_sha (vpriv's formula), mem_sha (memory-noise draws + t), code_sha.
+batch_sha (vpriv's formula), mem_sha (t, memory-noise, jitter and coin draws), mem_t / mem_src per clip, code_sha.
 
-  python scripts/train_clean.py --init runs/longA/ckpt_20000.pt --out runs/vclean --steps 16000 --rho_gate 1.0 \
-      --gate_record runs/vclean_gate/record.json [--resume]
+  python scripts/train_clean.py --arm vmix --init runs/longA/ckpt_20000.pt --out runs/vmix --steps 16000 --rho_gate 1.0 \
+      --gate_record runs/vclean_gate/vmix.json --cache runs/cache/A20k_off_rho1_train --cache_record runs/cache/check.json [--resume]
 """
 import argparse, hashlib, json, os, subprocess, sys, time
 import torch
@@ -48,6 +60,11 @@ p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,
 p.add_argument("--seed", type=int, default=0)
 p.add_argument("--init_ref", default="runs/vpriv/args.json", help="vpriv's args.json: recorded init_sha / seed / block names / base_sha / training inputs must equal ours (A4: vpriv's recorded init, seeds and draws)")
 p.add_argument("--gate_record", default="", help="record written by scripts/vclean_gate.py; required unless --timing")
+p.add_argument("--arm", default="vmix", choices=["vmix", "vclean"], help="A5 vmix (jitter + cached-source mix) or A4 vclean (t* only, key source)")
+p.add_argument("--jitter", default="", help="memory timesteps (comma list); default vmix 1,41,81 / vclean t*")
+p.add_argument("--mix_from", type=int, default=-1, help="vmix: cached source for one clip per update from update mix_from+1 (default 2000); vclean: 0 (never)")
+p.add_argument("--cache", default="runs/cache/A20k_off_rho1_train", help="cached A@20k memory-off rho-1 train rollouts (<cache>/<scene>_s0.pt)")
+p.add_argument("--cache_record", default="", help="passing scripts/cache_check.py record; required before update mix_from+1 (else the job holds)")
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
 p.add_argument("--timing", action="store_true", help="timing / test run: output dir must contain 'timing' or 'ctest'; weights are throwaway")
@@ -69,6 +86,8 @@ if not a.timing:  # production: the gate record must re-verify now and bind this
     if _r.returncode != 0:
         raise SystemExit(f"gate record does not verify now: {_r.stdout[-800:]} {_r.stderr[-800:]}")
     GATE = json.load(open(a.gate_record)); GATE_SHA = hashlib.sha256(open(a.gate_record, "rb").read()).hexdigest()
+    if GATE.get("arm") != a.arm:
+        raise SystemExit(f"gate record is for arm {GATE.get('arm')}, not {a.arm}")
     if not GATE.get("valid") or GATE.get("rho_gate") not in (1.0, 0.95) or GATE["rho_gate"] != a.rho_gate:
         raise SystemExit(f"--rho_gate {a.rho_gate} != the gate record's {GATE.get('rho_gate')} (valid={GATE.get('valid')})")
     for f_ in CODE_FILES:
@@ -83,6 +102,15 @@ T_STAR = DDIM_TS[-1]  # its last timestep (expected 1)
 if T_STAR > 81:
     raise SystemExit(f"A4: t* = {T_STAR} > 81 -> back to council")
 print(f"t* = {T_STAR} (DDIM-25 last timestep; schedule {DDIM_TS})", flush=True)
+JITTER = [int(x) for x in a.jitter.split(",")] if a.jitter else ([1, 41, 81] if a.arm == "vmix" else [T_STAR])
+MIX_FROM = a.mix_from if a.mix_from >= 0 else (2000 if a.arm == "vmix" else 0)
+if not all(j_ in DDIM_TS and j_ <= 81 for j_ in JITTER) or len(set(JITTER)) != len(JITTER):
+    raise SystemExit(f"jitter {JITTER} must be distinct DDIM-25 timesteps <= 81")
+if a.arm == "vclean" and (JITTER != [T_STAR] or MIX_FROM):
+    raise SystemExit("arm vclean (A4): memory at t* only, key source only")
+if not a.timing and a.arm == "vmix" and (JITTER != [1, 41, 81] or MIX_FROM != 2000):
+    raise SystemExit(f"A5 vmix fixes jitter {{1, 41, 81}} and mix from update 2001 (got {JITTER}, {MIX_FROM})")
+print(f"arm {a.arm}: memory timesteps {JITTER}, cached source from update {MIX_FROM + 1 if MIX_FROM else 'never'}", flush=True)
 TRAIN = json.load(open(a.lists))["train"]
 assert not set(TRAIN) & set(json.load(open(a.lists))["dev"]), "train / dev overlap"
 RAYS = torch.load(a.rays)
@@ -98,6 +126,35 @@ for sc in sorted(TRAIN):
             starts.append((sc, i))
 COVER = {sc: sum(1 for s_, _ in starts if s_ == sc) for sc in sorted(TRAIN)}
 print(f"clips: {len(starts)} start positions of {Fn} ticks from {len({s for s, _ in starts})}/{len(E)} drives", flush=True)
+
+
+def load_cache(path):
+    """re-verify a scripts/cache_check.py record: pass, same cache dir, every train drive's file digest, ticks aligned with the
+    encodings -> ({scene: fp16 latents}, record sha256, "") or (None, None, reason)"""
+    if not path or not os.path.isfile(path):
+        return None, None, f"no cache record ({path or 'none given'})"
+    rec = json.load(open(path)); rsha = hashlib.sha256(open(path, "rb").read()).hexdigest()
+    if rec.get("kind") != "cache_check" or rec.get("pass") is not True or rec.get("cache") != a.cache:
+        return None, None, f"cache record {path} is not a passing cache_check of {a.cache} (pass={rec.get('pass')}, cache={rec.get('cache')})"
+    if GATE is not None and rec.get("code_sha256", {}).get("scripts/cache_check.py") != GATE.get("code_sha256", {}).get("scripts/cache_check.py"):
+        return None, None, "cache record was not written by the suite-tested scripts/cache_check.py"
+    C = {}
+    for sc in sorted(TRAIN):
+        f = f"{a.cache}/{sc}_s0.pt"
+        if not os.path.isfile(f) or hashlib.sha256(open(f, "rb").read()).hexdigest() != rec.get("files", {}).get(sc):
+            return None, None, f"cache file {f} missing or its digest differs from the record"
+        c = torch.load(f, map_location="cpu")
+        if len(c["lat"]) != len(E[sc]["ticks"]) or not torch.equal(c["ticks"], E[sc]["ticks"]):
+            return None, None, f"cache {f}: ticks not aligned with {a.enc}/{sc}.pt"
+        C[sc] = c["lat"].half()
+    return C, rsha, ""
+
+
+CACHE, CACHE_SHA, CACHE_WHY = (None, None, "no cached source (mix_from 0)") if not MIX_FROM else load_cache(a.cache_record)
+if MIX_FROM:
+    print("cached source:", f"record {a.cache_record} verified ({len(CACHE)} drives)" if CACHE is not None else f"NOT available: {CACHE_WHY}", flush=True)
+G_JIT = torch.Generator().manual_seed(a.seed * 1000003 + 1)  # resumable stream 2: memory timestep per clip
+G_SRC = torch.Generator().manual_seed(a.seed * 1000003 + 2)  # resumable stream 3: which clip reads the cache
 
 # ---------- model: frozen A + clean temporal blocks ----------
 ck0 = torch.load(a.init, map_location="cpu"); r = ck0["args"]["rank"]
@@ -154,40 +211,48 @@ if os.path.exists(ck):
     if s_.get("timing") and not a.timing:
         raise SystemExit("refusing to resume production training from a timing / test checkpoint")
     rec_ = s_.get("args", {}).get("clean", {})
-    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("rays", a.rays), ("frames", a.frames), ("clips", a.clips), ("rho_gate", a.rho_gate)):
+    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("rays", a.rays), ("frames", a.frames), ("clips", a.clips), ("rho_gate", a.rho_gate),
+                        ("arm", a.arm), ("cache", a.cache)):
         if rec_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: recipe {key_} {rec_.get(key_)} != {want_}")
     for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho_gate), ("t_star", T_STAR), ("base_sha", BASE_SHA), ("init_sha", INIT_SHA),
-                        ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA), ("memory", "tstar_final_call"), ("ddim_timesteps", DDIM_TS)):
+                        ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA), ("memory", "tstar_final_call"), ("ddim_timesteps", DDIM_TS),
+                        ("arm", a.arm), ("jitter", JITTER), ("mix_from", MIX_FROM), ("cache", a.cache)):
         if s_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: {key_} {s_.get(key_)} != {want_}")
     if len(s_["temporal"]) != len(TW):
         raise SystemExit("incompatible resume: block count")
     for w, sd_ in zip(TW, s_["temporal"]):
         w.temporal.load_state_dict(sd_, strict=True)
-    opt.load_state_dict(s_["opt"]); start = s_["step"]; print("resumed at", start, flush=True)
-json.dump({**vars(a), "arm": "vclean", "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "init_ref_diff": REF_DIFF, "base_sha": BASE_SHA,
+    opt.load_state_dict(s_["opt"]); start = s_["step"]
+    G_JIT.set_state(s_["rng"]["jitter"]); G_SRC.set_state(s_["rng"]["source"])  # resumable jitter / source streams
+    print("resumed at", start, flush=True)
+    if MIX_FROM and start > MIX_FROM and CACHE is None:
+        raise SystemExit(f"resuming at {start} > mix_from {MIX_FROM} needs the verified cache: {CACHE_WHY}")
+json.dump({**vars(a), "jitter": JITTER, "mix_from": MIX_FROM, "cache_record_sha256": CACHE_SHA, "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "init_ref_diff": REF_DIFF, "base_sha": BASE_SHA,
            "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "gate_record_sha256": GATE_SHA, "gate": GATE,
            "block_names": BLOCK_NAMES, "clip_starts": len(starts), "drives_with_clips": sum(1 for v in COVER.values() if v),
            "drives_without_clips": [k for k, v in COVER.items() if not v], "clips_per_drive": COVER}, open(f"{a.out}/args.json", "w"), indent=1)
 TRAIN_NOISE = {"private_clips": PRIVATE_CLIPS, "rho": TRAIN_RHO, "t_rule": f"U{{0..999}} minus t*={T_STAR} (t* draws redrawn, separate generator)",
-               "memory": f"frozen A, deltas off, key latents noised to t*={T_STAR} with private per-tick draws, same dropout"}
+               "memory": f"frozen A, deltas off, source latents noised to a per-clip timestep from {JITTER} (resumable stream) with private per-tick "
+                         f"draws, same dropout; source = real key" + (f", from update {MIX_FROM + 1} one clip per update cached A@20k latents (coin, resumable stream)" if MIX_FROM else "")}
 
 
 def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K, "frames": Fn,
-         "arm": "vclean", "memory": "tstar_final_call", "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
+         "arm": a.arm, "jitter": JITTER, "mix_from": MIX_FROM, "cache": a.cache, "cache_record_sha256": CACHE_SHA,
+         "rng": {"jitter": G_JIT.get_state(), "source": G_SRC.get_state()}, "memory": "tstar_final_call", "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
          "gate_record_sha256": GATE_SHA,
-         "noise_policy": "one t per clip (t* excluded); fully private eps per tick; memory = t* features of the key latents",
+         "noise_policy": "one t per clip (t* excluded); fully private eps per tick; memory = features at the clip's memory timestep of the source latents",
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "init_sha": INIT_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
          "args": {**ck0["args"], "clean": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
     torch.save(d, path + ".tmp"); os.replace(path + ".tmp", path)
 
 
-def memory_of(x0, eps_m, ctx):
-    """no-grad frozen-A forward at t* (temporal deltas off): per-block input features of every row, detached"""
-    ab = acp[T_STAR]; xm = ab.sqrt() * x0 + (1 - ab).sqrt() * eps_m
-    tm = torch.full((x0.shape[0],), T_STAR, device=dev)
+def memory_of(x0, eps_m, ctx, tm=None):
+    """no-grad frozen-A forward at timestep tm per row (default t*; temporal deltas off): per-block input features, detached"""
+    tm = torch.full((x0.shape[0],), T_STAR, device=dev) if tm is None else tm
+    ab = acp[tm].view(-1, 1, 1, 1); xm = ab.sqrt() * x0 + (1 - ab).sqrt() * eps_m
     set_mode(TW, "off")
     with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
         return collect_inputs(TW, lambda: unet(xm, tm, encoder_hidden_states=ctx))
@@ -255,7 +320,13 @@ end = a.steps if not a.max_steps_this_job else min(a.steps, start + a.max_steps_
 PICK_H = hashlib.sha1()
 T_WIN, N_WIN = time.time(), 0  # end-to-end window timing (data + compute + logging + saving + probes)
 t_data = t_gpu = t_mem = 0.0; n_acc = 0
+HOLD = None
 for step in range(start, end):
+    if MIX_FROM and step >= MIX_FROM and CACHE is None:  # update step+1 would read the cache: hold here (A5)
+        save(step, ck); HOLD = step
+        rec = {"hold": step, "reason": CACHE_WHY, "resume": "rerun with --resume --cache_record <passing cache_check record>"}
+        print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
+        break
     t0 = time.time()
     g = torch.Generator().manual_seed(a.seed * 100003 + step)  # vpriv's draws, in vpriv's order
     pick = torch.randint(0, len(starts), (a.clips,), generator=g).tolist()
@@ -270,20 +341,26 @@ for step in range(start, end):
     eps_mem = torch.randn(a.clips * Fn, 4, 32, 64, generator=gm)
     batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[:, 0, 0, 0].numpy().tobytes() + drop.numpy().tobytes()).hexdigest()[:10]
     PICK_H.update(str(pick).encode() + t.numpy().tobytes() + drop.numpy().tobytes())
-    mem_sha = hashlib.sha1(t.numpy().tobytes() + eps_mem[:, 0, 0, 0].numpy().tobytes()).hexdigest()[:10]  # vclean-only draws (resume test)
-    tok, lat, ray = [], [], []
-    for sc, i in (starts[k] for k in pick):
+    mem_t = [JITTER[k_] for k_ in torch.randint(0, len(JITTER), (a.clips,), generator=G_JIT).tolist()]  # stream 2 (every update)
+    src = ["key"] * a.clips
+    if MIX_FROM and step >= MIX_FROM:  # update > mix_from: one clip reads the cache, coin on stream 3
+        src[torch.randint(0, a.clips, (1,), generator=G_SRC).item()] = "cache"
+    mem_sha = hashlib.sha1(t.numpy().tobytes() + eps_mem[:, 0, 0, 0].numpy().tobytes() + str((mem_t, src)).encode()).hexdigest()[:10]  # all vclean-only draws
+    tok, lat, ray, msrc = [], [], [], []
+    for ci, (sc, i) in enumerate(starts[k] for k in pick):
         e = E[sc]
         tok.append(e["tokens"][i:i + Fn].float()); lat.append(e["lat"][i:i + Fn].float()); ray.append(RAYS[sc][None].expand(Fn, *RAYS[sc].shape))
-    tok = torch.cat(tok).to(dev); x0 = torch.cat(lat).to(dev); ray = torch.cat(ray).to(dev).float()
+        msrc.append(CACHE[sc][i:i + Fn].float() if src[ci] == "cache" else lat[-1])  # memory source: cached A latents or real key
+    tok = torch.cat(tok).to(dev); x0 = torch.cat(lat).to(dev); ray = torch.cat(ray).to(dev).float(); xsrc = torch.cat(msrc).to(dev)
     tt = t.repeat_interleave(Fn).to(dev); eps = eps.to(dev); eps_mem = eps_mem.to(dev)
+    tmem = torch.tensor(mem_t).repeat_interleave(Fn).to(dev)
     torch.cuda.synchronize(); t1 = time.time()
     ab = acp[tt].view(-1, 1, 1, 1); xt = ab.sqrt() * x0 + (1 - ab).sqrt() * eps
     for g_ in opt.param_groups:
         g_["lr"] = 1e-4 * min(1, (step + 1) / 500)
     with torch.no_grad(), torch.autocast("cuda", dtype=AMP):
         ctx = adapter(tok, ray, style, drop.to(dev))  # the same dropout context feeds the memory pass and the noisy pass
-    mem = memory_of(x0, eps_mem, ctx)
+    mem = memory_of(xsrc, eps_mem, ctx, tmem)  # target stays the real key x0
     torch.cuda.synchronize(); t1m = time.time()
     set_mode(TW, "clip", Fn); set_memory(TW, mem)
     with torch.autocast("cuda", dtype=AMP):
@@ -307,12 +384,15 @@ for step in range(start, end):
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),
                "step_s": round(t_gpu / n_acc, 3), "mem_s": round(t_mem / n_acc, 3), "data_s": round(t_data / n_acc, 3),
-               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "mem_sha": mem_sha, "pick_sha_cum": PICK_H.hexdigest()[:10],
-               "private_clips": PRIVATE_CLIPS, "t_star": T_STAR, "code_sha": CODE_SHA}
+               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "mem_sha": mem_sha, "mem_t": mem_t, "mem_src": src, "pick_sha_cum": PICK_H.hexdigest()[:10],
+               "private_clips": PRIVATE_CLIPS, "t_star": T_STAR, "arm": a.arm, "code_sha": CODE_SHA}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush(); t_data = t_gpu = t_mem = 0.0; n_acc = 0
         T_WIN, N_WIN = time.time(), step + 1 - start
     if (step + 1) % 500 == 0 or step + 1 == end:
         save(step + 1, ck); probe(step + 1)
     if step + 1 in SAVE:
         save(step + 1, f"{a.out}/ckpt_{step + 1}.pt")
-print("CLEAN_TRAIN_DONE", end)
+if HOLD is not None:
+    print(f"CLEAN_TRAIN_HOLD {HOLD}: saved at update {HOLD}; update {HOLD + 1} needs the cached source ({CACHE_WHY}); resume with --resume --cache_record")
+else:
+    print("CLEAN_TRAIN_DONE", end)

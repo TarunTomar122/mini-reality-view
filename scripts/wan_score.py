@@ -35,8 +35,8 @@ a = p.parse_args()
 PY = sys.executable
 PREC = f"{a.wroot}/score_parity_2080.json"
 PDIR = f"{a.wroot}/score2080"
-WHAT = {"hybrid": [], "guide": [], "tokens": [], "none": [], "swap_full": ["--lag_ref", a.a_roll], "swap_postdonor": ["--post_swap_only"],
-        "swap_postrecv": ["--post_swap_only", "--as_receiver"]}
+WHAT = {w: (["--post_swap_only"] if f[0] else []) + (["--as_receiver"] if f[1] else []) + (["--lag_ref", a.a_roll] if f[2] else [])
+        for w, f in WP.SCORE_FLAGS.items()}  # one flag table with the panel's intake check (Astra t1 item 13)
 
 
 def run_capped(cmd, kind, cap_h):
@@ -106,17 +106,17 @@ if a.parity_check:  # ----------------------------------------------------------
     devs = {j["binding"]["device"] for j in [U] + S}
     if len(devs) != 1 or WP.SCORE_DEVICE not in next(iter(devs)):
         why.append(f"devices {sorted(devs)} (need one {WP.SCORE_DEVICE} type)")
-    for k in ("score_rgb", "temporal_metrics", "sd_vae"):
-        if len({j["binding"][k] for j in [U] + S}) != 1:
-            why.append(f"{k} differs across parts")
+    # Astra t1 item 12: compare the bindings RECORDED AT EXECUTION (receipts rc 0, scorer / adapter / wrapper / every metric
+    # weight, the A@20k reference files and signed metrics actually used) with the current files, never stamp current values
     BIND = WP.score_binding(a.a_metrics, a.a_roll)
-    for k in ("score_rgb", "temporal_metrics", "sd_vae"):
-        if U["binding"][k] != BIND[k]:
-            why.append(f"{k} changed since the parity parts were scored")
-    rec = {"pass": not why, "replay_pass": bool(UR.get("replay_pass")), "sharded_equal": sharded_equal, "why": why,
+    import glob as _g
+    AR = {os.path.basename(f): WP._sha_file(f) for f in sorted(_g.glob(f"{a.a_roll.rstrip('/')}/*_s[0-9]*.pt"))}
+    ok_pp, why_pp = WP.parity_parts_ok([(uo, U, UR)] + list(zip(parts, S, SR)), BIND, AR, WP._sha_file(a.a_metrics))
+    why += why_pp
+    rec = {"pass": not why, "replay_pass": bool(UR.get("replay_pass")), "sharded_equal": sharded_equal, "parts_bound": ok_pp, "why": why,
            "device": next(iter(devs)) if len(devs) == 1 else sorted(devs), "binding": BIND, "inputs_sha": U["binding"]["inputs_sha"],
            "score_tick_s": round(UR["wall_s"] / max(1, UR["ticks"] or 1), 4), "ticks": UR["ticks"], "unsharded_wall_s": UR["wall_s"],
-           "shard_wall_s": [r["wall_s"] for r in SR], "shards": n, "runs": len(U["drives"]),
+           "shard_wall_s": [r["wall_s"] for r in SR], "shard_rc": [r.get("rc") for r in SR], "shards": n, "runs": len(U["drives"]),
            "rate_note": "from the A@20k replay (includes the real SD-VAE decode of every tick: an upper bound for RGB scoring)",
            "when": time.time()}
     json.dump(rec, open(PREC, "w"), indent=1)
@@ -142,22 +142,77 @@ if not os.path.exists(side) or open(side).read().split()[0] != WP._sha_file(MAN)
     raise SystemExit(f"{MAN} does not match {side}: the RGB manifest changed after rendering")
 src = M["dirs"]["swap" if a.what.startswith("swap") else a.what]
 DTX = int(M["dev_ticks_x_seeds"])
-CAP = WP.score_cap_h(DTX, float(PR["score_tick_s"]))
+RATE = float(PR["score_tick_s"])
+CAP = WP.score_cap_h(DTX, RATE)
 KIND = f"score_{a.panel}"
-spent = WP.Ledger(a.ledger, KIND, write=False).by_kind().get(KIND, 0.0)
-print(f"score ledger {KIND}: {spent:.3f} h of cap {CAP:.3f} h (1.25 x {WP.panel_score_h(DTX, float(PR['score_tick_s'])):.3f} h measured "
-      f"at {PR['score_tick_s']} s / tick on {PR['device']})", flush=True)
-if spent >= CAP:
-    print(f"SCORE_CAP_EXCEEDED {KIND}: {spent:.3f} h >= cap {CAP:.3f} h: refused", flush=True)
-    sys.exit(10)
+JID = os.environ.get("SLURM_JOB_ID") or f"local{os.getpid()}"
 si, sn = map(int, a.shard.split("/"))
+mine = WP.shard_by_drive([f for f in M["runs"] if os.path.dirname(f) == os.path.normpath(src)], a.shard)
+OWN = sum(M["runs"][f]["ticks"] for f in mine) * RATE / 3600  # post-swap scorings priced at full length (conservative)
+RESV = f"{a.wroot}/{a.panel}_score_reservations.jsonl"
+LOCK = f"{a.wroot}/{a.panel}_score.lock"
+
+
+def _lock():
+    """cross-node lock: mkdir is atomic on Lustre; a lock older than 300 s is stale (holder died)"""
+    t0 = time.time()
+    while True:
+        try:
+            os.mkdir(LOCK); return
+        except FileExistsError:
+            try:
+                if time.time() - os.path.getmtime(LOCK) > 300:
+                    os.rmdir(LOCK); continue
+            except OSError:
+                pass
+            if time.time() - t0 > 600:
+                raise SystemExit(f"could not take {LOCK}")
+            time.sleep(1.0)
+
+
+def _resv():
+    out = []
+    if os.path.exists(RESV):
+        for line in open(RESV):
+            line = line.strip()
+            if line.startswith("{") and line.endswith("}"):
+                out.append(json.loads(line))
+    return out
+
+
+# Astra t1 item 14: aggregate headroom across ACTIVE workers, checked and reserved under one lock, before any scoring
+_lock()
+try:
+    jobs = WP.Ledger.read(a.ledger)
+    spent = sum(WP.Ledger.charge_h(j) for j in jobs.values() if j["kind"] == KIND)
+    others = WP.active_reserved_h(_resv(), jobs, KIND, exclude=JID)
+    ok_h, tot_h = WP.score_headroom(spent, others, OWN, CAP)
+    print(f"score ledger {KIND}: spent {spent:.3f} h + other live workers {others:.3f} h + this shard {OWN:.3f} h = {tot_h:.3f} h of cap "
+          f"{CAP:.3f} h (1.25 x {WP.panel_score_h(DTX, RATE):.3f} h at {RATE} s / tick on {PR['device']})", flush=True)
+    if not ok_h:
+        print(f"SCORE_CAP_EXCEEDED {KIND}: refused before scoring", flush=True)
+        sys.exit(10)
+    with open(RESV, "a") as f:
+        f.write("\n" + json.dumps({"job": JID, "est_h": OWN, "what": a.what, "shard": a.shard, "t": time.time()}) + "\n")
+finally:
+    try:
+        os.rmdir(LOCK)
+    except OSError:
+        pass
 out = f"{a.wroot}/m_{a.panel}_{a.what}_dev.shard{si}of{sn}.json"
 cmd = [PY, "scripts/score_rgb.py", "--rgb", src, "--rgb_manifest", MAN, "--shard", a.shard, "--out", out,
        "--tag", f"{a.what}{si}of{sn}"] + WHAT[a.what]
 rc, log, wall = run_capped(cmd, KIND, CAP)
-rec = {"panel": a.panel, "what": a.what, "shard": a.shard, "out": out, "rc": rc, "wall_s": wall, "device": dv, "cap_h": CAP,
-       "score_ledger_h": WP.Ledger(a.ledger, KIND, write=False).by_kind().get(KIND, 0.0), "job": os.environ.get("SLURM_JOB_ID"), "when": time.time()}
+final = sum(WP.Ledger.charge_h(j) for j in WP.Ledger.read(a.ledger).values() if j["kind"] == KIND)
+over = final > CAP
+if over and os.path.exists(out):  # finished, but the panel's scoring went over its cap: the output is not admissible
+    os.replace(out, out + ".overcap")
+rec = {"panel": a.panel, "what": a.what, "shard": a.shard, "out": out, "rc": rc, "over_cap": over, "wall_s": wall, "device": dv, "cap_h": CAP,
+       "score_ledger_h": round(final, 4), "own_est_h": round(OWN, 4), "job": JID, "when": time.time()}
 with open(f"{a.wroot}/{a.panel}_score_runs.jsonl", "a") as f:
     f.write("\n" + json.dumps(rec) + "\n")
 print("WAN_SCORE", json.dumps(rec))
+if over:
+    print(f"SCORE_CAP_EXCEEDED {KIND}: {final:.3f} h > cap {CAP:.3f} h after this shard; output set aside", flush=True)
+    sys.exit(10)
 raise SystemExit(0 if rc == 0 else 1)

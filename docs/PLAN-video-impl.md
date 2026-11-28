@@ -382,7 +382,7 @@ with the same gate key.
 the slowest of the full-run mean and the last two 32-update block means. Start-up is measured from the allocation
 (`MRV_ALLOC_T0`) to the first update and is never extrapolated 48 -> 144 when the timing ran on 144 drives. `wan_forecast.py`
 charges ONE panel (`--n_panels 1`) and prints the two-panel number beside it ("no spare for a second read" below 12,000).
-`retime_pass` lists all 13 rules with their numbers: production list + cold allocation, >= 200 updates, queue wait <= 5 % and
+`retime_pass` lists every rule with its numbers (17 after Astra t1, below): production list + cold allocation, >= 200 updates, queue wait <= 5 % and
 wall <= 1.10 x gpu_s in every block, matched setting selected, geometry / init parity / update-0 sensitivity, staged hashes,
 8 staged batches == Lustre, cgroup peak <= 85 % of the request (memory.peak, or a 1 s sampled maximum on older kernels),
 2080 Ti scorer parity, six valid donors, the load-once rehearsal, and >= 13,200 updates.
@@ -404,6 +404,40 @@ every signed bar.
 run in the same process) and by a fresh process; RGB, SD latents, flags and windows must be byte-equal.
 
 **F4 (2x2 token pooling)** is held, as agreed: only if the re-time misses.
+
+## Astra t1 fixes (`council/codereview-wan-t1-astra.md`, 15 items)
+
+Timing (items 1-9):
+1. Inertness is measured on the untouched init (optimizer step 0) before any update; after the sweep the init weights and a
+   fresh optimizer are restored, and `check_sensitivity` must pass after exactly `SENS_STEP` = 32 optimizer steps at the
+   selected setting. The actual optimizer step is recorded with every probe.
+2. The matched-update check compares per-tensor parameter deltas after ONE Adam step from identical weights, optimizer state,
+   batch and RNG (`mrv.wan_plan.delta_check`, 5 % relative L2 per tensor); the fixed batch is freed before the winner is timed.
+3. Timing, train and extend need exactly the 144 + 6 canonical IDs of `data/temporal_lists.json`; the gates may use subsets
+   inside their own split; the manifest must have been written for the canonical lists.
+4. Blocks are fixed at 32 updates, consecutive from the first production update; batch 8, tokens on and the full declared
+   grad_ckpt x micro sweep (each cell measured, OOM, or skipped after an OOM at a smaller micro) are rules.
+5. The forecast rule needs ONE panel, 24 h, 12 h jobs, a measured panel and both timing allocations in the ledger; a missing
+   ledger refuses the forecast.
+6. The rehearsal renders into an empty folder, every tick fresh in both paths, from the timing's own checkpoint (digest); a
+   failed rehearsal fails the timing job; the panel render refuses to reuse old RGB.
+7. Start-up = the selected recipe's measured production start: allocation -> trainer (geometry excluded), process -> ready,
+   frozen snapshot, first update + Adam, guard verification (production's own functions), first probe, resume load.
+8. The 85 % rule divides by the Slurm request (`SLURM_MEM_PER_NODE` / `scontrol`); the peak comes from a job-level sampler
+   slurm starts at allocation (`python -m mrv.wan_stage sample`), memory.peak and the trainer's sampler.
+9. Reused staged files are re-hashed (recopied on a mismatch); the geometry check reads hash-on-copy copies of its inputs.
+
+Overfit (10-11): exactly one run mode; an overfit run starts and a PASS is registered only under the signed gate. Every
+evidence-producing file is in `evidence_sha` (checked against the re-time), and each stage re-runs the stored forecast against
+the actual ledger and gate registry (>= 13,200 before production; start + affordable >= 12k on a production resume).
+
+Production / scoring (12-15): score outputs bind, at execution, the wrapper, every metric weight file (SD VAE, Mask2Former,
+DINOv2, RAFT, AlexNet, LPIPS), the signed reference and the lag-reference files; the parity check verifies those bindings and
+every shard receipt. The decision only takes a shard whose source folder, partition, inputs (exact manifest entries) and
+scoring flags fit the scoring it is filed under, with a successful in-cap receipt. Scoring workers reserve headroom under a
+cross-node lock (spent + live reservations + own estimate <= cap), re-check after finishing, and set over-cap output aside;
+the decision refuses a missing or over-cap scoring ledger. The checkpoint and donor-plan digests are recorded at render and
+verified at decision, which uses the stored plan.
 
 ## Open points
 

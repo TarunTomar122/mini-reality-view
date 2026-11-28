@@ -91,7 +91,7 @@ def _sha(path):
 PER_TICK = ("ticks", "src_ticks", "ok", "hard", "restart")
 roll = f"{ROOT}/roll"; os.makedirs(roll)
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from mrv.wan_plan import shard_by_drive
+from mrv.wan_plan import shard_by_drive, metric_weights
 FILES = shard_by_drive(glob.glob(f"{SRC}/*_s[0-9]*.pt"), a.shard)
 if not FILES:
     raise SystemExit(f"no rollout files in {SRC} for shard {a.shard}")
@@ -181,7 +181,13 @@ OUTJ["binding"] = {"device": DEVICE, "score_rgb": _sha("scripts/score_rgb.py"), 
                    "rgb_manifest": a.rgb_manifest or None, "rgb_manifest_sha": MAN_SHA, "inputs": INPUTS,
                    "inputs_sha": hashlib.sha256("".join(k + v for k, v in sorted(INPUTS.items())).encode()).hexdigest(),
                    "shard": a.shard, "src": SRC, "ticks": NTICKS, "wall_s": round(time.time() - T0, 1), "lag_ref": a.lag_ref or None,
-                   "post_swap_only": a.post_swap_only, "as_receiver": a.as_receiver, "from_lat": bool(a.from_lat)}
+                   "post_swap_only": a.post_swap_only, "as_receiver": a.as_receiver, "from_lat": bool(a.from_lat),
+                   # Astra t1 item 12: bound AT EXECUTION: wrapper code, every metric weight file, the signed reference and the
+                   # reference rollouts actually decoded here
+                   "wan_score": _sha("scripts/wan_score.py"), "weights": metric_weights(),
+                   "parity_ref_sha": _sha(a.parity_ref) if a.parity_ref else None,
+                   "lag_ref_inputs": {os.path.basename(f): _sha(f) for f in sorted(glob.glob(f"{a.lag_ref.rstrip('/')}/*_s[0-9]*.pt"))} if a.lag_ref else None,
+                   "cold_inputs": {os.path.basename(f): _sha(f) for f in sorted(glob.glob(f"{a.cold.rstrip('/')}/*_s[0-9]*.pt"))} if a.cold else None}
 json.dump(OUTJ, open(a.out + ".tmp", "w")); os.replace(a.out + ".tmp", a.out)
 
 if a.parity_ref:  # A@20k replay: every per-run field equal to the signed metrics

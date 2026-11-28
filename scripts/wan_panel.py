@@ -214,6 +214,7 @@ if a.phase == "render":
         EST = a.panel_estimate_h
     if used + EST > a.budget_hours:
         fail(f"budget: ledger {used:.2f} h + measured render-only panel cost {EST:.2f} h > {a.budget_hours} h", "budget")
+    CK_SHA256 = WP._sha_file(a.ckpt)  # Astra t1 item 15: the rolling ckpt.pt may change between render and decision
     CK = load_run(a.ckpt)
     step = int(CK["step"])
     PROD = WP.production_ok({"timing": CK.get("timing"), "recipe": CK.get("recipe"), "args": CK.get("args")})
@@ -254,6 +255,7 @@ if a.phase == "render":
             entries[os.path.normpath(f)] = {"sha256": WP._sha_file(f), "rgb_sha": R.get("rgb_sha"), "ticks": len(R["ticks"]),
                                             "size": os.path.getsize(f), "ckpt_sha": R.get("ckpt_sha")}
     MAN = {"name": a.name, "stage": a.stage, "ckpt": a.ckpt, "step": step, "dirs": {**DIRS, "shared": SHARED}, "runs": entries,
+           "ckpt_sha256": CK_SHA256, "donors_sha256": WP._sha_file(DJ), "donor_plan": PLAN,  # Astra t1 item 15
            "dev_ticks_x_seeds": 2 * sum(n_full.values()), "window_latents": WIN, "swap_at": a.swap_at, "donors": DJ,
            "plan_timing": PT, "when": time.time()}
     json.dump(MAN, open(MANP, "w"), indent=1, sort_keys=True)
@@ -288,7 +290,19 @@ if not ok_p:
 PR = json.load(open(PREC))
 step, PROD, mode_why = RD["step"], RD["production"], RD["mode_why"]
 DIRS = M["dirs"]
-DON = json.load(open(M["donors"]))["donors"]
+ok_rb, why_rb = WP.render_binding_ok(M, WP._sha_file(a.ckpt), WP._sha_file(M["donors"]) if os.path.exists(M["donors"]) else None)
+if not ok_rb:  # Astra t1 item 15: the decision reads the checkpoint and donor plan the slice rendered, or nothing
+    fail(f"render binding: {why_rb}", "incomplete")
+DON = M["donor_plan"]["donors"]  # the copy stored at render (never the mutable path)
+import glob as _g
+LAG_IN = {os.path.basename(f): WP._sha_file(f) for f in sorted(_g.glob(f"{a.a_roll.rstrip('/')}/*_s[0-9]*.pt"))}
+RECEIPTS = {}
+_rp = f"{a.wroot}/{a.name}_score_runs.jsonl"
+if os.path.exists(_rp):
+    for _line in open(_rp):
+        _line = _line.strip()
+        if _line.startswith("{") and _line.endswith("}"):
+            _r = json.loads(_line); RECEIPTS[_r["out"]] = _r  # the latest receipt per output file
 
 
 def runs_in(d):
@@ -306,7 +320,8 @@ def merged_scores(w):
     want = [f"{a.wroot}/m_{a.name}_{w}_dev.shard{i}of{n}.json" for i in range(n)]
     if sorted(want) != fs:
         fail(f"scoring {w}: shards {fs} != {want}", "incomplete")
-    out, why_m = WP.merge_score_shards([(f, json.load(open(f))) for f in want], MSHA, PR)
+    parts = [(f, json.load(open(f)), i, n) for i, f in enumerate(want)]
+    out, why_m = WP.merge_score_shards(parts, w, M, MSHA, PR, RECEIPTS, LAG_IN)
     if why_m:
         fail(f"scoring {w}: {why_m[:3]}", "incomplete")
     out["roll"] = f"merged:{w}:{MSHA[:16]}"
@@ -385,6 +400,11 @@ res["swap"] = {**SWAP, "runs": runs, "donor_plan": DON, "train_dropout_marginals
 res["decision"] = WP.decide_s1(CMP, step, a.stage, SWAP, PROD, MODES_OK, prior)
 SL = WP.Ledger(a.score_ledger, f"score_{a.name}", write=False)
 DTX = int(M["dev_ticks_x_seeds"])
+_sjobs = [j for j in WP.Ledger.read(a.score_ledger).values() if j["kind"] == f"score_{a.name}"]
+_spent = sum(WP.Ledger.charge_h(j) for j in _sjobs)
+_cap = WP.score_cap_h(DTX, float(PR["score_tick_s"]))
+if not _sjobs or _spent > _cap:  # Astra t1 item 14: no publication on a missing or over-cap scoring ledger
+    fail(f"scoring ledger {a.score_ledger} for score_{a.name}: {len(_sjobs)} jobs, {_spent:.3f} h vs cap {_cap:.3f} h", "budget")
 res["scoring"] = {"ledger": a.score_ledger, "gpu_h": round(SL.by_kind().get(f"score_{a.name}", 0.0), 3),
                   "cap_h": round(WP.score_cap_h(DTX, float(PR["score_tick_s"])), 3), "device": PR["device"],
                   "note": "2080 Ti scoring hours: own ledger and cap, reported separately from the S1 slice budget"}

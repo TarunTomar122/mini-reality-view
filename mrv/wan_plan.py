@@ -485,11 +485,42 @@ def parity_ok(record_path, binding):
 SCORE_DEVICE = "2080 Ti"  # CONVERGED item 4: signed scoring moves off the slice to the 2080 Ti queue (where A@20k was scored)
 
 
+METRIC_HF = ("stabilityai/sd-vae-ft-mse", "facebook/mask2former-swin-large-cityscapes-panoptic", "facebook/dinov2-small")
+METRIC_HUB = ("raft_small", "alexnet")  # torchvision checkpoints the signed scorer loads (RAFT; LPIPS alex backbone)
+
+
+def metric_weights():
+    """Astra t1 item 12: sha of EVERY weight file the signed scorer (scripts/temporal_metrics.py:148-154) loads: SD VAE,
+    Mask2Former, DINOv2 (HF cache), RAFT-small and AlexNet (torch hub cache), the LPIPS alex head (lpips package)"""
+    import glob, importlib.util
+    out = {}
+    try:
+        from huggingface_hub import snapshot_download
+    except Exception:  # noqa: BLE001
+        snapshot_download = None
+    for rid in METRIC_HF:
+        try:
+            d = snapshot_download(rid, local_files_only=True)
+            out[rid] = _sha_files([f for f in glob.glob(f"{d}/**", recursive=True) if os.path.isfile(f)])
+        except Exception as e:  # noqa: BLE001
+            out[rid] = f"missing: {type(e).__name__}"
+    th = os.environ.get("TORCH_HOME") or os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache"), "torch")
+    for pat in METRIC_HUB:
+        fs = sorted(glob.glob(os.path.join(th, "hub", "checkpoints", f"{pat}*")))
+        out[pat] = _sha_files(fs) if fs else "missing"
+    sp = importlib.util.find_spec("lpips")
+    lp = os.path.join(os.path.dirname(sp.origin), "weights", "v0.1", "alex.pth") if sp and sp.origin else ""
+    out["lpips_alex"] = _sha_file(lp) if lp and os.path.exists(lp) else "missing"
+    return out
+
+
 def score_binding(a_metrics, a_roll):
     """the 2080 Ti scorer-parity binding: the A@20k replay binding (references, adapter, signed scorer, SD VAE weights) + the
-    scoring wrapper code (scripts/wan_score.py); the device is recorded beside it and checked by score_parity_ok"""
+    scoring wrapper code (scripts/wan_score.py) + every metric weight file (Astra t1 item 12); the device is recorded beside it
+    and checked by score_parity_ok"""
     b = parity_binding(a_metrics, a_roll)
     b["wan_score"] = _sha_file("scripts/wan_score.py")
+    b["weights"] = metric_weights()
     return b
 
 
@@ -523,10 +554,36 @@ def score_binding_matches(part, rec):
     why = []
     if b.get("device") != rec.get("device"):
         why.append(f"device {b.get('device')!r} != parity device {rec.get('device')!r}")
-    for k in ("score_rgb", "temporal_metrics", "sd_vae"):
-        if b.get(k) != rb.get(k):
+    for k in ("score_rgb", "temporal_metrics", "sd_vae", "wan_score", "weights"):
+        if b.get(k) is None or b.get(k) != rb.get(k):
             why.append(f"{k} differs from the parity record")
     return not why, "; ".join(why) or "ok"
+
+
+def parity_parts_ok(parts, current, a_roll_inputs, a_metrics_sha):
+    """Astra t1 item 12: every parity part (name, score json, receipt) must have succeeded (rc 0) and carry, AS BOUND AT
+    EXECUTION, the current scorer / adapter / wrapper / metric weights; the unsharded part must have scored exactly the current
+    A@20k reference files against the current signed metrics -> (ok, why list)"""
+    why = []
+    for name, j, rec in parts:
+        b = (j or {}).get("binding") or {}
+        if not rec or rec.get("rc") != 0:
+            why.append(f"{name}: receipt missing or rc {None if not rec else rec.get('rc')}")
+        for k in ("score_rgb", "temporal_metrics", "sd_vae", "wan_score", "weights"):
+            if b.get(k) is None or b.get(k) != current.get(k):
+                why.append(f"{name}: {k} at execution != current")
+        if b.get("inputs") is None or not set(b["inputs"]) <= set(a_roll_inputs) or any(a_roll_inputs[k] != v for k, v in b["inputs"].items()):
+            why.append(f"{name}: scored inputs are not the current A@20k reference files")
+    un = [j for name, j, _ in parts if ((j or {}).get("binding") or {}).get("shard") == "0/1"]
+    if len(un) != 1:
+        why.append("no unique unsharded part")
+    else:
+        ub = un[0]["binding"]
+        if ub.get("inputs") != a_roll_inputs:
+            why.append("unsharded part did not score every A@20k reference file")
+        if ub.get("parity_ref_sha") != a_metrics_sha:
+            why.append("unsharded part compared against another signed metrics file")
+    return not why, why
 
 
 # ------------------------------------------------------------------------------------------------------------ forecast
@@ -622,26 +679,87 @@ def compare_sharded(unsharded, shards):
     return not why, why
 
 
-def merge_score_shards(parts, manifest_sha, parity_rec):
-    """the panel decision's intake (CONVERGED item 4): only score shards bound to the RGB manifest the slice rendered (sha) and to
-    the parity record's device / scorer / adapter / SD VAE; no run scored twice. parts: [(name, score json)].
-    -> (merged {"drives", "cold"}, why list); why non-empty = refuse"""
-    why, out = [], {"drives": {}, "cold": None}
-    for name, j in parts:
+SCORE_FLAGS = {"hybrid": (False, False, False), "guide": (False, False, False), "tokens": (False, False, False), "none": (False, False, False),
+               "swap_full": (False, False, True), "swap_postdonor": (True, False, False), "swap_postrecv": (True, True, False)}
+# (post_swap_only, as_receiver, lag_ref) per scoring (Astra t1 item 13)
+
+
+def merge_score_shards(parts, what, manifest, manifest_sha, parity_rec, receipts, lag_inputs=None):
+    """the panel decision's intake (CONVERGED item 4, Astra t1 items 12-14). parts: [(file name, score json, i, n)]. Each shard
+    must: be bound to the RGB manifest the slice rendered (sha); have scored exactly its partition (shard i/n by drive) of THIS
+    scoring's folder with the manifest's bytes; carry this scoring's flags (post-swap / receiver / lag reference, the lag
+    reference's files == lag_inputs); match the parity record's device / scorer / adapter / wrapper / weights; have a successful,
+    not over-cap receipt. Shards must cover the folder exactly once. -> (merged {"drives", "cold"}, why list)"""
+    why, out, seen = [], {"drives": {}, "cold": None}, set()
+    src = os.path.normpath(manifest["dirs"]["swap" if what.startswith("swap") else what])
+    files = sorted(f for f in manifest["runs"] if os.path.dirname(f) == src)
+    psw, rcv, lag = SCORE_FLAGS[what]
+    for name, j, i, n in parts:
         b = j.get("binding") or {}
         if b.get("rgb_manifest_sha") != manifest_sha:
-            why.append(f"{name}: scored RGB of another render (manifest {str(b.get('rgb_manifest_sha'))[:12]} != {str(manifest_sha)[:12]})")
-            continue
+            why.append(f"{name}: scored RGB of another render (manifest {str(b.get('rgb_manifest_sha'))[:12]} != {str(manifest_sha)[:12]})"); continue
+        if os.path.normpath(str(b.get("src"))) != src or b.get("shard") != f"{i}/{n}":
+            why.append(f"{name}: scored {b.get('src')} shard {b.get('shard')}, expected {src} shard {i}/{n}"); continue
+        exp = {os.path.basename(f): manifest["runs"][f]["sha256"] for f in shard_by_drive(files, f"{i}/{n}")}
+        if b.get("inputs") != exp:
+            why.append(f"{name}: inputs are not exactly this shard's manifest entries"); continue
+        if bool(b.get("post_swap_only")) != psw or bool(b.get("as_receiver")) != rcv or bool(b.get("lag_ref")) != lag:
+            why.append(f"{name}: scoring flags (post_swap {b.get('post_swap_only')}, receiver {b.get('as_receiver')}, lag {b.get('lag_ref')}) "
+                       f"are not those of {what}"); continue
+        if lag and b.get("lag_ref_inputs") != lag_inputs:
+            why.append(f"{name}: lag reference files differ from the signed A@20k references"); continue
         ok_b, why_b = score_binding_matches(j, parity_rec)
         if not ok_b:
             why.append(f"{name}: {why_b}"); continue
+        rc = receipts.get(name)
+        if not rc or rc.get("rc") != 0 or rc.get("over_cap"):
+            why.append(f"{name}: no successful in-cap receipt ({rc})"); continue
         dup = set(out["drives"]) & set(j["drives"])
         if dup:
             why.append(f"{name}: runs scored twice {sorted(dup)[:3]}")
-        out["drives"].update(j["drives"])
+        out["drives"].update(j["drives"]); seen |= set(exp)
         if j.get("cold") is not None:
             out["cold"] = j["cold"]
+    if not why and seen != {os.path.basename(f) for f in files}:
+        why.append(f"shards do not cover {src} exactly ({len(seen)} of {len(files)} files)")
     return out, why
+
+
+def active_reserved_h(reservations, jobs, kind, now=None, exclude=None):
+    """Astra t1 item 14: hours still reserved by OTHER live scoring workers of this panel: per reservation {job, est_h}, if that
+    Slurm job's ledger entry (kind) is still beating, its estimate minus what it has already been charged"""
+    now = time.time() if now is None else now
+    tot = 0.0
+    for r in reservations:
+        if exclude is not None and str(r.get("job")) == str(exclude):
+            continue
+        for jid, j in jobs.items():
+            if j.get("kind") == kind and jid.startswith(f"alloc-{r.get('job')}-") and not j.get("ended") and now - j["t"] <= 2 * j.get("beat_s", 60.0):
+                tot += max(0.0, float(r.get("est_h", 0.0)) - (now - j["t0"]) / 3600)
+    return tot
+
+
+def score_headroom(spent_h, others_reserved_h, own_est_h, cap_h):
+    """aggregate headroom across active workers: spent (all charged so far) + other live workers' remaining reservations + this
+    worker's estimate must fit under the cap -> (ok, total)"""
+    tot = spent_h + others_reserved_h + own_est_h
+    return tot <= cap_h, round(tot, 4)
+
+
+def render_binding_ok(manifest, ckpt_sha256, donors_sha256):
+    """Astra t1 item 15: the decision uses the checkpoint and donor plan the slice rendered: digests recorded at render must equal
+    the files now, and every rendered file must carry the checkpoint's digest -> (ok, why)"""
+    why = []
+    if manifest.get("ckpt_sha256") != ckpt_sha256:
+        why.append(f"checkpoint changed since rendering ({str(manifest.get('ckpt_sha256'))[:12]} -> {str(ckpt_sha256)[:12]})")
+    if manifest.get("donors_sha256") != donors_sha256:
+        why.append("donor plan file changed since rendering")
+    bad = [f for f, e in (manifest.get("runs") or {}).items() if e.get("ckpt_sha") != str(manifest.get("ckpt_sha256"))[:16]]
+    if bad:
+        why.append(f"{len(bad)} rendered files from another checkpoint, e.g. {bad[:2]}")
+    if not manifest.get("donor_plan"):
+        why.append("no donor plan stored at render")
+    return not why, "; ".join(why) or "ok"
 
 
 # ------------------------------------------------------------------------------------------------------------- F5 / re-time

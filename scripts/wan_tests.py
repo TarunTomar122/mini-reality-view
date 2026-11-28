@@ -760,17 +760,92 @@ with _tf.TemporaryDirectory() as td:
         json.dump(rec_, open(pr_, "w"))
         check(f"F3 repro: parity record {nm_} -> MODE=train / panel decision refused", not WP.score_parity_ok(pr_, B_)[0])
     check("F3: no parity record -> refused", not WP.score_parity_ok(f"{td}/none.json", B_)[0])
-PRr = {"device": "NVIDIA GeForce RTX 2080 Ti", "binding": {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5"}}
-bnd = lambda **kw: {"device": "NVIDIA GeForce RTX 2080 Ti", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "rgb_manifest_sha": "M", **kw}
-P1 = {"drives": {"a_s0": {"car_f1": 0.4}, "a_s1": {"car_f1": 0.5}}, "binding": bnd()}
-P2 = {"drives": {"b_s0": {"car_f1": 0.3}}, "binding": bnd()}
-mg, why_ = WP.merge_score_shards([("p1", P1), ("p2", P2)], "M", PRr)
-check("F3: shards of THIS render on the parity device merge into one run set", not why_ and sorted(mg["drives"]) == ["a_s0", "a_s1", "b_s0"], why_)
-for nm_, parts_ in (("a shard scored another render's RGB", [("p1", P1), ("p2", {**P2, "binding": bnd(rgb_manifest_sha="OLD")})]),
-                    ("a shard scored on another GPU type", [("p1", P1), ("p2", {**P2, "binding": bnd(device="NVIDIA RTX A6000")})]),
-                    ("a shard scored with another scorer", [("p1", P1), ("p2", {**P2, "binding": bnd(temporal_metrics="X")})]),
-                    ("a run scored twice", [("p1", P1), ("p1b", P1)])):
-    check(f"F3 repro: {nm_} -> the panel decision refuses", bool(WP.merge_score_shards(parts_, "M", PRr)[1]))
+# panel intake (CONVERGED item 4; Astra t1 items 12-14)
+WT = {"sd": "s", "m2f": "m", "dino": "d", "raft": "r"}
+PRr = {"device": "NVIDIA GeForce RTX 2080 Ti", "binding": {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT}}
+MANX = {"dirs": {c: f"runs/wroll/x_{c}_dev" for c in ("hybrid", "guide", "tokens", "none")} | {"swap": "runs/wroll/x_swap_dev"},
+        "runs": {f"runs/wroll/x_{c}_dev/{d}_s{s}.pt": {"sha256": f"{c}{d}{s}", "ticks": 100} for c in ("hybrid", "guide", "tokens", "none", "swap")
+                 for d in ("scene-a", "scene-b") for s in (0, 1)}}
+def bnd(c="hybrid", i=0, n=2, **kw):
+    fl = WP.SCORE_FLAGS.get(c, (False, False, False)); src = MANX["dirs"]["swap" if c.startswith("swap") else c]
+    fs = WP.shard_by_drive([f for f in MANX["runs"] if os.path.dirname(f) == src], f"{i}/{n}")
+    b = {"device": "NVIDIA GeForce RTX 2080 Ti", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT,
+         "rgb_manifest_sha": "M", "src": src, "shard": f"{i}/{n}", "inputs": {os.path.basename(f): MANX["runs"][f]["sha256"] for f in fs},
+         "post_swap_only": fl[0], "as_receiver": fl[1], "lag_ref": "runs/troll/A20k_indep_dev" if fl[2] else None,
+         "lag_ref_inputs": {"r.pt": "L"} if fl[2] else None}
+    b.update(kw); return b
+def part(c="hybrid", i=0, n=2, drives=None, **kw):
+    return (f"m_x_{c}_dev.shard{i}of{n}.json", {"drives": drives or {f"scene-{'ab'[i]}_s0": {"car_f1": 0.4}, f"scene-{'ab'[i]}_s1": {"car_f1": 0.5}},
+                                               "binding": bnd(c, i, n, **kw)}, i, n)
+RC = {f"m_x_{c}_dev.shard{i}of2.json": {"rc": 0, "over_cap": False} for c in WP.SCORE_FLAGS for i in (0, 1)}
+mg, why_ = WP.merge_score_shards([part(), part(i=1)], "hybrid", MANX, "M", PRr, RC)
+check("F3: complete, bound shards of THIS render merge into one run set", not why_ and len(mg["drives"]) == 4, why_)
+mgs, whys = WP.merge_score_shards([part("swap_full"), part("swap_full", 1)], "swap_full", MANX, "M", PRr, RC, {"r.pt": "L"})
+check("T1 item 13: a swap_full shard with the lag reference and the signed reference files merges", not whys, whys)
+hyb0 = part("hybrid", 0)
+for nm_, parts_, what_, lag_ in (
+        ("F3: a shard scored another render's RGB", [part(rgb_manifest_sha="OLD"), part(i=1)], "hybrid", None),
+        ("F3: a shard scored on another GPU type", [part(device="NVIDIA RTX A6000"), part(i=1)], "hybrid", None),
+        ("F3: a shard scored with another scorer", [part(temporal_metrics="X"), part(i=1)], "hybrid", None),
+        ("T1 item 12 repro: a shard scored with other Mask2Former weights", [part(weights={**WT, "m2f": "X"}), part(i=1)], "hybrid", None),
+        ("T1 item 12 repro: a shard scored by another wrapper version", [part(wan_score="X"), part(i=1)], "hybrid", None),
+        ("T1 item 13 repro (Astra): the HYBRID shard copied under the guide filename", [(f"m_x_guide_dev.shard0of2.json", hyb0[1], 0, 2), part("guide", 1)], "guide", None),
+        ("T1 item 13: a shard that scored only part of its partition", [part(inputs={"scene-a_s0.pt": "hybridscene-a0"}), part(i=1)], "hybrid", None),
+        ("T1 item 13: a shard file claiming another partition", [part(i=0, shard="1/2"), part(i=1)], "hybrid", None),
+        ("T1 item 13: a post-donor scoring run without --post_swap_only", [part("swap_postdonor", post_swap_only=False), part("swap_postdonor", 1)], "swap_postdonor", None),
+        ("T1 item 13: a post-receiver scoring run without --as_receiver", [part("swap_postrecv", as_receiver=False), part("swap_postrecv", 1)], "swap_postrecv", None),
+        ("T1 item 13: swap_full scored without the lag reference", [part("swap_full", lag_ref=None), part("swap_full", 1)], "swap_full", {"r.pt": "L"}),
+        ("T1 item 13: swap_full against other lag reference files", [part("swap_full"), part("swap_full", 1)], "swap_full", {"r.pt": "OTHER"}),
+        ("T1 item 13: a missing shard (folder not covered)", [part()], "hybrid", None),
+        ("F3: a run scored twice", [part(), part(i=1, drives={"scene-a_s0": {"car_f1": 0.4}})], "hybrid", None)):
+    check(f"{nm_} -> the panel decision refuses", bool(WP.merge_score_shards(parts_, what_, MANX, "M", PRr, RC, lag_)[1]))
+for nm_, rc_ in (("T1 item 14 repro: a shard whose receipt says it finished OVER the cap", {**RC, "m_x_hybrid_dev.shard1of2.json": {"rc": 0, "over_cap": True}}),
+                 ("T1 item 12: a shard with a failed receipt", {**RC, "m_x_hybrid_dev.shard1of2.json": {"rc": 1}}),
+                 ("T1 item 12: a shard without a receipt", {k: v for k, v in RC.items() if k != "m_x_hybrid_dev.shard1of2.json"})):
+    check(f"{nm_} -> refused", bool(WP.merge_score_shards([part(), part(i=1)], "hybrid", MANX, "M", PRr, rc_)[1]))
+# item 12: parity parts bound at execution
+CUR = {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT}
+AR_ = {"a_s0.pt": "1", "a_s1.pt": "2", "b_s0.pt": "3", "b_s1.pt": "4"}
+pb = lambda shard, ins, **kw: {"binding": {**CUR, "shard": shard, "inputs": ins, "parity_ref_sha": "SIG" if shard == "0/1" else None, **kw}}
+PP = [("u", pb("0/1", AR_), {"rc": 0}), ("s0", pb("0/2", {"a_s0.pt": "1", "a_s1.pt": "2"}), {"rc": 0}), ("s1", pb("1/2", {"b_s0.pt": "3", "b_s1.pt": "4"}), {"rc": 0})]
+check("T1 item 12: parity parts bound at execution to the current scorer / weights / references pass", WP.parity_parts_ok(PP, CUR, AR_, "SIG")[0])
+for nm_, pp_, ar_, sig_ in (("a shard receipt failed (rc 1)", [PP[0], PP[1], ("s1", PP[2][1], {"rc": 1})], AR_, "SIG"),
+                            ("scores made with weights that changed since (current stamped over old)", [PP[0], PP[1], ("s1", pb("1/2", {"b_s0.pt": "3", "b_s1.pt": "4"}, weights={**WT, "raft": "OLD"}), {"rc": 0})], AR_, "SIG"),
+                            ("reference rollouts changed after scoring", PP, {**AR_, "b_s1.pt": "NEW"}, "SIG"),
+                            ("unsharded replay against another signed metrics file", PP, AR_, "OTHER"),
+                            ("wrapper changed after scoring", [("u", pb("0/1", AR_, wan_score="OLD"), {"rc": 0}), PP[1], PP[2]], AR_, "SIG")):
+    check(f"T1 item 12 repro: {nm_} -> parity check FAILS", not WP.parity_parts_ok(pp_, CUR, ar_, sig_)[0])
+_wl = WP.metric_weights()
+check("T1 item 12: metric weights cover every model the signed scorer loads (SD VAE, Mask2Former, DINOv2, RAFT, AlexNet, LPIPS)",
+      set(_wl) == set(WP.METRIC_HF) | set(WP.METRIC_HUB) | {"lpips_alex"})
+# item 14: aggregate headroom across live workers
+now_ = time.time()
+JB = {"alloc-101-1-1": {"kind": "score_x", "t0": now_ - 1800, "t": now_ - 10, "ended": False, "beat_s": 60},   # live, 0.5 h in
+      "alloc-102-1-1": {"kind": "score_x", "t0": now_ - 7200, "t": now_ - 3600, "ended": True, "beat_s": 60},  # finished
+      "alloc-103-1-1": {"kind": "score_x", "t0": now_ - 9000, "t": now_ - 8000, "ended": False, "beat_s": 60}}  # dead
+RV = [{"job": "101", "est_h": 2.0}, {"job": "102", "est_h": 1.0}, {"job": "103", "est_h": 3.0}, {"job": "104", "est_h": 1.0}]
+ar_h = WP.active_reserved_h(RV, JB, "score_x", now_)
+check("T1 item 14: only LIVE workers' remaining reservations count (2.0 - 0.5 h)", abs(ar_h - 1.5) < 1e-3, ar_h)
+check("T1 item 14 repro: spent 3 h + live reservations 1.5 h + this shard 1 h > cap 5 h -> refused before scoring",
+      not WP.score_headroom(3.0, ar_h, 1.0, 5.0)[0] and WP.score_headroom(3.0, ar_h, 0.4, 5.0)[0])
+_wsc = open("scripts/wan_score.py").read(); _pan = open("scripts/wan_panel.py").read()
+check("T1 item 14: wan_score reserves under a cross-node lock, re-checks after finishing and sets an over-cap output aside",
+      "os.mkdir(LOCK)" in _wsc and "WP.score_headroom(" in _wsc and 'os.replace(out, out + ".overcap")' in _wsc and '"over_cap": over' in _wsc)
+check("T1 item 14: the decision refuses publication on a missing or over-cap scoring ledger", "no publication on a missing or over-cap scoring ledger" in _pan)
+check("T1 item 12: score_rgb binds wrapper / weights / signed reference / lag reference files at execution; parity_check verifies them",
+      '"weights": metric_weights()' in _scr if (_scr := open("scripts/score_rgb.py").read()) else False)
+check("T1 item 12: parity_check uses parity_parts_ok (receipts + execution bindings)", "WP.parity_parts_ok(" in _wsc)
+# item 15: checkpoint / donor plan digests
+MR15 = {"ckpt_sha256": "A" * 64, "donors_sha256": "D" * 64, "donor_plan": {"donors": {}}, "runs": {"f": {"ckpt_sha": "A" * 16}}}
+check("T1 item 15: digests recorded at render and unchanged -> decision allowed", WP.render_binding_ok(MR15, "A" * 64, "D" * 64)[0])
+for nm_, args_ in (("the rolling checkpoint changed between render and decision", (MR15, "B" * 64, "D" * 64)),
+                   ("the donor plan was regenerated", (MR15, "A" * 64, "E" * 64)),
+                   ("a rendered file from another checkpoint", ({**MR15, "runs": {"f": {"ckpt_sha": "B" * 16}}}, "A" * 64, "D" * 64)),
+                   ("no donor plan stored at render", ({**MR15, "donor_plan": None}, "A" * 64, "D" * 64))):
+    check(f"T1 item 15 repro: {nm_} -> decision refused", not WP.render_binding_ok(*args_)[0])
+check("T1 item 15: render stores ckpt / donor digests + the plan; decide verifies and uses the stored plan",
+      '"ckpt_sha256": CK_SHA256, "donors_sha256": WP._sha_file(DJ), "donor_plan": PLAN' in _pan and 'DON = M["donor_plan"]["donors"]' in _pan
+      and "WP.render_binding_ok(" in _pan)
 U_ = {"drives": {"a_s0": {"car_f1": 0.4, "placement_ticks": [0, 5]}, "b_s0": {"car_f1": float("nan"), "placement_ticks": [5]}},
       "binding": {"inputs": {"a_s0.pt": "x", "b_s0.pt": "y"}}}
 S1_ = {"drives": {"a_s0": {"car_f1": 0.4, "placement_ticks": [0, 5]}}, "binding": {"inputs": {"a_s0.pt": "x"}}}

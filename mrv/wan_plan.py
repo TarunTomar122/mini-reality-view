@@ -629,17 +629,28 @@ def forecast_s1(t):
             "max_s_per_update_for_12k": round(max(0.0, avail_train) * 3600 / FLOOR_UPDATES, 3)}
 
 
-def panel_render_h(dev_ticks_x_seeds, roll_tick_s, load_s, n_modes=4, donors=None, enc_fill_tick_s=0.0):
+def panel_render_h(dev_ticks_x_seeds, roll_tick_s, load_s, n_modes=4, donors=None, enc_fill_tick_s=0.0, drive_ticks=None):
     """CONVERGED items 4 / 7: the SLICE cost of one panel is rendering only, with Wan loaded ONCE per panel process: one load +
     (n_modes + 1 swap) rollouts of every dev tick x 2 seeds + one unswapped same-length reference (2 seeds) per shared-mode donor,
     at the measured load-once rollout rate. Scoring runs on the 2080 Ti under its own ledger (panel_score_h)."""
     # Astra T3 / Neon C: roll_tick_s is the CACHE-HIT per-tick rate; the guide Wan-VAE encoding is filled once per distinct frame
     # sequence per drive (enc_fill_tick_s per tick): once for the ordinary renders (all modes and seeds share the receiver's
     # frames), once for the swap renders (donor frames after the swap, seed-independent), once per shared-mode reference of n ticks
-    ticks = (n_modes + 1) * dev_ticks_x_seeds
     shared = sum(int(v["n"]) for v in (donors or {}).values() if v and v.get("mode") == "shared")
-    ticks += 2 * shared
-    fills = 2 * (dev_ticks_x_seeds // 2) + shared  # ordinary + swap sequences per drive (dev ticks each) + shared references
+    if drive_ticks is None:  # legacy aggregate form (no per-receiver lengths): swaps priced at full length (conservative)
+        ticks = (n_modes + 1) * dev_ticks_x_seeds + 2 * shared
+        fills = 2 * (dev_ticks_x_seeds // 2) + shared  # ordinary + swap sequences per drive (dev ticks each) + shared references
+        return (load_s + ticks * roll_tick_s + fills * enc_fill_tick_s) / 3600
+    # Astra T3b / Neon C: each swap is rendered at its PLANNED length: the receiver's full length for a full-mode donor, the
+    # shared length n for a shared-mode donor (the renderer cuts the swap to n); fills follow the same lengths
+    if 2 * sum(drive_ticks.values()) != dev_ticks_x_seeds:
+        raise ValueError(f"drive_ticks sum x 2 seeds {2 * sum(drive_ticks.values())} != dev_ticks_x_seeds {dev_ticks_x_seeds}")
+    swap_len = {}
+    for r, T in drive_ticks.items():
+        v = (donors or {}).get(r)
+        swap_len[r] = int(v["n"]) if (v and v.get("mode") == "shared") else int(T)
+    ticks = n_modes * dev_ticks_x_seeds + 2 * sum(swap_len.values()) + 2 * shared
+    fills = sum(int(T) for T in drive_ticks.values()) + sum(swap_len.values()) + shared
     return (load_s + ticks * roll_tick_s + fills * enc_fill_tick_s) / 3600
 
 

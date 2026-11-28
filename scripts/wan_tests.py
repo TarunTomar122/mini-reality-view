@@ -1157,5 +1157,14 @@ check("T3 Neon C repro (Astra): 8 ordinary-like renders of a 100-tick drive = 80
 _src = open("scripts/wan_forecast.py").read() + open("scripts/wan_panel.py").read()
 check("T3 Neon C: forecast prices roll_tick_hit_s + enc_fill_tick_s from the rehearsal; the rehearsal requires fill-then-hit",
       "roll_tick_hit_s" in _src and "enc_fill_tick_s=enc_fill" in _src and "guide-encoding cache did not fill then hit" in _src)
+# Astra T3b repro: six drives 200, 160 x 5; the 200-tick receiver has a SHARED donor of n = 160 (40 unused ticks)
+_dt3 = {"r0": 200, "r1": 160, "r2": 160, "r3": 160, "r4": 160, "r5": 160}
+_dn3 = {"r0": {"donor": "r1", "mode": "shared", "n": 160}, **{f"r{i}": {"donor": f"r{(i % 5) + 1}", "mode": "full", "n": None} for i in range(1, 6)}}
+_old3 = WP.panel_render_h(2 * 1000, 1.0, 0.0, donors=_dn3, enc_fill_tick_s=0.2) * 3600
+_new3 = WP.panel_render_h(2 * 1000, 1.0, 0.0, donors=_dn3, enc_fill_tick_s=0.2, drive_ticks=_dt3) * 3600
+_exp3 = (4 * 2000 + 2 * (160 + 5 * 160) + 2 * 160) * 1.0 + (1000 + (160 + 5 * 160) + 160) * 0.2  # = 10,664 s (Astra T3b)
+check("T3b Neon C repro (Astra): a shared swap is priced at its planned n, not the receiver's full length (88 s less here)",
+      abs(_new3 - _exp3) < 1e-6 and abs(_new3 - 10664.0) < 1e-6 and abs((_old3 - _new3) - 88.0) < 1e-6, (_old3, _new3, _exp3))
+check("T3b Neon C: the forecast passes per-receiver lengths", "drive_ticks=_dt" in open("scripts/wan_forecast.py").read())
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

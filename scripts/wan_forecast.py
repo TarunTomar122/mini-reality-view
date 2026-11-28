@@ -70,8 +70,9 @@ dev_ticks = sum(len(v["ticks"]) for v in _drv.values())
 # made for other settings; a total is only defined for a COMPLETE plan (six valid assignments)
 PLAN = WP.plan_donors(_drv, a.window_latents, a.swap_at, lambda sc, t: os.path.exists(f"data/sim/keys_tpv10/{sc}/t{int(t):04d}.jpg"))
 plan_ok = bool(PLAN["ok"] and len(PLAN["donors"]) == 6)
-panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, enc_fill_tick_s=enc_fill)
-panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"], enc_fill_tick_s=enc_fill) if plan_ok else None
+_dt = {d: len(v["ticks"]) for d, v in _drv.items()}  # Astra T3b: swaps priced at their planned per-receiver lengths
+panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, enc_fill_tick_s=enc_fill, drive_ticks=_dt)
+panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"], enc_fill_tick_s=enc_fill, drive_ticks=_dt) if plan_ok else None
 L = WP.Ledger(a.ledger, "forecast", write=False)
 kinds = L.by_kind()
 LE = WP.ledger_evidence(WP.Ledger.read(a.ledger), J.get("job"))

@@ -3,8 +3,9 @@ Reads the signed compare runs/s_lock/cmp_P<k>k__A20k_indep_dev.json (written by 
 completeness (6 drives, 12 runs, no unpaired, cold_ref B, finite values), and writes runs/vpriv_gate/a1_<k>k.json (mode "x"):
   joint pass  = ID and W eligible, smaller reduction > 9.4%, car F1 diff >= -0.03, late gap diff <= +0.03 -> PASS (advance to the
                 30-drive exam; training is not stopped by a pass);
-  safety miss = F1 or late gap bar missed. Two consecutive safety misses counted from 8k (8k -> 12k -> 16k) -> scancel the vpriv
-                training job (A1 stop) and record it.
+  safety miss = F1 or late gap bar missed. Two consecutive safety misses counted from 8k (8k -> 12k -> 16k) -> A1 stop.
+Training is launched to 12k and PAUSES there (Astra launch review 3 item 3); slurm/vpriv_score.sh resumes it to 16k only if
+the 12k decision has stop == false. So the stop needs no cancellation: it is "do not continue".
 2k / 4k are informational and never call this. Exit 0 = decision written; 3 = malformed / incomplete panel (no decision).
   .venv/bin/python scripts/a1_decide.py 8
 """
@@ -41,12 +42,6 @@ if PREV:
 stop = (not safe) and (not prev_safe)
 rec = {"k": k, "eligible": elig, "smaller_reduction": red, "f1_diff": d["car_f1"]["diff"], "late_diff": d["late_lpips_gap"]["diff"],
        "safe": safe, "joint_pass": joint, "prev_safe": prev_safe, "stop": stop}
-if stop:
-    q = subprocess.run(["squeue", "-u", os.environ["USER"], "-h", "-n", "vpriv", "-o", "%i"], capture_output=True, text=True)
-    need(q.returncode == 0, "squeue failed: cannot apply the A1 stop")
-    rec["scancel"] = q.stdout.split()
-    for j in q.stdout.split():
-        subprocess.run(["scancel", j])
 with open(f"runs/vpriv_gate/a1_{k}k.json", "x") as fh:
     json.dump(rec, fh, indent=1)
 print("A1_DECISION", json.dumps(rec))

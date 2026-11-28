@@ -7,7 +7,9 @@
 #   3. scripts/a3_trigger.py --launch recomputes the A3 trigger on immutable, provenance-checked snapshots and writes a new
 #      record dir runs/vpriv_gate/<stamp>/ (mixture: 2 private clips unless 16k vs own cold has ID AND W diff < 0 -> 1);
 #   4. the rho decision is still valid and == 0.95 (rollout rho, unchanged from vlive);
-#   5. under one lock, with queue errors fatal and a submission marker: ONE training job on ONE saxa h200_3g.71gb slice;
+#   5. stage 1 trains to 12k and pauses (A1 stop must be able to act: Astra launch review 3 item 3); slurm/vpriv_score.sh
+#      resumes to 16k only if the 12k A1 decision allows (resume == straight run: vpriv fixture part b);
+#   6. under one lock, with queue errors fatal and a submission marker: ONE training job on ONE saxa h200_3g.71gb slice;
 #      the job id receipt is written into the record dir and the marker, and checked, before success is reported.
 #   sbatch -H -d afterok:<suite> --cpus-per-task=1 --mem=8G --time=0:30:00 -J launch-vpriv -o logs2/%x-%j.out \
 #          slurm/launch_vpriv.sh <suite id> <t2 id> <vprivA id> <vprivB id>
@@ -56,8 +58,8 @@ mkdir -p runs/vpriv; lfs setstripe -i 0 -c 1 runs/vpriv
 echo "intent $(date -u +%FT%TZ) record=$REC tests=$CTID,$T2ID,$AID,$BID" > $INTENT && [ -s $INTENT ] || fail "cannot write the intent file"
 J=$(sbatch --parsable -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=6:00:00 -J vpriv -o logs2/%x-%j.out \
     slurm/py.sbatch scripts/train_causal.py --init runs/longA/ckpt_20000.pt --out runs/vpriv --K 4 --rho $RHO \
-    --rho_decision council/rho_decision.json --private_clips $PRIV --steps 16000)
+    --rho_decision council/rho_decision.json --private_clips $PRIV --steps 12000)
 [[ "$J" =~ ^[0-9]+$ ]] || fail "sbatch did not return a job id ('$J'): the intent file stays; check sacct before any retry"
-R="job=$J private_clips=$PRIV rho=$RHO record=$REC tests=$CTID,$T2ID,$AID,$BID"
+R="job=$J stage=12000 private_clips=$PRIV rho=$RHO record=$REC tests=$CTID,$T2ID,$AID,$BID"
 echo "$R" > $MARK && echo "$R" > $REC/job && grep -qx "$R" $MARK && grep -qx "$R" $REC/job || { echo "WARNING: training job $J SUBMITTED but the receipt write failed; record by hand"; exit 2; }
 echo "GATE PASS: tests clean, A3 trigger met, private_clips $PRIV, rollout rho $RHO; training job vpriv $J; record $REC"

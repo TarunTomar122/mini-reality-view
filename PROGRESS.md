@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 05:34 UTC — handoff rule fixed BEFORE it acts (Astra + Fable 05:30); control 8k pre-registration
+- Yield rule (written before the cache check passes): handoff job 3756467 runs after cache check 3756387 succeeds; it waits for the next completed rolling save of runs/vctl/ckpt.pt (every 500 updates); if that save is at 7000-7500 it keeps going to the 8000 save (Fable: first gated checkpoint for the control, <= ~13 min on vmix; it waits for the SAVE, never a score: Astra); then cancels vctl, checks the saved checkpoint (step, optimizer, RNG), and runs launch_vmix.sh passed + the vmix watcher. vctl resumes later from runs/vctl/ckpt.pt under its original control record (a resume launcher still has to be written: launch_vctl.sh refuses an existing run).
+- Pre-registered: a pass by the CONTROL at 8k (if its panel is rendered) launches no exam by itself; it is the A5 attribution reference for vmix (matched vctl / vmix at 4k is the first comparison that can attribute a difference to mixed history: Astra). The control's 2k panel will not take 2080 Tis from the cache rebuild.
+- Process rule adopted (Fable): any fan-out job (cache, panels) checks its pinned / first unit before fanning out (the batch-8 cache cost ~1.7 h and ~22 2080 Ti-h before the first comparison).
+- Ideas logged: A/A noise-floor panel (frozen A via the batch-8 path vs signed A); the 4-step scheduler tells the first call t = 751 while feeding pure noise (Fable); trust dial by writing memory noisier at rollout (no retraining); layer-group intervention on exits at the 8k probe (Astra, Basu et al. ICLR 2024); speed work needs a tolerance in the gate's own measures set before the 4-step panel is read (no fast path will match A in latents).
+
 ## 2026-11-28 05:29 UTC — clean suite PASS on final hashes; control "vctl" TRAINING; cache 57 / 144
 - Clean suite 3756357: CLEAN_TESTS_SH FAILS=0 (CPU tests, full-model T1 / T3a / T4 with first tick vs A exactly 0 on H200, T5, T6, T7 frozen guard / resume / recipe refusal, T7b vmix jitter / coin / pin / hold / pickup fixtures). 100-update timing on the H200-3g slice: 0.614 s / update (memory pass 0.150 s, data 0.022 s).
 - launch-vctl 3756388 passed its gate (--arm vclean --control) and started the A5 key + jitter control on the slice: 300 updates at 05:29 (loss ~0.006).

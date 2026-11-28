@@ -2,7 +2,7 @@
 # Slice handoff vctl -> vmix (council: vmix-pending-final-*.md, Astra 05:30 (b)/(d)). Runs only after the batch-1 cache check
 # succeeded (sbatch -d afterok:<cachecheck>). Steps:
 #   1. wait for the NEXT completed rolling save of runs/vctl/ckpt.pt (atomic replace every 500 updates): its step must advance
-#      past the step seen at start; then cancel the vctl training job and wait until it has left the queue;
+#      past the step seen at start (if that save is in [7000, 8000), keep waiting for the 8000 save: Fable 05:30); then cancel the vctl training job and wait until it has left the queue;
 #   2. verify the saved control checkpoint (step multiple of 500, optimizer + RNG state present) so vctl can resume later under its
 #      original control record;
 #   3. run slurm/launch_vmix.sh <suite> <t2> passed (lock, gate record with the PASSED cache, --verify, intent / receipt, one
@@ -19,7 +19,10 @@ if [ -n "$Q" ]; then
   S0=$(step) || fail "cannot read runs/vctl/ckpt.pt"; echo "$(date -u +%H:%M) vctl job $Q at saved step $S0; waiting for the next save"
   for i in $(seq 1 180); do  # <= 90 min
     sleep 30; S=$(step) || continue
-    [ "$S" -gt "$S0" ] 2>/dev/null && break
+    [ "$S" -gt "$S0" ] 2>/dev/null || continue
+    # Fable 05:30: if the control is in [7000, 8000) let it reach its 8k save (the first gated checkpoint), else yield now
+    if [ "$S" -ge 7000 ] && [ "$S" -lt 8000 ]; then continue; fi
+    break
   done
   [ "$S" -gt "$S0" ] 2>/dev/null || fail "no new vctl save within 90 min (still $S)"
   echo "$(date -u +%H:%M) new vctl save at step $S: cancelling $Q"; scancel $Q

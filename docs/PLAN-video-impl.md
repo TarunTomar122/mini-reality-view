@@ -439,6 +439,24 @@ cross-node lock (spent + live reservations + own estimate <= cap), re-check afte
 the decision refuses a missing or over-cap scoring ledger. The checkpoint and donor-plan digests are recorded at render and
 verified at decision, which uses the stored plan.
 
+## Astra t2 fixes (`council/codereview-wan-t2-astra.md`)
+
+Timing (commit 8002f8a): the forecast checks its own `--lists` against the canonical 144 + 6 before reading any encoding and
+prices the canonical dev drives; the sweep grid is exactly {1, 0} x {1, 2, 4, 8} (checked before the sweep, extra cells fail,
+selection ignores them); panel hours are stored once at full precision; the ledger must hold the charged original timing
+3756964 and this re-time; production's scorer-parity I/O is a timed start-up part; the allocation sampler counts only valid
+job-level reads, and the forecast finalises the peak after the rehearsal; the geometry check's manifest digest must equal the
+trainer's, and a forwarded `--manifest` is refused; the refresh reads the timing's own ledger (missing = error, both charges
+required); `mrv/guide.py` is evidence code; the rehearsal's rollouts hash-on-load every guide / enc / token byte against the
+manifest digest the timing trainer recorded.
+
+Production: metric weights must resolve to 64-hex digests ("missing" never matches); `score_rgb.py` binds code, weights and the
+signed reference before scoring, executes the scorer from the hashed source bytes, re-checks the weights afterwards, and
+hashes the input / reference bytes it parses; reservations hold their estimate from the moment they are made; the decision
+reconciles every accepted shard's receipt with a finished charge in the score ledger (no live workers, total within the cap);
+the render reads the checkpoint and donor plan once, pins those bytes (read-only copies) and the rollouts read the pinned
+copies and record the digests of what they consumed, which the decision verifies.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

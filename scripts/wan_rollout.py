@@ -100,7 +100,7 @@ dev = "cuda"
 LEDGER = WP.Ledger(a.ledger, "rollout").start()
 DT = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(a.dtype) or (torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16)
 os.makedirs(a.out, exist_ok=True)
-_raw = open(a.ckpt, "rb").read(); CKPT_SHA = hashlib.sha256(_raw).hexdigest()[:16]
+_raw = open(a.ckpt, "rb").read(); CKPT_SHA256 = hashlib.sha256(_raw).hexdigest(); CKPT_SHA = CKPT_SHA256[:16]  # digest of the bytes loaded
 ck = torch.load(io.BytesIO(_raw), map_location="cpu", weights_only=False); del _raw
 if ck.get("timing"):
     print("WARNING: timing / test checkpoint", flush=True)
@@ -226,7 +226,7 @@ def write_mp4(frames, keys, path):
 
 def setup(r):
     """bind one run's options; reset its per-run state (sensitivity, RNG); the loaded models / per-drive inputs are shared"""
-    global a, SHIFT, SETTINGS, SENS, drives, ALL, si_, sn_, DONORS
+    global a, SHIFT, SETTINGS, SENS, drives, ALL, si_, sn_, DONORS, DONORS_SHA256
     a = r
     SHIFT = a.shift if a.shift is not None else CFG["shift"]
     SETTINGS = {"snapshot": a.ckpt, "ckpt_sha": CKPT_SHA, "roll_code": ROLL_CODE, "amp": str(DT), "method": f"wan_teacher_{a.cond}",
@@ -243,7 +243,9 @@ def setup(r):
             raise SystemExit(f"--drive_list drives not in split {a.split}: {sorted(want - set(drives))}")
         drives = [d for d in drives if d in want]
     si_, sn_ = map(int, a.shard.split("/"))
-    DONORS = json.load(open(a.donors)) if a.donors else None
+    DONORS = DONORS_SHA256 = None
+    if a.donors:  # Astra t2 item 15: parse the donor plan from the bytes hashed (one snapshot)
+        _draw = open(a.donors, "rb").read(); DONORS_SHA256 = hashlib.sha256(_draw).hexdigest(); DONORS = json.loads(_draw)
     if DONORS is not None and not DONORS.get("ok"):
         raise SystemExit(f"{a.donors}: swap preflight did not pass")
     if a.mp4:
@@ -360,7 +362,8 @@ def render():
                    "train_dropout": {k: (ck.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")},
                    "code_sha": ck.get("code_sha"), "base_sha": ck.get("base_sha"), "batch": 1, **SETTINGS,
                    "rgb_sha": hashlib.sha256(rgb.numpy().tobytes()).hexdigest(), "load_once": bool(OUTER.plan),
-                   "inputs_manifest_sha": a.manifest_sha if MANI is not None else None}
+                   "inputs_manifest_sha": a.manifest_sha if MANI is not None else None, "ckpt_sha256": CKPT_SHA256,
+                   "donors_sha256": DONORS_SHA256 if D2 is not None else None}
             if sdv is not None:
                 t0 = time.time(); lats = []
                 with torch.no_grad():

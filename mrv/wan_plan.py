@@ -514,6 +514,14 @@ def metric_weights():
     return out
 
 
+def weights_resolved(w):
+    """Astra t2 item 12: every metric weight entry is a RESOLVED sha256 (64 hex) of files found; a "missing" sentinel (or
+    anything else) never matches, even against an equal sentinel"""
+    import re
+    return isinstance(w, dict) and set(w) == set(METRIC_HF) | set(METRIC_HUB) | {"lpips_alex"} and \
+        all(isinstance(v, str) and re.fullmatch(r"[0-9a-f]{64}", v) for v in w.values())
+
+
 def score_binding(a_metrics, a_roll):
     """the 2080 Ti scorer-parity binding: the A@20k replay binding (references, adapter, signed scorer, SD VAE weights) + the
     scoring wrapper code (scripts/wan_score.py) + every metric weight file (Astra t1 item 12); the device is recorded beside it
@@ -538,6 +546,8 @@ def score_parity_ok(record_path, binding, device_sub=SCORE_DEVICE):
         why.append("sharded != unsharded")
     if device_sub not in str(r.get("device", "")):
         why.append(f"device {r.get('device')!r} is not a {device_sub}")
+    if not weights_resolved((r.get("binding") or {}).get("weights")) or not weights_resolved(binding.get("weights")):
+        why.append("metric weights not resolved to file digests (missing weight files)")
     if r.get("binding") != binding:
         diff = sorted(k for k in set(binding) | set(r.get("binding") or {}) if (r.get("binding") or {}).get(k) != binding.get(k))
         why.append(f"binding changed: {diff}")
@@ -557,6 +567,8 @@ def score_binding_matches(part, rec):
     for k in ("score_rgb", "temporal_metrics", "sd_vae", "wan_score", "weights"):
         if b.get(k) is None or b.get(k) != rb.get(k):
             why.append(f"{k} differs from the parity record")
+    if not weights_resolved(b.get("weights")):
+        why.append("metric weights not resolved to file digests")
     return not why, "; ".join(why) or "ok"
 
 
@@ -572,6 +584,8 @@ def parity_parts_ok(parts, current, a_roll_inputs, a_metrics_sha):
         for k in ("score_rgb", "temporal_metrics", "sd_vae", "wan_score", "weights"):
             if b.get(k) is None or b.get(k) != current.get(k):
                 why.append(f"{name}: {k} at execution != current")
+        if not weights_resolved(b.get("weights")) or not b.get("bound_before_scoring"):
+            why.append(f"{name}: metric weights unresolved or not bound before scoring")
         if b.get("inputs") is None or not set(b["inputs"]) <= set(a_roll_inputs) or any(a_roll_inputs[k] != v for k, v in b["inputs"].items()):
             why.append(f"{name}: scored inputs are not the current A@20k reference files")
     un = [j for name, j, _ in parts if ((j or {}).get("binding") or {}).get("shard") == "0/1"]
@@ -735,8 +749,30 @@ def active_reserved_h(reservations, jobs, kind, now=None, exclude=None):
             continue
         for jid, j in jobs.items():
             if j.get("kind") == kind and jid.startswith(f"alloc-{r.get('job')}-") and not j.get("ended") and now - j["t"] <= 2 * j.get("beat_s", 60.0):
-                tot += max(0.0, float(r.get("est_h", 0.0)) - (now - j["t0"]) / 3600)
+                # Astra t2 item 14: the reservation holds its estimate from the moment it was MADE (not the allocation start)
+                tot += max(0.0, float(r.get("est_h", 0.0)) - (now - float(r.get("t", now))) / 3600)
+                break
     return tot
+
+
+def reconcile_scoring(receipts, jobs, kind, cap_h, now=None):
+    """Astra t2 item 14: before publication every accepted shard's receipt job must have a FINISHED charge of this panel's kind in
+    the score ledger, no worker of the kind may still be live, and the total charge must be within the cap -> (ok, why, spent)"""
+    why = []
+    kj = {jid: j for jid, j in jobs.items() if j.get("kind") == kind}
+    ids = {jid.split("-")[1] for jid in kj if jid.startswith("alloc-")}
+    if not kj:
+        why.append(f"no {kind} charges in the score ledger")
+    miss = sorted({str(r.get("job")) for r in receipts} - ids)
+    if miss:
+        why.append(f"receipt jobs without a ledger charge: {miss[:4]}")
+    live = sorted(jid for jid, j in kj.items() if not j.get("ended"))
+    if live:
+        why.append(f"scoring workers still live / unfinished in the ledger: {live[:3]}")
+    spent = sum(Ledger.charge_h(j, now) for j in kj.values())
+    if spent > cap_h:
+        why.append(f"score ledger {spent:.3f} h > cap {cap_h:.3f} h")
+    return not why, why, spent
 
 
 def score_headroom(spent_h, others_reserved_h, own_est_h, cap_h):
@@ -746,7 +782,7 @@ def score_headroom(spent_h, others_reserved_h, own_est_h, cap_h):
     return tot <= cap_h, round(tot, 4)
 
 
-def render_binding_ok(manifest, ckpt_sha256, donors_sha256):
+def render_binding_ok(manifest, ckpt_sha256, donors_sha256, swap_dir=None):
     """Astra t1 item 15: the decision uses the checkpoint and donor plan the slice rendered: digests recorded at render must equal
     the files now, and every rendered file must carry the checkpoint's digest -> (ok, why)"""
     why = []
@@ -754,9 +790,14 @@ def render_binding_ok(manifest, ckpt_sha256, donors_sha256):
         why.append(f"checkpoint changed since rendering ({str(manifest.get('ckpt_sha256'))[:12]} -> {str(ckpt_sha256)[:12]})")
     if manifest.get("donors_sha256") != donors_sha256:
         why.append("donor plan file changed since rendering")
-    bad = [f for f, e in (manifest.get("runs") or {}).items() if e.get("ckpt_sha") != str(manifest.get("ckpt_sha256"))[:16]]
-    if bad:
+    bad = [f for f, e in (manifest.get("runs") or {}).items() if e.get("ckpt_sha") != str(manifest.get("ckpt_sha256"))[:16]
+           or e.get("ckpt_sha256") != manifest.get("ckpt_sha256")]
+    if bad:  # Astra t2 item 15: the bytes each rollout CONSUMED (its own digest) must be the pinned checkpoint
         why.append(f"{len(bad)} rendered files from another checkpoint, e.g. {bad[:2]}")
+    sd = os.path.normpath(swap_dir or (manifest.get("dirs") or {}).get("swap", ""))
+    badd = [f for f, e in (manifest.get("runs") or {}).items() if os.path.dirname(f) == sd and e.get("donors_sha256") != manifest.get("donors_sha256")]
+    if badd or not any(os.path.dirname(f) == sd for f in (manifest.get("runs") or {})):
+        why.append(f"swap renders did not consume the pinned donor plan ({len(badd)} files)")
     if not manifest.get("donor_plan"):
         why.append("no donor plan stored at render")
     return not why, "; ".join(why) or "ok"

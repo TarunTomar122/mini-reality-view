@@ -31,7 +31,7 @@ Pseudo-rollouts go to a FRESH directory (<rgb>_roll_<tag>_<pid>_<time>, refused 
   python scripts/score_rgb.py --rgb runs/wroll/s1_12k_swap_dev --lag_ref runs/troll/A20k_indep_dev --out runs/wroll/m_s1_12k_swap_dev.json
   python scripts/score_rgb.py --from_lat runs/troll/A20k_indep_dev --parity_ref runs/troll/m_A20k_indep_dev.json --out runs/wroll/m_A20k_rgbpath.json
 """
-import argparse, glob, hashlib, json, math, os, runpy, sys, time
+import argparse, glob, hashlib, io, json, math, os, sys, time
 T0 = time.time()
 import torch, diffusers
 
@@ -95,17 +95,31 @@ from mrv.wan_plan import shard_by_drive, metric_weights
 FILES = shard_by_drive(glob.glob(f"{SRC}/*_s[0-9]*.pt"), a.shard)
 if not FILES:
     raise SystemExit(f"no rollout files in {SRC} for shard {a.shard}")
-INPUTS = {os.path.basename(f): _sha(f) for f in FILES}
+# Astra t2 item 12: bind BEFORE scoring, from the bytes actually consumed: this wrapper, the signed scorer's source (executed
+# from the same bytes below), the scoring wrapper, every metric weight file (re-checked after scoring) and each input file
+# (read once: hashed bytes == parsed bytes)
+TM_SRC = open("scripts/temporal_metrics.py", "rb").read()
+CODE = {"score_rgb": _sha(os.path.abspath(__file__)), "temporal_metrics": hashlib.sha256(TM_SRC).hexdigest(), "wan_score": _sha("scripts/wan_score.py")}
+W_BEFORE = metric_weights()
+PREF_RAW = open(a.parity_ref, "rb").read() if a.parity_ref else None  # the signed metrics compared below = the bytes bound
+INPUTS = {}
 MAN_SHA = None
+RUNS_M = None
 if a.rgb_manifest:  # the slice wrote the RGB and its sha manifest; score only bytes that are exactly those
-    MAN_SHA = _sha(a.rgb_manifest)
-    runs_ = json.load(open(a.rgb_manifest))["runs"]
-    bad_ = [os.path.basename(f) for f in FILES if (runs_.get(os.path.normpath(f)) or {}).get("sha256") != INPUTS[os.path.basename(f)]]
-    if bad_:
-        raise SystemExit(f"RGB files differ from the slice's sha manifest {a.rgb_manifest} (or are not in it): {bad_[:4]}")
+    _mraw = open(a.rgb_manifest, "rb").read(); MAN_SHA = hashlib.sha256(_mraw).hexdigest(); RUNS_M = json.loads(_mraw)["runs"]
+
+
+def _consume(path):
+    raw = open(path, "rb").read(); sha = hashlib.sha256(raw).hexdigest()
+    return torch.load(io.BytesIO(raw), map_location="cpu", weights_only=False), sha
+
+
 NTICKS = 0
 for f in FILES:
-    R = torch.load(f, map_location="cpu", weights_only=False); b = os.path.basename(f)[:-3]; sc, seed = b.rsplit("_s", 1)
+    R, _fsha = _consume(f); b = os.path.basename(f)[:-3]; sc, seed = b.rsplit("_s", 1)
+    INPUTS[os.path.basename(f)] = _fsha
+    if RUNS_M is not None and (RUNS_M.get(os.path.normpath(f)) or {}).get("sha256") != _fsha:
+        raise SystemExit(f"RGB file {f} differs from the slice's sha manifest {a.rgb_manifest} (or is not in it)")
     NTICKS += len(R["ticks"])
     rgb = R.pop("rgb") if "rgb" in R else decode_like_scorer(R["lat"])
     sf = int(R.get("swap_from", -1))
@@ -140,11 +154,14 @@ for f in FILES:
 
 def ref_dir(src_dir, name):
     """decode an SD-latent reference folder with the real VAE and register it as pseudo-rollouts"""
-    d = f"{ROOT}/{name}"; os.makedirs(d)
+    d = f"{ROOT}/{name}"; os.makedirs(d); REF_IN[name] = {}
     for f in sorted(glob.glob(f"{src_dir.rstrip('/')}/*_s[0-9]*.pt")):
-        R = torch.load(f, map_location="cpu", weights_only=False)
+        R, sha = _consume(f); REF_IN[name][os.path.basename(f)] = sha  # the digest of the bytes decoded here
         register(R, decode_like_scorer(R["lat"]), f"{d}/{os.path.basename(f)}")
     return d
+
+
+REF_IN = {}
 
 
 argv = ["scripts/temporal_metrics.py", "--roll", roll, "--out", a.out]
@@ -171,12 +188,16 @@ _real = None; torch.cuda.empty_cache()
 diffusers.AutoencoderKL.from_pretrained = classmethod(lambda cls, *args, **kw: FakeVAE())
 sys.argv = argv
 DEVICE = torch.cuda.get_device_name()
-runpy.run_path("scripts/temporal_metrics.py", run_name="__main__")
+exec(compile(TM_SRC, os.path.abspath("scripts/temporal_metrics.py"), "exec"),
+     {"__name__": "__main__", "__file__": os.path.abspath("scripts/temporal_metrics.py"), "__builtins__": __builtins__})
+W_AFTER = metric_weights()
+if W_AFTER != W_BEFORE:
+    raise SystemExit("metric weight files changed while scoring: output not bound")
 from huggingface_hub import snapshot_download as _snap
 _sd = _snap("stabilityai/sd-vae-ft-mse", local_files_only=True)
 _sdf = sorted(f for f in glob.glob(f"{_sd}/**", recursive=True) if os.path.isfile(f))
 OUTJ = json.load(open(a.out))
-OUTJ["binding"] = {"device": DEVICE, "score_rgb": _sha("scripts/score_rgb.py"), "temporal_metrics": _sha("scripts/temporal_metrics.py"),
+OUTJ["binding"] = {"device": DEVICE, "score_rgb": CODE["score_rgb"], "temporal_metrics": CODE["temporal_metrics"], "bound_before_scoring": True,
                    "sd_vae": hashlib.sha256("".join(os.path.basename(f) + _sha(f) for f in _sdf).encode()).hexdigest(),
                    "rgb_manifest": a.rgb_manifest or None, "rgb_manifest_sha": MAN_SHA, "inputs": INPUTS,
                    "inputs_sha": hashlib.sha256("".join(k + v for k, v in sorted(INPUTS.items())).encode()).hexdigest(),
@@ -184,14 +205,13 @@ OUTJ["binding"] = {"device": DEVICE, "score_rgb": _sha("scripts/score_rgb.py"), 
                    "post_swap_only": a.post_swap_only, "as_receiver": a.as_receiver, "from_lat": bool(a.from_lat),
                    # Astra t1 item 12: bound AT EXECUTION: wrapper code, every metric weight file, the signed reference and the
                    # reference rollouts actually decoded here
-                   "wan_score": _sha("scripts/wan_score.py"), "weights": metric_weights(),
-                   "parity_ref_sha": _sha(a.parity_ref) if a.parity_ref else None,
-                   "lag_ref_inputs": {os.path.basename(f): _sha(f) for f in sorted(glob.glob(f"{a.lag_ref.rstrip('/')}/*_s[0-9]*.pt"))} if a.lag_ref else None,
-                   "cold_inputs": {os.path.basename(f): _sha(f) for f in sorted(glob.glob(f"{a.cold.rstrip('/')}/*_s[0-9]*.pt"))} if a.cold else None}
+                   "wan_score": CODE["wan_score"], "weights": W_BEFORE,
+                   "parity_ref_sha": hashlib.sha256(PREF_RAW).hexdigest() if PREF_RAW is not None else None,
+                   "lag_ref_inputs": REF_IN.get("lag_ref"), "cold_inputs": REF_IN.get("cold")}
 json.dump(OUTJ, open(a.out + ".tmp", "w")); os.replace(a.out + ".tmp", a.out)
 
 if a.parity_ref:  # A@20k replay: every per-run field equal to the signed metrics
-    mine, ref = json.load(open(a.out))["drives"], json.load(open(a.parity_ref))["drives"]
+    mine, ref = OUTJ["drives"], json.loads(PREF_RAW)["drives"]
     bad = []
     if set(mine) != set(ref):
         bad.append(("runs", sorted(set(mine) ^ set(ref))[:4]))

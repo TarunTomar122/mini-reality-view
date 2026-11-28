@@ -378,7 +378,7 @@ for _f in ("scripts/wan_cache.py", "scripts/wan_tokens.py"):
 # council/s1-timing-r1-CONVERGED.md: F1 staging, F2 manifest, F3 off-slice scoring, F5 explicit micro / grad_ckpt, re-time rule
 # =========================================================================================================================
 from mrv import wan_stage as WS
-import shutil as _sh_
+import shutil as _sh_, hashlib as _hl
 
 
 def _refused(fn, *args, **kw):
@@ -752,8 +752,10 @@ fc1 = WP.forecast_s1({**T_, "n_panels": 1}); fc2_ = WP.forecast_s1({**T_, "n_pan
 check("CONVERGED 1: one panel in the 24 h buys more updates than two", fc1["updates"] > fc2_["updates"])
 
 # off-slice scoring: parity record, binding, shard merge
+_WKEYS = list(WP.METRIC_HF) + list(WP.METRIC_HUB) + ["lpips_alex"]
+WRES = {k: _hl.sha256(k.encode()).hexdigest() for k in _WKEYS}  # resolved digests (64 hex) for every metric weight
 with _tf.TemporaryDirectory() as td:
-    B_ = {"a_metrics": "1", "a_roll": "2", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6"}
+    B_ = {"a_metrics": "1", "a_roll": "2", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WRES}
     good = {"pass": True, "replay_pass": True, "sharded_equal": True, "device": "NVIDIA GeForce RTX 2080 Ti", "binding": B_, "score_tick_s": 3.0}
     pr_ = f"{td}/p.json"
     json.dump(good, open(pr_, "w"))
@@ -765,7 +767,7 @@ with _tf.TemporaryDirectory() as td:
         check(f"F3 repro: parity record {nm_} -> MODE=train / panel decision refused", not WP.score_parity_ok(pr_, B_)[0])
     check("F3: no parity record -> refused", not WP.score_parity_ok(f"{td}/none.json", B_)[0])
 # panel intake (CONVERGED item 4; Astra t1 items 12-14)
-WT = {"sd": "s", "m2f": "m", "dino": "d", "raft": "r"}
+WT = dict(WRES)
 PRr = {"device": "NVIDIA GeForce RTX 2080 Ti", "binding": {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT}}
 MANX = {"dirs": {c: f"runs/wroll/x_{c}_dev" for c in ("hybrid", "guide", "tokens", "none")} | {"swap": "runs/wroll/x_swap_dev"},
         "runs": {f"runs/wroll/x_{c}_dev/{d}_s{s}.pt": {"sha256": f"{c}{d}{s}", "ticks": 100} for c in ("hybrid", "guide", "tokens", "none", "swap")
@@ -810,7 +812,8 @@ for nm_, rc_ in (("T1 item 14 repro: a shard whose receipt says it finished OVER
 # item 12: parity parts bound at execution
 CUR = {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT}
 AR_ = {"a_s0.pt": "1", "a_s1.pt": "2", "b_s0.pt": "3", "b_s1.pt": "4"}
-pb = lambda shard, ins, **kw: {"binding": {**CUR, "shard": shard, "inputs": ins, "parity_ref_sha": "SIG" if shard == "0/1" else None, **kw}}
+pb = lambda shard, ins, **kw: {"binding": {**CUR, "shard": shard, "inputs": ins, "parity_ref_sha": "SIG" if shard == "0/1" else None,
+                                          "bound_before_scoring": True, **kw}}
 PP = [("u", pb("0/1", AR_), {"rc": 0}), ("s0", pb("0/2", {"a_s0.pt": "1", "a_s1.pt": "2"}), {"rc": 0}), ("s1", pb("1/2", {"b_s0.pt": "3", "b_s1.pt": "4"}), {"rc": 0})]
 check("T1 item 12: parity parts bound at execution to the current scorer / weights / references pass", WP.parity_parts_ok(PP, CUR, AR_, "SIG")[0])
 for nm_, pp_, ar_, sig_ in (("a shard receipt failed (rc 1)", [PP[0], PP[1], ("s1", PP[2][1], {"rc": 1})], AR_, "SIG"),
@@ -827,7 +830,8 @@ now_ = time.time()
 JB = {"alloc-101-1-1": {"kind": "score_x", "t0": now_ - 1800, "t": now_ - 10, "ended": False, "beat_s": 60},   # live, 0.5 h in
       "alloc-102-1-1": {"kind": "score_x", "t0": now_ - 7200, "t": now_ - 3600, "ended": True, "beat_s": 60},  # finished
       "alloc-103-1-1": {"kind": "score_x", "t0": now_ - 9000, "t": now_ - 8000, "ended": False, "beat_s": 60}}  # dead
-RV = [{"job": "101", "est_h": 2.0}, {"job": "102", "est_h": 1.0}, {"job": "103", "est_h": 3.0}, {"job": "104", "est_h": 1.0}]
+RV = [{"job": "101", "est_h": 2.0, "t": now_ - 1800}, {"job": "102", "est_h": 1.0, "t": now_ - 7200}, {"job": "103", "est_h": 3.0, "t": now_ - 9000},
+      {"job": "104", "est_h": 1.0, "t": now_}]
 ar_h = WP.active_reserved_h(RV, JB, "score_x", now_)
 check("T1 item 14: only LIVE workers' remaining reservations count (2.0 - 0.5 h)", abs(ar_h - 1.5) < 1e-3, ar_h)
 check("T1 item 14 repro: spent 3 h + live reservations 1.5 h + this shard 1 h > cap 5 h -> refused before scoring",
@@ -835,20 +839,21 @@ check("T1 item 14 repro: spent 3 h + live reservations 1.5 h + this shard 1 h > 
 _wsc = open("scripts/wan_score.py").read(); _pan = open("scripts/wan_panel.py").read()
 check("T1 item 14: wan_score reserves under a cross-node lock, re-checks after finishing and sets an over-cap output aside",
       "os.mkdir(LOCK)" in _wsc and "WP.score_headroom(" in _wsc and 'os.replace(out, out + ".overcap")' in _wsc and '"over_cap": over' in _wsc)
-check("T1 item 14: the decision refuses publication on a missing or over-cap scoring ledger", "no publication on a missing or over-cap scoring ledger" in _pan)
+check("T1 item 14: the decision refuses publication on a missing or over-cap scoring ledger", "no publication" in _pan and "WP.reconcile_scoring(" in _pan)
 check("T1 item 12: score_rgb binds wrapper / weights / signed reference / lag reference files at execution; parity_check verifies them",
-      '"weights": metric_weights()' in _scr if (_scr := open("scripts/score_rgb.py").read()) else False)
+      '"weights": W_BEFORE' in open("scripts/score_rgb.py").read())
 check("T1 item 12: parity_check uses parity_parts_ok (receipts + execution bindings)", "WP.parity_parts_ok(" in _wsc)
 # item 15: checkpoint / donor plan digests
-MR15 = {"ckpt_sha256": "A" * 64, "donors_sha256": "D" * 64, "donor_plan": {"donors": {}}, "runs": {"f": {"ckpt_sha": "A" * 16}}}
+MR15 = {"ckpt_sha256": "A" * 64, "donors_sha256": "D" * 64, "donor_plan": {"donors": {}}, "dirs": {"swap": "w/swap"},
+        "runs": {"w/hyb/f_s0.pt": {"ckpt_sha": "A" * 16, "ckpt_sha256": "A" * 64}, "w/swap/f_s0.pt": {"ckpt_sha": "A" * 16, "ckpt_sha256": "A" * 64, "donors_sha256": "D" * 64}}}
 check("T1 item 15: digests recorded at render and unchanged -> decision allowed", WP.render_binding_ok(MR15, "A" * 64, "D" * 64)[0])
 for nm_, args_ in (("the rolling checkpoint changed between render and decision", (MR15, "B" * 64, "D" * 64)),
                    ("the donor plan was regenerated", (MR15, "A" * 64, "E" * 64)),
-                   ("a rendered file from another checkpoint", ({**MR15, "runs": {"f": {"ckpt_sha": "B" * 16}}}, "A" * 64, "D" * 64)),
+                   ("a rendered file from another checkpoint", ({**MR15, "runs": {**MR15["runs"], "w/hyb/f_s0.pt": {"ckpt_sha": "B" * 16, "ckpt_sha256": "B" * 64}}}, "A" * 64, "D" * 64)),
                    ("no donor plan stored at render", ({**MR15, "donor_plan": None}, "A" * 64, "D" * 64))):
     check(f"T1 item 15 repro: {nm_} -> decision refused", not WP.render_binding_ok(*args_)[0])
 check("T1 item 15: render stores ckpt / donor digests + the plan; decide verifies and uses the stored plan",
-      '"ckpt_sha256": CK_SHA256, "donors_sha256": WP._sha_file(DJ), "donor_plan": PLAN' in _pan and 'DON = M["donor_plan"]["donors"]' in _pan
+      '"ckpt_sha256": CK_SHA256, "ckpt_pinned": CKP, "donors_sha256": DON_SHA256' in _pan and 'DON = M["donor_plan"]["donors"]' in _pan
       and "WP.render_binding_ok(" in _pan)
 U_ = {"drives": {"a_s0": {"car_f1": 0.4, "placement_ticks": [0, 5]}, "b_s0": {"car_f1": float("nan"), "placement_ticks": [5]}},
       "binding": {"inputs": {"a_s0.pt": "x", "b_s0.pt": "y"}}}
@@ -865,7 +870,7 @@ check("F3: shards by drive partition the runs and keep both seeds of a drive tog
       sorted(sh2[0] + sh2[1]) == sorted(fl) and not set(sh2[0]) & set(sh2[1]) and all(f.replace("_s0", "_s1") in sh2[0] for f in sh2[0] if "_s0" in f))
 _scr = open("scripts/score_rgb.py").read(); _wsc = open("scripts/wan_score.py").read(); _pan = open("scripts/wan_panel.py").read()
 check("F3: score_rgb verifies every input against the slice's RGB manifest and records the binding",
-      "RGB files differ from the slice's sha manifest" in _scr and 'OUTJ["binding"]' in _scr and "shard_by_drive(" in _scr)
+      "differs from the slice's sha manifest" in _scr and 'OUTJ["binding"]' in _scr and "shard_by_drive(" in _scr)
 check("F3: scoring has its own ledger file with a 1.25 x cap, refusal / termination at the cap",
       'default="runs/wan_score_ledger.jsonl"' in _wsc and "WP.score_cap_h(" in _wsc and "SCORE_CAP_EXCEEDED" in _wsc and "sys.exit(10)" in _wsc)
 check("F3: wan_score.sh charges the 2080 Ti allocation to the score ledger, never the S1 slice ledger",
@@ -1026,5 +1031,52 @@ _rol = open("scripts/wan_rollout.py").read(); _pan = open("scripts/wan_panel.py"
 check("T2 extra: rollout --manifest/--manifest_sha hash-on-load of enc / guide / token (+ sidecars); the rehearsal passes the trainer's digest",
       '_pinned(f"{a.enc}/{sc}.pt")' in _rol and '_pinned(f"{a.guides}/{sc}.pt")' in _rol and '_pinned(f"{a.tokens}/{sc}.pt")' in _rol
       and '--manifest_sha {a.manifest_sha[:12]' in _rol and 'MAN_ARGS[:] = ["--manifest", _TJ["manifest_path"], "--manifest_sha", _TJ["manifest_sha"]]' in _pan)
+# ---- Astra t2 production items 12, 14, 15
+WMISS = {k: "missing" for k in _WKEYS}
+PRm = {"device": "NVIDIA GeForce RTX 2080 Ti", "binding": {"score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WMISS}}
+_pm = {"binding": {"device": "NVIDIA GeForce RTX 2080 Ti", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WMISS}}
+check("T2 item 12 repro (Astra): 'missing' weight sentinels on both sides do NOT match", not WP.score_binding_matches(_pm, PRm)[0])
+CURm = {**CUR, "weights": WMISS}
+PPm = [(n_, {"binding": {**j_["binding"], "weights": WMISS}}, r_) for n_, j_, r_ in PP]
+check("T2 item 12 repro: parity parts with 'missing' weights (equal to the current 'missing') FAIL", not WP.parity_parts_ok(PPm, CURm, AR_, "SIG")[0])
+with _tf.TemporaryDirectory() as td:
+    Bm = {**B_, "weights": WMISS}
+    json.dump({"pass": True, "replay_pass": True, "sharded_equal": True, "device": "NVIDIA GeForce RTX 2080 Ti", "binding": Bm}, open(f"{td}/p.json", "w"))
+    check("T2 item 12 repro: a parity record whose weights are unresolved sentinels is refused", not WP.score_parity_ok(f"{td}/p.json", Bm)[0])
+check("T2 item 12: parts not bound BEFORE scoring are refused",
+      not WP.parity_parts_ok([(n_, {"binding": {k: v for k, v in j_["binding"].items() if k != "bound_before_scoring"}}, r_) for n_, j_, r_ in PP], CUR, AR_, "SIG")[0])
+_wr = getattr(WP, "weights_resolved", None)
+check("T2 item 12: weights_resolved needs every expected key with a 64-hex digest", _wr is not None and _wr(WRES) and not _wr(WMISS)
+      and not _wr({k: v for k, v in WRES.items() if k != "lpips_alex"}))
+_scr = open("scripts/score_rgb.py").read()
+check("T2 item 12: score_rgb binds code / weights / signed reference BEFORE scoring and hashes the bytes it parses (inputs, lag / cold refs)",
+      -1 < _scr.find("W_BEFORE = metric_weights()") < _scr.find("exec(compile(TM_SRC") and "W_AFTER != W_BEFORE" in _scr
+      and "R, _fsha = _consume(f)" in _scr and "R, sha = _consume(f); REF_IN[name]" in _scr and "json.loads(PREF_RAW)" in _scr and "runpy" not in _scr)
+# item 14
+now_ = time.time()
+JB14 = {"alloc-201-1-1": {"kind": "score_x", "t0": now_ - 1800, "t": now_ - 5, "ended": False, "beat_s": 60}}
+ar14 = WP.active_reserved_h([{"job": "201", "est_h": 1.0, "t": now_}], JB14, "score_x", now_)
+check("T2 item 14 repro (Astra): a fresh 1 h reservation made after 0.5 h of setup holds the full 1 h", abs(ar14 - 1.0) < 1e-3, ar14)
+_rec = getattr(WP, "reconcile_scoring", None)
+_JL = {"alloc-101-1-1": {"kind": "score_x", "t0": 0, "t": 3600, "ended": True, "beat_s": 60},
+       "alloc-102-1-1": {"kind": "score_x", "t0": 0, "t": 1800, "ended": True, "beat_s": 60}}
+check("T2 item 14: every receipt job charged and finished, total within cap -> publication allowed",
+      _rec is not None and _rec([{"job": "101"}, {"job": "102"}], _JL, "score_x", 5.0)[0])
+for _nm, _rc, _jl, _cap in (("a partial ledger with only one of the two workers", [{"job": "101"}, {"job": "102"}], {"alloc-101-1-1": _JL["alloc-101-1-1"]}, 5.0),
+                            ("a worker still live", [{"job": "101"}], {**_JL, "alloc-103-1-1": {"kind": "score_x", "t0": 0, "t": time.time(), "ended": False, "beat_s": 60}}, 5.0),
+                            ("final charges over the cap", [{"job": "101"}, {"job": "102"}], _JL, 1.0),
+                            ("no charges at all", [{"job": "101"}], {}, 5.0)):
+    check(f"T2 item 14 repro: {_nm} -> publication refused", _rec is not None and not _rec(_rc, _jl, "score_x", _cap)[0])
+check("T2 item 14: the decision reconciles accepted receipts with the final score ledger", "WP.reconcile_scoring(USED" in open("scripts/wan_panel.py").read())
+# item 15
+MR15b = {**MR15, "runs": {**MR15["runs"], "w/swap/f_s0.pt": {"ckpt_sha": "A" * 16, "ckpt_sha256": "A" * 64, "donors_sha256": "X" * 64}}}
+check("T2 item 15 repro: the swap render consumed a different donor-plan snapshot than the one recorded -> refused", not WP.render_binding_ok(MR15b, "A" * 64, "D" * 64)[0])
+MR15c = {**MR15, "runs": {**MR15["runs"], "w/hyb/f_s0.pt": {"ckpt_sha": "A" * 16, "ckpt_sha256": "A" * 16 + "B" * 48}}}
+check("T2 item 15 repro: a rollout that consumed other checkpoint bytes (same 16-hex prefix) -> refused", not WP.render_binding_ok(MR15c, "A" * 64, "D" * 64)[0])
+_pan = open("scripts/wan_panel.py").read(); _rol = open("scripts/wan_rollout.py").read()
+check("T2 item 15: render reads the plan / checkpoint once, pins those bytes and hands the PINNED copies to the rollouts; rollout records consumed digests",
+      'DJP = pin(_draw' in _pan and 'CKP = pin(_craw' in _pan and '"--donors", DJP' in _pan and '"--ckpt", CKP' in _pan
+      and '"ckpt_sha256": CKPT_SHA256' in _rol and "DONORS_SHA256 = hashlib.sha256(_draw).hexdigest(); DONORS = json.loads(_draw)" in _rol)
+check("T2 item 15: decide loads the checkpoint from the verified pinned bytes", 'CK = torch.load(io.BytesIO(_cr)' in _pan)
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

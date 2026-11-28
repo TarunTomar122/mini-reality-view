@@ -28,7 +28,7 @@ scoring (2080 Ti jobs, slurm/wan_score.sh panel <name> <what> <i/n>; own ledger 
   python scripts/wan_panel.py --phase render --ckpt runs/wan_s1/ckpt_12000.pt --name s1_12k --stage 24h
   python scripts/wan_panel.py --phase decide --ckpt runs/wan_s1/ckpt_12000.pt --name s1_12k --stage 24h
 """
-import argparse, glob, json, os, subprocess, sys, time
+import argparse, glob, hashlib, io, json, os, subprocess, sys, time
 from mrv import wan_plan as WP
 
 p = argparse.ArgumentParser()
@@ -110,11 +110,12 @@ def run(cmd, what):
 import torch
 
 
+CKP = a.ckpt  # the checkpoint the rollouts read: the render pins a snapshot copy (Astra t2 item 15)
 MAN_ARGS = []  # --manifest / --manifest_sha for every rollout process (rehearsal: the timing trainer's manifest digest)
 
 
 def roll_cmd(rd, cond, seeds="0,1", extra=()):
-    return ["--ckpt", a.ckpt, "--split", "dev", "--seeds", seeds, "--cond", cond, "--out", rd, "--ledger", ""] + list(extra) + roll_extra + MAN_ARGS
+    return ["--ckpt", CKP, "--split", "dev", "--seeds", seeds, "--cond", cond, "--out", rd, "--ledger", ""] + list(extra) + roll_extra + MAN_ARGS
 
 
 def plan_run(runs, out, what):
@@ -122,7 +123,7 @@ def plan_run(runs, out, what):
     os.makedirs(out, exist_ok=True)
     pj = f"{out}/plan.json"
     json.dump({"runs": runs}, open(pj, "w"), indent=1)
-    run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--plan", pj, "--out", out, "--ledger", ""] + roll_extra + MAN_ARGS, what)
+    run([PY, "scripts/wan_rollout.py", "--ckpt", CKP, "--plan", pj, "--out", out, "--ledger", ""] + roll_extra + MAN_ARGS, what)
     return json.load(open(f"{out}/plan_timing.json"))
 
 
@@ -200,12 +201,28 @@ if a.stage == "final" and not (prior or "").startswith("EXTEND"):
     fail(f"final read without a qualifying 24 h EXTEND verdict (marker: {prior})")
 dev = sorted(json.load(open(a.lists))["dev"])
 
+def pin(raw, dst):
+    """write an immutable snapshot of bytes that were hashed (refuse a different existing snapshot)"""
+    if os.path.exists(dst):
+        if WP._sha_file(dst) != hashlib.sha256(raw).hexdigest():
+            fail(f"{dst} exists with other bytes: use a new --name")
+        return dst
+    with open(dst + ".tmp", "wb") as fo:
+        fo.write(raw)
+    os.chmod(dst + ".tmp", 0o444); os.replace(dst + ".tmp", dst)
+    return dst
+
+
 # ================================================================================================ render (slice)
 if a.phase == "render":
     # 0. swap preflight FIRST (Astra S1c item 3), before any GPU work or budget is spent
     run([PY, "scripts/wan_swap_preflight.py", "--lists", a.lists, "--enc", a.enc, "--swap_at", str(a.swap_at), "--window_latents", str(WIN), "--out", DJ],
         "swap preflight")
-    PLAN = json.load(open(DJ)); DON = PLAN["donors"]
+    # Astra t2 item 15: ONE snapshot per input: the donor plan and the checkpoint are read once, hashed, parsed from those bytes and
+    # pinned; the rollouts read the pinned copies and record the digest of what they consumed
+    _draw = open(DJ, "rb").read(); DON_SHA256 = hashlib.sha256(_draw).hexdigest()
+    PLAN = json.loads(_draw); DON = PLAN["donors"]
+    DJP = pin(_draw, f"{a.wroot}/{a.name}_donors_pinned.json")
     if len(DON) != 6 or not PLAN.get("ok") or any(v is None for v in DON.values()):
         fail(f"swap preflight: need six qualifying assignments, got {DON}")
     # 1. budget: the measured RENDER-ONLY panel cost (load-once rate) + shared references of this run's actual donor plan
@@ -228,15 +245,16 @@ if a.phase == "render":
         EST = a.panel_estimate_h
     if used + EST > a.budget_hours:
         fail(f"budget: ledger {used:.2f} h + measured render-only panel cost {EST:.2f} h > {a.budget_hours} h", "budget")
-    CK_SHA256 = WP._sha_file(a.ckpt)  # Astra t1 item 15: the rolling ckpt.pt may change between render and decision
-    CK = load_run(a.ckpt)
+    _craw = open(a.ckpt, "rb").read(); CK_SHA256 = hashlib.sha256(_craw).hexdigest()  # the rolling ckpt.pt may change later
+    CKP = pin(_craw, f"{a.wroot}/{a.name}_ckpt_pinned.pt")
+    CK = torch.load(io.BytesIO(_craw), map_location="cpu", weights_only=False); del _craw
     step = int(CK["step"])
     PROD = WP.production_ok({"timing": CK.get("timing"), "recipe": CK.get("recipe"), "args": CK.get("args")})
     # 3. every run of the panel in ONE process (Wan loaded once)
     DIRS = {c: f"{a.wroot}/{a.name}_{c}_dev" for c in MODES}
     DIRS["swap"] = f"{a.wroot}/{a.name}_swap_dev"
     runs = [roll_cmd(DIRS[c], c) for c in MODES]
-    runs.append(roll_cmd(DIRS["swap"], "hybrid", extra=["--swap", "--swap_at", str(a.swap_at), "--donors", DJ]))
+    runs.append(roll_cmd(DIRS["swap"], "hybrid", extra=["--swap", "--swap_at", str(a.swap_at), "--donors", DJP]))
     SHARED = {}
     for r_, dp in DON.items():
         if dp["mode"] == "shared":
@@ -267,9 +285,10 @@ if a.phase == "render":
         for f in sorted(glob.glob(f"{dd}/*_s[0-9]*.pt")):
             R = load_run(f)
             entries[os.path.normpath(f)] = {"sha256": WP._sha_file(f), "rgb_sha": R.get("rgb_sha"), "ticks": len(R["ticks"]),
-                                            "size": os.path.getsize(f), "ckpt_sha": R.get("ckpt_sha")}
+                                            "size": os.path.getsize(f), "ckpt_sha": R.get("ckpt_sha"), "ckpt_sha256": R.get("ckpt_sha256"),
+                                            "donors_sha256": R.get("donors_sha256")}
     MAN = {"name": a.name, "stage": a.stage, "ckpt": a.ckpt, "step": step, "dirs": {**DIRS, "shared": SHARED}, "runs": entries,
-           "ckpt_sha256": CK_SHA256, "donors_sha256": WP._sha_file(DJ), "donor_plan": PLAN,  # Astra t1 item 15
+           "ckpt_sha256": CK_SHA256, "ckpt_pinned": CKP, "donors_sha256": DON_SHA256, "donors_pinned": DJP, "donor_plan": PLAN,  # t2 item 15
            "dev_ticks_x_seeds": 2 * sum(n_full.values()), "window_latents": WIN, "swap_at": a.swap_at, "donors": DJ,
            "plan_timing": PT, "when": time.time()}
     json.dump(MAN, open(MANP, "w"), indent=1, sort_keys=True)
@@ -304,13 +323,17 @@ if not ok_p:
 PR = json.load(open(PREC))
 step, PROD, mode_why = RD["step"], RD["production"], RD["mode_why"]
 DIRS = M["dirs"]
-ok_rb, why_rb = WP.render_binding_ok(M, WP._sha_file(a.ckpt), WP._sha_file(M["donors"]) if os.path.exists(M["donors"]) else None)
+_cr = open(M["ckpt_pinned"], "rb").read() if M.get("ckpt_pinned") and os.path.exists(M["ckpt_pinned"]) else b""
+_dp = M.get("donors_pinned")
+ok_rb, why_rb = WP.render_binding_ok(M, hashlib.sha256(_cr).hexdigest() if _cr else None,
+                                     WP._sha_file(_dp) if _dp and os.path.exists(_dp) else None)
 if not ok_rb:  # Astra t1 item 15: the decision reads the checkpoint and donor plan the slice rendered, or nothing
     fail(f"render binding: {why_rb}", "incomplete")
 DON = M["donor_plan"]["donors"]  # the copy stored at render (never the mutable path)
 import glob as _g
 LAG_IN = {os.path.basename(f): WP._sha_file(f) for f in sorted(_g.glob(f"{a.a_roll.rstrip('/')}/*_s[0-9]*.pt"))}
 RECEIPTS = {}
+USED = []  # receipts of every shard the decision accepted (reconciled with the score ledger before publication)
 _rp = f"{a.wroot}/{a.name}_score_runs.jsonl"
 if os.path.exists(_rp):
     for _line in open(_rp):
@@ -339,6 +362,7 @@ def merged_scores(w):
     if why_m:
         fail(f"scoring {w}: {why_m[:3]}", "incomplete")
     out["roll"] = f"merged:{w}:{MSHA[:16]}"
+    USED.extend(RECEIPTS[f] for f in want)
     src = runs_in(DIRS["swap" if w.startswith("swap") else w])
     exp = len(src)
     if (w == "swap_postdonor" and len(out["drives"]) != exp) or (w != "swap_postdonor" and sorted(out["drives"]) != src):
@@ -367,7 +391,7 @@ def checked(f):
     return load_run(f)
 
 
-CK = load_run(a.ckpt)
+CK = torch.load(io.BytesIO(_cr), map_location="cpu", weights_only=False); del _cr  # the pinned snapshot verified above
 DROPM = {k: (CK.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")}
 if all(v is not None for v in DROPM.values()):
     DROPM.update(guide_dropped=DROPM["p_drop_both"] + DROPM["p_drop_guide_only"], tokens_dropped=DROPM["p_drop_both"] + DROPM["p_drop_tokens_only"])
@@ -414,11 +438,13 @@ res["swap"] = {**SWAP, "runs": runs, "donor_plan": DON, "train_dropout_marginals
 res["decision"] = WP.decide_s1(CMP, step, a.stage, SWAP, PROD, MODES_OK, prior)
 SL = WP.Ledger(a.score_ledger, f"score_{a.name}", write=False)
 DTX = int(M["dev_ticks_x_seeds"])
-_sjobs = [j for j in WP.Ledger.read(a.score_ledger).values() if j["kind"] == f"score_{a.name}"]
-_spent = sum(WP.Ledger.charge_h(j) for j in _sjobs)
 _cap = WP.score_cap_h(DTX, float(PR["score_tick_s"]))
-if not _sjobs or _spent > _cap:  # Astra t1 item 14: no publication on a missing or over-cap scoring ledger
-    fail(f"scoring ledger {a.score_ledger} for score_{a.name}: {len(_sjobs)} jobs, {_spent:.3f} h vs cap {_cap:.3f} h", "budget")
+if not os.path.exists(a.score_ledger):
+    fail(f"scoring ledger {a.score_ledger} missing: no publication", "budget")
+# Astra t1 / t2 item 14: every accepted shard's worker charged and finished, no live worker, total within the cap
+_ok_s, _why_s, _spent = WP.reconcile_scoring(USED, WP.Ledger.read(a.score_ledger), f"score_{a.name}", _cap)
+if not _ok_s:
+    fail(f"scoring ledger {a.score_ledger}: {_why_s}", "budget")
 res["scoring"] = {"ledger": a.score_ledger, "gpu_h": round(SL.by_kind().get(f"score_{a.name}", 0.0), 3),
                   "cap_h": round(WP.score_cap_h(DTX, float(PR["score_tick_s"])), 3), "device": PR["device"],
                   "note": "2080 Ti scoring hours: own ledger and cap, reported separately from the S1 slice budget"}

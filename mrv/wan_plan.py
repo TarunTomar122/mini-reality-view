@@ -567,6 +567,9 @@ def train_reserve_h(fc, reserve_panels, window_latents=5, swap_at=50):
     if ps.get("window_latents") != window_latents or ps.get("swap_at") != swap_at:
         raise SystemExit(f"forecast priced the panel for {ps} but the panel uses window_latents={window_latents}, swap_at={swap_at}: "
                          f"rerun scripts/wan_forecast.py with those settings")
+    if fc.get("rollout_window_latents") != window_latents:  # Astra S1g 4b: the RATES must have been measured at that width too
+        raise SystemExit(f"forecast rates measured at rollout window {fc.get('rollout_window_latents')}, panel uses {window_latents}: "
+                         f"rerun MODE=timing with PANEL_WIN={window_latents}")
     plan = fc.get("donor_plan") or {}
     if not fc.get("donor_plan_ok") or len(plan) != 6 or any(not v for v in plan.values()):
         raise SystemExit(f"forecast donor plan incomplete ({len(plan)} receivers, ok={fc.get('donor_plan_ok')}): no valid reserve")

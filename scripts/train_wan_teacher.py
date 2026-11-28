@@ -112,6 +112,8 @@ p.add_argument("--timing_micro", default="1,2,4,8")
 p.add_argument("--grad_ckpt", type=int, default=1)
 p.add_argument("--verify_cache", type=int, default=1)
 p.add_argument("--timing", action="store_true", help="timing / test run: dir must contain 'timing' or 'ctest'")
+p.add_argument("--resume_test", action="store_true", help="the 16-update resume test (bounded exemption: <= 16 updates, *ctest* dir)")
+p.add_argument("--production", action="store_true", help="set by slurm/wan_teacher.sh MODE=train / extend after any forwarded args")
 a = p.parse_args()
 TEST = a.timing or a.overfit
 if TEST and not any(s in a.out for s in ("timing", "ctest")):
@@ -126,9 +128,15 @@ if a.overfit and a.steps != OVERFIT_STEPS:
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 KIND = a.kind or ("timing" if a.timing and not a.overfit else ("overfit" if a.overfit else "train"))
-# Astra S1f 4a: production enforcement (forecast reserve, budget, gates) follows the RUN MODE, never the --kind ledger label:
-# every run that is not a timing / overfit test and does not write to a *timing* / *ctest* directory is production
-PROD = not TEST and not any(x in a.out for x in ("timing", "ctest"))
+# Astra S1f / S1g 4a: production enforcement (forecast reserve, budget stops, gates) follows the RUN MODE, never the --kind label
+# or the output directory name: every run is production unless it is one of the three bounded test modes (timing: timed sweep
+# then exit; overfit: exactly 2,000 updates on N clips; resume test: <= 16 updates); --production (MODE=train / extend) refuses
+# any test flag, so a forwarded flag cannot turn a production job into an exempt one
+if a.resume_test and (a.steps > 16 or "ctest" not in a.out or a.timing or a.overfit):
+    raise SystemExit("--resume_test is the bounded 16-update test: --steps <= 16, a *ctest* dir, no --timing / --overfit")
+if a.production and (a.timing or a.overfit or a.resume_test):
+    raise SystemExit("--production (MODE=train / extend) cannot be combined with --timing / --overfit / --resume_test")
+PROD = not (a.timing or a.overfit or a.resume_test)
 LEDGER = WP.Ledger(a.ledger, KIND).start()
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
 LISTS = json.load(open(a.lists))

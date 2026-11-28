@@ -86,15 +86,15 @@ P
     run_fg $T --out $O $RS --overfit 8 --batch 8 --steps 2000 --p_drop_both 0 --p_drop_guide_only 0 --p_drop_tokens_only 0 --p_holes 0 \
        --val_every 0 --save_every 500 "$@"; rc=$? ;;
   resume_test)
-    A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
+    A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--resume_test --kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8
     # Astra S1c item 7: leg B must really have saved update 8 (a signal stop at 6 would otherwise test 6 + 10)
     ck8() { $PY -c "import torch,sys;s=torch.load('$B/ckpt.pt',map_location='cpu',weights_only=False,mmap=True)['step'];print('leg B saved step',s);sys.exit(0 if s==8 else 1)"; }
     run_fg $T --out $A $C "$@" && run_fg $T --out $B $C --max_steps_this_job 8 "$@" \
       && { ck8 || { echo "RESUME_TEST invalid: leg B did not stop at update 8"; false; }; } \
       && run_fg $T --out $B $C --resume "$@" \
       && $PY scripts/wan_resume_check.py $A/ckpt.pt $B/ckpt.pt --gates runs/wan_gates/gates.jsonl; rc=$? ;;
-  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@"; rc=$? ;;
-  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@"; rc=$? ;;
+  train)  run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 24 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@" --production; rc=$? ;;
+  extend) run_fg $T --out runs/wan_s1 --steps 40000 --budget_hours 36 --reserve_panels 1 --panel_window_latents $PANEL_WIN --panel_swap_at 50 --resume "$@" --production; rc=$? ;;
   *) echo "unknown MODE=$MODE"; exit 2 ;;
 esac
 echo "end $(date -u) rc=$rc"

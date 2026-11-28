@@ -143,6 +143,8 @@ if a.panel_estimate_h is None:  # the TIMED reserve (wan_forecast.py), never a z
         FC = json.load(open(tj))["forecast_final"]
         if (FC.get("panel_settings") or {}) != {"window_latents": WIN, "swap_at": a.swap_at}:
             raise ValueError(f"forecast priced {FC.get('panel_settings')}, panel uses window {WIN} / swap {a.swap_at}")
+        if FC.get("rollout_window_latents") != WIN:  # Astra S1g 4b
+            raise ValueError(f"forecast rates measured at rollout window {FC.get('rollout_window_latents')}, panel uses window {WIN}")
         # base panel cost (without shared references) + the shared references of THIS run's actual donor plan
         EST = WP.panel_with_shared_h(float(FC.get("panel_base_h", FC["panel_h"])), DON, float(FC["roll_tick_s"]), float(FC["roll_start_s"]))
     except Exception as e:  # noqa: BLE001

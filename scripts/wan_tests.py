@@ -161,7 +161,7 @@ for bad_ in (["--max_t=10"], ["--sw"], ["--cond", "guide"], ["--drive", "x"], ["
         ok_ = True
     check(f"rollout extras: forbidden / abbreviated {bad_} refused", ok_)
 FC_OK = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {"donor": "d", "mode": "full", "n": None} for i in range(6)}, "panel_h_total": 2.2, "panel_h": 2.0,
-         "panel_settings": {"window_latents": 5, "swap_at": 50}}
+         "panel_settings": {"window_latents": 5, "swap_at": 50}, "rollout_window_latents": 5}
 check("S1d: reserve = measured total x panels", abs(WP.train_reserve_h(FC_OK, 1) - 2.2) < 1e-12)
 for name_, fc_ in (("S1d repro 4: legacy panel_h only (2.0 h vs a 2.2 h panel)", {"panel_h": 2.0}),
                    ("S1d: plan with an omitted receiver", {**FC_OK, "donor_plan": {**FC_OK["donor_plan"], "r5": None}}),
@@ -329,15 +329,29 @@ with tempfile.TemporaryDirectory() as td:
     del os.environ["WAN_LEDGER_OUTER"]
 
 
+import subprocess as _sp, tempfile as _tf
 # ---- Astra S1f 4a: production enforcement follows the run mode, not the --kind label
 _src = open("scripts/train_wan_teacher.py").read()
 check("S1f 4a: no enforcement keyed on the KIND label", 'KIND == "train"' not in _src and _src.count("if PROD") >= 6)
-for _out, _test, _want in (("runs/wan_s1", False, True), ("runs/wan_ctest_resA_1", False, False), ("runs/wan_timing_1", True, False), ("runs/other", False, True)):
-    _prod = not _test and not any(x in _out for x in ("timing", "ctest"))
-    check(f"S1f 4a: PROD({_out}) = {_want}", _prod == _want)
-check("S1f 4a: PROD rule present", 'PROD = not TEST and not any(x in a.out for x in ("timing", "ctest"))' in _src)
+check("S1g 4a: PROD from the run mode only", "PROD = not (a.timing or a.overfit or a.resume_test)" in _src)
+_tsh = open("slurm/wan_teacher.sh").read()
+check("S1g 4a: train / extend pass --production after forwarded args", _tsh.count('--resume "$@" --production;') == 2)
+check("S1g 4a: resume test uses the bounded flag", "--resume_test --kind resume_test --steps 16" in _tsh)
+for _args, _name in ((["--out", "runs/wan_timing_followup", "--production", "--timing"], "--production + --timing"),
+                     (["--out", "runs/wan_ctest_x", "--resume_test", "--steps", "40000"], "--resume_test with 40,000 steps"),
+                     (["--out", "runs/wan_s1", "--resume_test", "--steps", "16"], "--resume_test outside a ctest dir")):
+    _r = _sp.run([sys.executable, "scripts/train_wan_teacher.py", *_args], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    _msg = _r.stderr + _r.stdout
+    if "No module named" in _msg:
+        print(f"SKIP S1g 4a repro: {_name} (trainer imports unavailable here; runs in every slurm job)"); continue
+    check(f"S1g 4a repro: {_name} refused", _r.returncode != 0 and ("cannot be combined" in _msg or "bounded 16-update" in _msg), _msg[-160:])
+for _w, _ok in ((5, True), (2, False), (None, False)):
+    try:
+        WP.train_reserve_h({**FC_OK, "rollout_window_latents": _w}, 1); _got = True
+    except SystemExit:
+        _got = False
+    check(f"S1g 4b: stored forecast measured at width {_w} for a width-5 panel -> {'accepted' if _ok else 'refused'}", _got == _ok)
 # ---- Astra S1f 4b: a forecast width different from the timed rollout's measured width is refused
-import subprocess as _sp, tempfile as _tf
 _d = _tf.mkdtemp()
 for _w, _ask, _ok in ((5, 2, False), (None, 5, False)):
     json.dump({"rollout_breakdown": {"encode_s": 1, "sample_s": 1, "decode_s": 1, "sd_s": 1}, "rollout_window_latents": _w}, open(f"{_d}/timing.json", "w"))

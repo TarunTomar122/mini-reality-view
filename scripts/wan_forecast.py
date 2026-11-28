@@ -68,7 +68,7 @@ t = {"budget_h": a.budget_hours, "used_h": L.hours(live=False), "done_kinds": do
 fc = WP.forecast_s1(t)
 fc.update(inputs={k: (sorted(v) if isinstance(v, set) else v) for k, v in t.items()}, dev_ticks=dev_ticks, panel_h=round(panel_h, 3) if panel_h is not None else None,
           panel_plan_complete=panel_h is not None,
-          gate_key=GK, panel_settings={"window_latents": a.window_latents, "swap_at": a.swap_at}, panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3) if panel_h is not None else None,
+          gate_key=GK, panel_settings={"window_latents": a.window_latents, "swap_at": a.swap_at}, rollout_window_latents=J["rollout_window_latents"], panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3) if panel_h is not None else None,
           donor_plan=PLAN["donors"], donor_plan_ok=bool(PLAN["ok"] and len(PLAN["donors"]) == 6),
           startup_measured_s=J["startup_s"], startup_scaled_s=round(startup, 1), timing_train_drives=J.get("train_drives"), prod_train_drives=prod_train,
           roll_tick_s=round(roll_tick, 3), roll_start_s=round(roll_start, 1), score_tick_s=round(score_tick, 3), ledger_by_kind=kinds)

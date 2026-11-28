@@ -157,8 +157,8 @@
   ],
   [
    "now",
-   "Live model, private-noise version",
-   "same model, but each training frame gets its own noise so it must use what the past shows; starts after the last test run + Astra's code signature"
+   "Live model, private-noise version (training)",
+   "each training frame gets its own noise so it must use what the past shows; trains to 12k, pauses for the 12k check, then to 16k if safe; checks at 2k / 4k (look only), 8k / 12k / 16k (count)"
   ],
   [
    "later",

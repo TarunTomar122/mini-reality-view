@@ -110,8 +110,11 @@ def run(cmd, what):
 import torch
 
 
+MAN_ARGS = []  # --manifest / --manifest_sha for every rollout process (rehearsal: the timing trainer's manifest digest)
+
+
 def roll_cmd(rd, cond, seeds="0,1", extra=()):
-    return ["--ckpt", a.ckpt, "--split", "dev", "--seeds", seeds, "--cond", cond, "--out", rd, "--ledger", ""] + list(extra) + roll_extra
+    return ["--ckpt", a.ckpt, "--split", "dev", "--seeds", seeds, "--cond", cond, "--out", rd, "--ledger", ""] + list(extra) + roll_extra + MAN_ARGS
 
 
 def plan_run(runs, out, what):
@@ -119,7 +122,7 @@ def plan_run(runs, out, what):
     os.makedirs(out, exist_ok=True)
     pj = f"{out}/plan.json"
     json.dump({"runs": runs}, open(pj, "w"), indent=1)
-    run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--plan", pj, "--out", out, "--ledger", ""] + roll_extra, what)
+    run([PY, "scripts/wan_rollout.py", "--ckpt", a.ckpt, "--plan", pj, "--out", out, "--ledger", ""] + roll_extra + MAN_ARGS, what)
     return json.load(open(f"{out}/plan_timing.json"))
 
 
@@ -135,6 +138,14 @@ if a.rehearsal:
         fail(f"--out {a.out} is not empty: a rehearsal must render fresh")
     os.makedirs(a.out, exist_ok=True)
     CK_SHA16 = WP._sha_file(a.ckpt)[:16]
+    # Astra t2 additional blocker: guide / enc / token bytes are checked against the manifest digest the TIMING TRAINER recorded
+    _tj = os.path.join(os.path.dirname(os.path.abspath(a.ckpt)), "timing.json")
+    if not os.path.exists(_tj):
+        fail(f"no timing.json beside {a.ckpt}: the rehearsal needs the trainer's manifest digest")
+    _TJ = json.load(open(_tj))
+    if not (_TJ.get("manifest_path") and _TJ.get("manifest_sha")):
+        fail(f"{_tj} records no manifest path / sha")
+    MAN_ARGS[:] = ["--manifest", _TJ["manifest_path"], "--manifest_sha", _TJ["manifest_sha"]]
     n_r = len(torch.load(f"{a.enc}/{R}.pt", map_location="cpu", weights_only=False, mmap=True)["ticks"])
     open(f"{a.out}/drive.txt", "w").write(R + "\n")
     dl = ["--drive_list", f"{a.out}/drive.txt", "--allow_inert"]
@@ -160,6 +171,8 @@ if a.rehearsal:
     ok_f2, why_f2 = WP.plan_fresh(PF["runs"], [n_r])
     if not (ok_f1 and ok_f2):
         why.append(f"not rendered fresh: loop {why_f1}; fresh {why_f2}")
+    if not (A_.get("inputs_manifest_sha") == B_.get("inputs_manifest_sha") == _TJ["manifest_sha"]):
+        why.append("rehearsal inputs were not checked against the trainer's manifest digest")
     if not (A_["ckpt_sha"] == B_["ckpt_sha"] == CK_SHA16):
         why.append(f"rendered checkpoint {A_['ckpt_sha']} / {B_['ckpt_sha']} != {a.ckpt} ({CK_SHA16})")
     runs_ = [load_run(f"{a.out}/loop_{c}/{R}_s0.pt") for c in ("tokens", "hybrid")]
@@ -170,7 +183,8 @@ if a.rehearsal:
            "ticks": ticks, "load_s": PT["load_s"], "roll_tick_inner_s": round(inner / ticks, 4), "roll_tick_wall_s": round(wall_runs / ticks, 4),
            "roll_tick_s": round(max(inner, wall_runs) / ticks, 4), "window_latents": int(A_["window_latents"]), "fresh_process_s": round(fresh_wall, 1),
            "ckpt_sha": CK_SHA16 if A_["ckpt_sha"] == B_["ckpt_sha"] == CK_SHA16 else None, "fresh_all_ticks": bool(ok_f1 and ok_f2),
-           "drive_ticks": n_r, "plan_timing": PT, "timing_s": timing}
+           "drive_ticks": n_r, "plan_timing": PT, "timing_s": timing,
+           "inputs_manifest_sha": _TJ["manifest_sha"] if A_.get("inputs_manifest_sha") == B_.get("inputs_manifest_sha") == _TJ["manifest_sha"] else None}
     json.dump(rec, open(f"{a.out}/rehearsal.json", "w"), indent=1)
     print("WAN_PANEL_REHEARSAL", json.dumps({k: v for k, v in rec.items() if k != "plan_timing"}), flush=True)
     LEDGER.stop(); raise SystemExit(0 if rec["pass"] else 1)

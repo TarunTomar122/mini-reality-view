@@ -401,20 +401,29 @@ class PeakSampler:
         return s.max
 
 
+def sample_once(rec, d, names):
+    """one allocation-sampler read (Astra t2 item 8): n counts every attempt, n_valid only reads that returned a job-level value"""
+    cur = _read_int(os.path.join(d, names[1])) if d else None
+    pk = _read_int(os.path.join(d, names[0])) if d else None
+    if cur is not None:
+        rec["max_current"] = cur if rec["max_current"] is None else max(rec["max_current"], cur)
+    if pk is not None:
+        rec["peak"] = pk if rec["peak"] is None else max(rec["peak"], pk)
+    rec["n"] += 1
+    rec["n_valid"] = rec.get("n_valid", 0) + int(cur is not None or pk is not None)
+    rec["t"] = time.time()
+    return rec
+
+
 def _sample_main(out, interval=1.0):
-    """python -m mrv.wan_stage sample <out.json>: started by slurm at ALLOCATION start; records the job cgroup's memory.peak (if
+    """python -m mrv.wan_stage sample --out <json>: started by slurm at ALLOCATION start; records the job cgroup's memory.peak (if
     the kernel has it) and the max of memory.current every `interval` s until killed; rewrites <out.json> atomically"""
     ver, d = job_cgroup_dir()
     names = ("memory.peak", "memory.current") if ver == "v2" else ("memory.max_usage_in_bytes", "memory.usage_in_bytes")
-    rec = {"t0": time.time(), "dir": d, "version": ver, "max_current": None, "peak": None, "n": 0}
+    rec = {"t0": time.time(), "dir": d, "version": ver, "max_current": None, "peak": None, "n": 0, "n_valid": 0,
+           "job": os.environ.get("SLURM_JOB_ID")}
     while True:
-        cur = _read_int(os.path.join(d, names[1])) if d else None
-        pk = _read_int(os.path.join(d, names[0])) if d else None
-        if cur is not None:
-            rec["max_current"] = cur if rec["max_current"] is None else max(rec["max_current"], cur)
-        if pk is not None:
-            rec["peak"] = pk
-        rec["n"] += 1; rec["t"] = time.time()
+        sample_once(rec, d, names)
         json.dump(rec, open(out + ".tmp", "w")); os.replace(out + ".tmp", out)
         time.sleep(interval)
 

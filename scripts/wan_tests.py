@@ -355,12 +355,15 @@ for _w, _ok in ((5, True), (2, False), (None, False)):
 _d = _tf.mkdtemp()
 os.makedirs(f"{_d}/rehearsal")
 json.dump({"production_loop": {"wall_s": 4.0}}, open(f"{_d}/timing.json", "w"))
+_CANF = {"train": [f"scene-{i:04d}" for i in range(144)], "dev": [f"scene-{i:04d}" for i in range(900, 906)]}
+json.dump(_CANF, open(f"{_d}/canon.json", "w")); open(f"{_d}/ledger.jsonl", "w").write("")
+_FX = ["--canon", f"{_d}/canon.json", "--lists", f"{_d}/canon.json", "--ledger", f"{_d}/ledger.jsonl"]
 for _w, _ask in ((5, 2), (None, 5)):
     json.dump({"window_latents": _w, "roll_tick_s": 0.7, "load_s": 380, "pass": True}, open(f"{_d}/rehearsal/rehearsal.json", "w"))
-    _r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", _d, "--window_latents", str(_ask)], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    _r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", _d, "--window_latents", str(_ask), *_FX], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
     check(f"S1f 4b: measured width {_w} vs forecast {_ask} refused", _r.returncode != 0 and "refused" in (_r.stderr + _r.stdout), _r.stderr[-200:])
 os.remove(f"{_d}/rehearsal/rehearsal.json")
-_r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", _d], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+_r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", _d, *_FX], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
 check("CONVERGED 4/7: no rehearsal record (slice panel cost unmeasured) -> forecast refused", _r.returncode != 0 and "rehearsal" in (_r.stderr + _r.stdout), _r.stderr[-200:])
 _sh = open("slurm/wan_teacher.sh").read()
 check("S1f 4b: the rehearsal renders at PANEL_WIN and the forecast prices PANEL_WIN",
@@ -563,15 +566,16 @@ def _J(**kw):
                              "blocks": WS.block_stats([{"wall_s": 4.0, "gpu_s": 3.9, "queue_wait_s": 0.01}] * 224, 32)},
          "selected_setting": {"key": "gc0_m1", "micro": 1, "grad_ckpt": 0},
          "matched_update": {"method": "per_tensor_adam_delta", "rows": {"gc0_m1": {"ok": True, "delta": {"ok": True}}}},
-         "token_geometry": {"pass": True, "manifest_verified": True}, "init_parity": {"pass": True},
+         "token_geometry": {"pass": True, "manifest_verified": True, "manifest_sha": "m"}, "init_parity": {"pass": True},
          "init_inertness": {"pass": True, "opt_step": 0}, "early_sensitivity": {"pass": True, "opt_step": WP.SENS_STEP, "micro": 1, "grad_ckpt": 0},
          "staged_vs_lustre": {"all_equal": True, "batches": 8},
-         "memory": {"rule": {"pass": True, "ratio": 0.7}, "sampled_from_allocation": True}, "manifest_sha": "m"}
+         "memory": {"rule": {"pass": True, "ratio": 0.7}, "sampled_from_allocation": True,
+                    "final": {"pass": True, "includes_rehearsal": True, "sampler_valid": True, "rule": {"pass": True, "ratio": 0.7}}}, "manifest_sha": "m"}
     J.update(kw); return J
 FCP = {"donor_plan_ok": True, "donor_plan": {f"r{i}": {} for i in range(6)}, "floor_12k_reachable": True, "updates": 14000, "n_panels": 1,
        "panel_plan_complete": True, "panel_h_total": 2.1, "inputs": {"n_panels": 1, "budget_h": 24.0, "job_h": 12.0, "panel_h": 2.1},
        "startup_info": {"complete": True}, "ledger_evidence": {"ok": True, "timing_allocations": ["3756964", "3760001"]}, "evidence_sha": "E"}
-RHP_ = {"pass": True, "why": "byte-equal", "fresh_all_ticks": True, "ckpt_sha": "C" * 16}
+RHP_ = {"pass": True, "why": "byte-equal", "fresh_all_ticks": True, "ckpt_sha": "C" * 16, "inputs_manifest_sha": "m"}
 RTa = WP.retime_rules(_J(), FCP, CAN, (True, "ok"), RHP_)
 check("re-time: a complete passing record -> all 17 rules pass", RTa["all_pass"] and len(RTa["rules"]) == 17, RTa["failing"])
 L48 = {"train": CAN["train"][:48], "dev": CAN["dev"]}
@@ -667,7 +671,7 @@ check("T1 item 5: ledger evidence needs both timing allocations, this job includ
       and not WP.ledger_evidence({"alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3760001")["ok"]
       and not WP.ledger_evidence({"alloc-3756964-1-1": {"kind": "alloc_timing"}, "alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3770000")["ok"])
 _fsrc = open("scripts/wan_forecast.py").read()
-check("T1 item 5: a missing ledger refuses the forecast (never zero spend)", "a missing ledger is never zero spend" in _fsrc and "WP.ledger_evidence(" in _fsrc)
+check("T1 item 5: a missing ledger refuses the forecast (never zero spend)", "missing: refused (spend cannot be read)" in _fsrc and "WP.ledger_evidence(" in _fsrc)
 # item 6
 check("T1 item 6: plan_fresh catches a skipped (reused) run", WP.plan_fresh([{"ticks_rendered": 174}, {"ticks_rendered": 0}], [174, 174])[0] is False
       and WP.plan_fresh([{"ticks_rendered": 174}], [174])[0])
@@ -905,5 +909,122 @@ ok_c, r_c = WP.refresh_forecast(TJe["forecast_final"], 15.0, set(), start_step=9
 check("T1 item 11: a production resume counts the updates already done (start + affordable >= 12k)", ok_c == (9000 + r_c["updates"] >= 12000))
 check("T1 item 11: the trainer refreshes the forecast with the live ledger and gate registry before every non-timing stage",
       "WP.retime_gate(TJ, a.micro, a.grad_ckpt, evidence=EVIDENCE_SHA, used_h=LEDGER.hours(), done_kinds=_done" in _trs)
+
+# =========================================================================================================================
+# Astra t2 (council/codereview-wan-t2-astra.md): timing items 3, 4, 5, 7, 8, 9, 11 + the additional rehearsal blocker
+# =========================================================================================================================
+def _try(fn, *a_, **k_):
+    try:
+        return fn(*a_, **k_)
+    except Exception as e_:  # noqa: BLE001  (an old signature / missing helper counts as a failed repro)
+        return e_
+# item 3: the forecast checks its own lists against the canonical ones BEFORE reading any encoding
+with _tf.TemporaryDirectory() as td:
+    os.makedirs(f"{td}/rehearsal")
+    json.dump({"production_loop": {"wall_s": 4.0}}, open(f"{td}/timing.json", "w"))
+    json.dump({"window_latents": 5, "roll_tick_s": 0.7, "load_s": 380, "pass": True}, open(f"{td}/rehearsal/rehearsal.json", "w"))
+    json.dump(CAN, open(f"{td}/canon.json", "w")); open(f"{td}/ledger.jsonl", "w").write("")
+    json.dump({"train": CAN["train"], "dev": [f"scene-{i:04d}" for i in range(950, 956)]}, open(f"{td}/sub.json", "w"))
+    _r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", td, "--canon", f"{td}/canon.json", "--lists", f"{td}/sub.json",
+                  "--ledger", f"{td}/ledger.jsonl"], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    check("T2 item 3 repro: six substitute dev drives in the forecast's --lists -> refused BEFORE any encoding is read",
+          _r.returncode != 0 and "not the canonical" in (_r.stdout + _r.stderr) and "torch" not in (_r.stdout + _r.stderr), (_r.stdout + _r.stderr)[-200:])
+_fsrc = open("scripts/wan_forecast.py").read()
+check("T2 item 3: lists are checked before torch / encodings, and the dev drives priced are the canonical ones",
+      -1 < _fsrc.find("WP.check_lists(list(L_[\"train\"]), list(L_[\"dev\"]), CANON, \"full\")") < _fsrc.find("import torch")
+      and 'dev = list(CANON["dev"])' in _fsrc)
+# item 4: exact grid
+_sw2 = {**_sw(), "gc2_m1": {"micro": 1, "grad_ckpt": 2, "gpu_s": 0.5, "fwd_s": 0.2}}
+_mu4 = {"rows": {k: {"ok": True} for k in _sw2}}
+_sel4 = WP.select_setting(_sw2, _mu4)
+check("T2 item 4 repro (Astra): full grid + a faster gc2_m1 -> grad_ckpt 2 is never selected", isinstance(_sel4, dict) and _sel4["grad_ckpt"] in (0, 1), _sel4)
+check("T2 item 4 repro: an extra sweep cell fails the declared-sweep rule", not WP.sweep_complete(_sw2)[0]
+      and "declared_recipe_and_sweep" in WP.retime_rules(_J(sweep=_sw2), FCP, CAN, (True, ""), RHP_)["failing"])
+_csd = getattr(WP, "check_sweep_declared", None)
+check("T2 item 4: the exact grid is validated before the sweep (other grids refused)",
+      _csd is not None and _refused(_csd, [2, 1, 0], [1, 2, 4, 8]) and _refused(_csd, [1, 0], [1, 2, 4]) and not _refused(_csd, [1, 0], [1, 2, 4, 8])
+      and "if a.timing:  # Astra t2 item 4" in open("scripts/train_wan_teacher.py").read())
+# item 5: full precision once; the charged ORIGINAL timing id
+FC5 = {**FCP, "panel_h_total": 2.3010425, "inputs": {**FCP["inputs"], "panel_h": 2.3010425}}
+check("T2 item 5: a valid 14,000-update forecast with full-precision panel hours (2.3010425 h) passes", WP.retime_rules(_J(), FC5, CAN, (True, ""), RHP_)["all_pass"])
+check("T2 item 5 repro (Astra): the forecast no longer stores rounded panel hours beside the raw input (2.3010425 vs 2.301)",
+      "round(panel_h, 3)" not in _fsrc and "round(panel_base_h, 3)" not in _fsrc and "panel_h_total=panel_h" in _fsrc)
+_le = _try(WP.ledger_evidence, {"alloc-3700000-1-1": {"kind": "alloc_timing"}, "alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3760001")
+check("T2 item 5 repro: an earlier timing id other than the charged original 3756964 is not ledger evidence", isinstance(_le, dict) and not _le["ok"], _le)
+check("T2 item 5: the original 3756964 + this re-time is evidence",
+      _try(WP.ledger_evidence, {"alloc-3756964-1-1": {"kind": "alloc_timing"}, "alloc-3760001-2-2": {"kind": "alloc_timing"}}, "3760001")["ok"])
+# item 7: production's parity-check I/O is a start-up component
+_c7 = {k: 10.0 for k in ("pre_trainer_s", "process_to_ready_s", "frozen_snapshot_s", "first_update_s", "guard_verify_s", "first_probe_s", "resume_load_s")}
+check("T2 item 7 repro: start-up without the production parity-check I/O is incomplete (forecast refuses)",
+      WP.startup_for_forecast(_J(startup={"components": _c7}))[0] is None and "parity_check_s" in WP.STARTUP_PARTS)
+check("T2 item 7: timing times production's score_parity_ok(score_binding(...)) as parity_check_s",
+      '"parity_check_s": t_par' in open("scripts/train_wan_teacher.py").read())
+# item 8: valid job-level samples only; the final peak includes the rehearsal
+_rs = {"t0": 0, "dir": "/nonexistent/job_1", "max_current": None, "peak": None, "n": 0, "n_valid": 0}
+_r8 = _try(getattr(WS, "sample_once", None), dict(_rs), "/nonexistent/job_1", ("memory.peak", "memory.current"))
+check("T2 item 8 repro: a sample whose job-level reads both failed does not count as a valid sample",
+      isinstance(_r8, dict) and _r8["n"] == 1 and _r8["n_valid"] == 0 and not _try(getattr(WP, "sampler_valid", None), _r8), _r8)
+with _tf.TemporaryDirectory() as td:
+    os.makedirs(f"{td}/job_9"); open(f"{td}/job_9/memory.current", "w").write("123")
+    _r8b = _try(getattr(WS, "sample_once", None), dict(_rs, dir=f"{td}/job_9"), f"{td}/job_9", ("memory.peak", "memory.current"))
+    check("T2 item 8: a job-level memory.current read is a valid sample", isinstance(_r8b, dict) and _r8b["n_valid"] == 1 and _r8b["max_current"] == 123)
+_MEM = {"rule": {"pass": True, "peak": 100e9}, "request_bytes": 145e9}
+_AS8 = {"n_valid": 50, "dir": "/sys/fs/cgroup/x/job_9", "job": "9", "peak": 110e9, "max_current": 105e9, "t": 2000.0}
+check("T2 item 8: a valid sampler read after the rehearsal finalises the peak over the request",
+      isinstance(_try(getattr(WP, "memory_final", None), _MEM, _AS8, 1500.0, "9"), dict) and _try(getattr(WP, "memory_final", None), _MEM, _AS8, 1500.0, "9").get("pass") is True)
+for _nm, _as, _rt in (("no valid job-level read (trainer-only peak)", {**_AS8, "n_valid": 0}, 1500.0),
+                      ("sampler last read BEFORE the rehearsal ended", _AS8, 2500.0),
+                      ("the rehearsal pushed the peak over 85 % of the request", {**_AS8, "peak": 140e9}, 1500.0),
+                      ("another job's sampler", {**_AS8, "job": "8"}, 1500.0)):
+    _mf = _try(getattr(WP, "memory_final", None), _MEM, _as, _rt, "9")
+    check(f"T2 item 8 repro: {_nm} -> peak rule FAILS", isinstance(_mf, dict) and not _mf["pass"], _mf)
+_J8 = _J(); _J8["memory"] = {"rule": {"pass": True, "ratio": 0.7}, "sampled_from_allocation": True}
+check("T2 item 8 repro: a trainer-only peak (no allocation-final incl. rehearsal) fails the memory rule",
+      "peak_memory_le_85pct_of_request" in WP.retime_rules(_J8, FCP, CAN, (True, ""), RHP_)["failing"])
+# item 9: geometry manifest digest == the trainer's; forwarded --manifest refused
+check("T2 item 9 repro: geometry verified against another manifest (digest differs from the trainer's) -> gates rule FAILS",
+      "gates_final_recipe" in WP.retime_rules(_J(token_geometry={"pass": True, "manifest_verified": True, "manifest_sha": "OTHER"}), FCP, CAN, (True, ""), RHP_)["failing"]
+      and "gates_final_recipe" in WP.retime_rules(_J(token_geometry={"pass": True, "manifest_verified": True}), FCP, CAN, (True, ""), RHP_)["failing"])
+_tsh = open("slurm/wan_teacher.sh").read(); _trs = open("scripts/train_wan_teacher.py").read()
+check("T2 item 9: slurm records the geometry manifest digest and exports MRV_MANIFEST; the trainer refuses a different --manifest",
+      '"manifest_sha": "$GEOM_MSHA"' in _tsh and "export MRV_MANIFEST=$MANIFEST" in _tsh and "forwarded override refused" in _trs)
+with _tf.TemporaryDirectory() as _td:
+    _r = _sp.run([sys.executable, "scripts/train_wan_teacher.py", "--out", f"{_td}/wan_timing_t", "--timing", "--micro", "1", "--grad_ckpt", "1",
+                  "--manifest", "data/other.json"], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd(), "MRV_MANIFEST": "data/wan_manifest_v1.json"})
+_msg = _r.stderr + _r.stdout
+if "No module named" in _msg:
+    print("SKIP T2 item 9 repro: forwarded --manifest (trainer imports unavailable here; runs in every slurm job)")
+else:
+    check("T2 item 9 repro: a forwarded --manifest different from MRV_MANIFEST -> refused", _r.returncode != 0 and "forwarded override refused" in _msg, _msg[-200:])
+# item 11: bound ledger, both charges at refresh, missing ledger is an error, mrv/guide.py in the evidence list
+with _tf.TemporaryDirectory() as td:
+    lp = f"{td}/s1_ledger.jsonl"
+    with open(lp, "w") as f_:
+        for jid in ("3756964", "3760001"):
+            f_.write(json.dumps({"job": f"alloc-{jid}-1-1", "kind": "alloc_timing", "t0": 0, "t": 3600, "note": "end"}) + "\n")
+    TJ11 = {"selected_setting": {"micro": 1, "grad_ckpt": 0}, "retime_pass": {"all_pass": True}, "evidence_sha": "E", "job": "3760001",
+            "forecast_final": {"evidence_sha": "E", "ledger_path": lp, "inputs": {**T_, "n_panels": 1, "panel_h": 2.0, "done_kinds": []}}}
+    _g = lambda **kw: _try(WP.retime_gate, TJ11, 1, 0, evidence="E", used_h=1.0, **kw)
+    _ok = lambda r: isinstance(r, tuple) and r[0]
+    _no = lambda r: isinstance(r, tuple) and not r[0]  # a real refusal (an exception from an old signature is not one)
+    check("T2 item 11: the timing's own ledger with both charges -> stage authorised", _ok(_g(ledger_path=lp)), _g(ledger_path=lp))
+    open(f"{td}/other.jsonl", "w").write("")
+    check("T2 item 11 repro: a caller-selected ledger (not the timing's) -> refused", _no(_g(ledger_path=f"{td}/other.jsonl")))
+    os.rename(lp, lp + ".gone")
+    check("T2 item 11 repro: the timing's ledger missing -> refused (never zero spend)", _no(_g(ledger_path=lp)))
+    with open(lp, "w") as f_:
+        f_.write(json.dumps({"job": "alloc-3760001-1-1", "kind": "alloc_timing", "t0": 0, "t": 3600, "note": "end"}) + "\n")
+    check("T2 item 11 repro: the ledger lost the original timing charge -> refused at refresh", _no(_g(ledger_path=lp)))
+check("T2 item 11: the trainer passes its --ledger to the refresh; mrv/guide.py (geometry check) is evidence code",
+      "start_step=_start0 if PROD else 0, ledger_path=a.ledger)" in _trs and "mrv/guide.py" in WP.EVIDENCE_FILES)
+check("T2 item 11: the forecast refuses a ledger other than the timing's", "is not the timing's ledger" in _fsrc and "ledger_path=os.path.normpath(a.ledger)" in _fsrc)
+# additional blocker: rehearsal inputs vs the trainer's manifest digest
+check("T2 extra repro: a rehearsal whose inputs were checked against sidecars only (no manifest digest) -> rehearsal rule FAILS",
+      "panel_rehearsal_byte_equal" in WP.retime_rules(_J(), FCP, CAN, (True, ""), {**RHP_, "inputs_manifest_sha": None})["failing"]
+      and "panel_rehearsal_byte_equal" in WP.retime_rules(_J(), FCP, CAN, (True, ""), {**RHP_, "inputs_manifest_sha": "OLD"})["failing"])
+_rol = open("scripts/wan_rollout.py").read(); _pan = open("scripts/wan_panel.py").read()
+check("T2 extra: rollout --manifest/--manifest_sha hash-on-load of enc / guide / token (+ sidecars); the rehearsal passes the trainer's digest",
+      '_pinned(f"{a.enc}/{sc}.pt")' in _rol and '_pinned(f"{a.guides}/{sc}.pt")' in _rol and '_pinned(f"{a.tokens}/{sc}.pt")' in _rol
+      and '--manifest_sha {a.manifest_sha[:12]' in _rol and 'MAN_ARGS[:] = ["--manifest", _TJ["manifest_path"], "--manifest_sha", _TJ["manifest_sha"]]' in _pan)
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

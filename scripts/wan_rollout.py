@@ -67,12 +67,14 @@ p.add_argument("--dtype", default="auto", choices=["auto", "bf16", "fp16"])
 p.add_argument("--ledger", default="runs/wan_s1_ledger.jsonl")
 p.add_argument("--allow_inert", action="store_true")
 p.add_argument("--shard", default="0/1")
+p.add_argument("--manifest", default="", help="data manifest: every guide / enc / token (+ sidecar) byte opened must equal it (hash on load)")
+p.add_argument("--manifest_sha", default="", help="required with --manifest: the sha256 the timing trainer recorded for it")
 p.add_argument("--plan", default="", help="json {\"runs\": [[args...], ...]}: render every run in this process, Wan loaded once (F3)")
 p.add_argument("--out", required=True)
 a = p.parse_args()
 OUTER = a
 RUNS = [a]
-PLAN_FIXED = ("ckpt", "dtype", "sd_lat", "lists", "enc", "guides", "tokens", "keys")
+PLAN_FIXED = ("ckpt", "dtype", "sd_lat", "lists", "enc", "guides", "tokens", "keys", "manifest", "manifest_sha")
 if a.plan:
     RUNS = [p.parse_args(list(r)) for r in json.load(open(a.plan))["runs"]]
     if not RUNS:
@@ -88,6 +90,12 @@ if a.plan:
 for r in RUNS:
     if r.split in ("decision", "final") and not r.unseal:
         raise SystemExit(f"{r.split} drives are sealed until recipe lock + N1 (--unseal)")
+MANI = None
+if a.manifest:  # Astra t2 additional blocker: inputs checked against the manifest digest the trainer recorded, not sidecars
+    _mraw = open(a.manifest, "rb").read()
+    if not a.manifest_sha or hashlib.sha256(_mraw).hexdigest() != a.manifest_sha:
+        raise SystemExit(f"{a.manifest}: sha256 {hashlib.sha256(_mraw).hexdigest()[:12]} != --manifest_sha {a.manifest_sha[:12] or '(none)'}")
+    MANI = json.loads(_mraw); del _mraw
 dev = "cuda"
 LEDGER = WP.Ledger(a.ledger, "rollout").start()
 DT = {"bf16": torch.bfloat16, "fp16": torch.float16}.get(a.dtype) or (torch.bfloat16 if torch.cuda.is_bf16_supported(including_emulation=False) else torch.float16)
@@ -163,7 +171,29 @@ def load_drive(sc):
     return _DRIVES[sc]
 
 
+def _pinned(path):
+    """the bytes of `path`, read ONCE; with --manifest they must hash to its manifest entry (the bytes parsed are the bytes hashed)"""
+    raw = open(path, "rb").read()
+    if MANI is not None:
+        e = MANI["files"].get(os.path.normpath(path))
+        if e is None or hashlib.sha256(raw).hexdigest() != e["sha256"]:
+            raise SystemExit(f"{path}: bytes differ from the manifest (or not in it): re-run verify_manifest / the timing")
+    return raw
+
+
 def _load_drive(sc):
+    if MANI is not None:  # every byte this drive's rendering reads equals the trainer's manifest
+        E = torch.load(io.BytesIO(_pinned(f"{a.enc}/{sc}.pt")), map_location="cpu", weights_only=False)
+        G = torch.load(io.BytesIO(_pinned(f"{a.guides}/{sc}.pt")), map_location="cpu", weights_only=False)
+        WC.check_guide(f"{a.guides}/{sc}.pt", G, json.loads(_pinned(f"{a.guides}/{sc}.json")), E["ticks"].tolist(), E["hard"].tolist(), sc, GV)
+        T = None
+        if USE_TOK:
+            sj = json.loads(_pinned(f"{a.tokens}/{sc}.json"))
+            if not sj.get("complete") or sj.get("guide_version") != GV or not sj.get("shared_pass_ok") or not sj.get("weights_sha"):
+                raise SystemExit(f"{a.tokens}/{sc}: token cache incomplete, without shared-depth evidence, or from another guide version")
+            T = torch.load(io.BytesIO(_pinned(f"{a.tokens}/{sc}.pt")), map_location="cpu", weights_only=False)
+            assert torch.equal(T["ticks"], E["ticks"]), f"{sc}: token ticks != enc ticks"
+        return {"E": E, "G": G, "T": T, "sc": sc, "src_lr": WC.src_lowres(G["src"])}
     E = torch.load(f"{a.enc}/{sc}.pt", map_location="cpu", weights_only=False)
     G = torch.load(f"{a.guides}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
     WC.check_guide(f"{a.guides}/{sc}.pt", G, json.load(open(f"{a.guides}/{sc}.json")), E["ticks"].tolist(), E["hard"].tolist(), sc, GV)
@@ -329,7 +359,8 @@ def render():
                    "recv_ok": E["ok"][:n].clone(), "recv_hard": E["hard"][:n].clone(),  # the receiver's own flags (post-swap common frames)
                    "train_dropout": {k: (ck.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")},
                    "code_sha": ck.get("code_sha"), "base_sha": ck.get("base_sha"), "batch": 1, **SETTINGS,
-                   "rgb_sha": hashlib.sha256(rgb.numpy().tobytes()).hexdigest(), "load_once": bool(OUTER.plan)}
+                   "rgb_sha": hashlib.sha256(rgb.numpy().tobytes()).hexdigest(), "load_once": bool(OUTER.plan),
+                   "inputs_manifest_sha": a.manifest_sha if MANI is not None else None}
             if sdv is not None:
                 t0 = time.time(); lats = []
                 with torch.no_grad():

@@ -179,6 +179,11 @@ if a.micro < 1 or a.batch % a.micro:
     raise SystemExit("--batch must be a multiple of --micro")
 if not a.manifest:  # F2: no job opens a byte that was not hashed (the CPU manifest + hash-on-copy)
     raise SystemExit("--manifest is required in every mode: run scripts/verify_manifest.py (CPU job) and pass its output")
+if os.environ.get("MRV_MANIFEST") and os.path.normpath(a.manifest) != os.path.normpath(os.environ["MRV_MANIFEST"]):
+    # Astra t2 item 9: slurm verified the geometry inputs against MRV_MANIFEST; a forwarded --manifest may not replace it
+    raise SystemExit(f"--manifest {a.manifest} differs from the job's manifest {os.environ['MRV_MANIFEST']} (forwarded override refused)")
+if a.timing:  # Astra t2 item 4: the exact declared sweep grid, validated before any slice time is spent
+    WP.check_sweep_declared([int(x) for x in a.timing_grad_ckpt.split(",")], [int(x) for x in a.timing_micro.split(",")])
 EVIDENCE_SHA = WP.evidence_sha()  # Astra t1 item 11: identity of every evidence-producing file (staging, forecast, rehearsal ...)
 TJ_PATH = a.timing_json or (sorted(glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
 TJ = None
@@ -198,7 +203,7 @@ if not a.timing:  # CONVERGED item 7: no overfit / resume test / production unle
     if PROD and os.path.exists(f"{a.out}/ckpt.pt"):
         _start0 = int(torch.load(f"{a.out}/ckpt.pt", map_location="cpu", weights_only=False, mmap=True)["step"])
     ok_rt, why_rt = WP.retime_gate(TJ, a.micro, a.grad_ckpt, evidence=EVIDENCE_SHA, used_h=LEDGER.hours(), done_kinds=_done,
-                                   start_step=_start0 if PROD else 0)
+                                   start_step=_start0 if PROD else 0, ledger_path=a.ledger)
     if not ok_rt:
         LEDGER.stop("failed")
         raise SystemExit(f"refused by the re-time rule ({TJ_PATH}): {why_rt}")
@@ -694,7 +699,8 @@ if a.timing and not a.overfit:
     rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "sweep": {},
            "sweep_declared": {"grad_ckpt": GCS, "micro": MBS}, "train_drives": len(TRAIN), "dev_drives": len(DEVL),
            "train_ids_sha": WP.ids_sha(TRAIN), "dev_ids_sha": WP.ids_sha(DEVL), "stage_drives": len(STAGE_DRIVES),
-           "explicit_setting": EXPLICIT, "gate_key_explicit": GATE_KEY, "manifest_sha": MANIFEST_SHA, "data_sha": DATA_SHA, "code_sha": CODE_SHA,
+           "explicit_setting": EXPLICIT, "gate_key_explicit": GATE_KEY, "manifest_sha": MANIFEST_SHA, "manifest_path": os.path.normpath(a.manifest),
+           "ledger_path": os.path.normpath(a.ledger), "data_sha": DATA_SHA, "code_sha": CODE_SHA,
            "evidence_sha": EVIDENCE_SHA, "stage": STAGE_REC, "job": os.environ.get("SLURM_JOB_ID"),
            "init_parity": {"pass": True, "diag": DIAG, "note": "check_parity raised otherwise; forward-only (no_grad): independent of micro / grad_ckpt"}}
     INIT_W = model.trainable_state(); INIT_OPT = copy.deepcopy(opt.state_dict())
@@ -876,20 +882,28 @@ if a.timing and not a.overfit:
     except Exception:  # noqa: BLE001
         AS = {}
     t_alloc = float(os.environ.get("MRV_ALLOC_T0") or 0) or None
-    from_alloc = bool(AS) and t_alloc is not None and AS.get("t0", 1e18) <= t_alloc + 60 and AS.get("n", 0) > 0
+    from_alloc = WP.sampler_valid(AS, os.environ.get("SLURM_JOB_ID")) and t_alloc is not None and AS.get("t0", 1e18) <= t_alloc + 60
     MR = WP.memory_rule([AS.get("peak"), AS.get("max_current"), CG["peak"], SAMP], MEM_REQUEST)
     rep["memory"] = {"rule": MR, "request_bytes": MEM_REQUEST, "alloc_sampler": AS, "sampled_from_allocation": from_alloc, "cgroup": CG,
+                     "alloc_sampler_path": os.environ.get("MRV_MEM_SAMPLE"),
+                     "note": "final peak (incl. the rehearsal) is set by scripts/wan_forecast.py inside the allocation (memory.final)",
                      "trainer_sampled_peak": SAMP, "staged_bytes": STAGE_BYTES, "need_bytes": WS.need_bytes(STAGE_BYTES),
                      "peak_le_85pct": MR["pass"], "peak_over_request": MR["ratio"]}
     print("TIMING memory", {k: v for k, v in rep["memory"].items() if k != "cgroup"}, flush=True)
+    # Astra t2 item 7: production's scorer-parity check (references, weights, record) is I/O paid at every production start
+    t = time.time()
+    try:
+        WP.score_parity_ok(a.parity_record, WP.score_binding(a.a_metrics, a.a_roll)); t_par = round(time.time() - t, 2); par_err = None
+    except Exception as e:  # noqa: BLE001
+        t_par, par_err = None, f"{type(e).__name__}: {e}"
     # (9) Astra t1 item 7: the selected recipe's production start components (timing-only steps excluded)
     pre = (T_PROC0 - t_alloc - float(os.environ.get("MRV_TIMING_ONLY_S") or 0.0)) if t_alloc else None
-    COMP = {"pre_trainer_s": round(pre, 1) if pre is not None else None, "process_to_ready_s": round(T_READY - T_PROC0, 1),
+    COMP = {"pre_trainer_s": round(pre, 1) if pre is not None else None, "process_to_ready_s": round(T_READY - T_PROC0, 1), "parity_check_s": t_par,
             "frozen_snapshot_s": round(t_snap, 2), "first_update_s": round(t_first, 2), "guard_verify_s": round(t_guard, 2),
             "first_probe_s": rep["probe_s"], "resume_load_s": round(t_resume, 2)}
     rep["startup"] = {**STARTUP, "components": COMP,
                       "startup_s": round(sum(COMP.values()), 1) if all(v is not None for v in COMP.values()) else None,
-                      "timing_only_excluded_s": float(os.environ.get("MRV_TIMING_ONLY_S") or 0.0)}
+                      "timing_only_excluded_s": float(os.environ.get("MRV_TIMING_ONLY_S") or 0.0), "parity_check_error": par_err}
     rep["startup_s"] = rep["startup"]["startup_s"]
     rem = a.budget_hours - LEDGER.hours() - a.reserve_hours
     ups = rem * 3600 / WALL_FC

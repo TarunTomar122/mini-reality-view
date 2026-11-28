@@ -41,6 +41,7 @@ mkdir -p $TMPDIR logs2
 PY=.venv/bin/python; MODE=${MODE:-timing}; J=${SLURM_JOB_ID:-manual}; LEDGER=runs/wan_s1_ledger.jsonl
 PANEL_WIN=${PANEL_WIN:-5}  # rollout window size of the S1 panels: the forecast prices it and train / extend reserve for it (S1e 4b)
 MANIFEST=${MANIFEST:-data/wan_manifest_v1.json}
+export MRV_MANIFEST=$MANIFEST  # Astra t2 item 9: the trainer refuses a forwarded --manifest that differs
 [ -n "$MICRO" ] && [ -n "$GRAD_CKPT" ] || { echo "MICRO=<n> and GRAD_CKPT=<0|1> must be exported explicitly (F5; e.g. --export=ALL,MODE=$MODE,MICRO=1,GRAD_CKPT=1)"; exit 2; }
 [ -s "$MANIFEST" ] || { echo "MANIFEST $MANIFEST missing: run scripts/verify_manifest.py (CPU job) first"; exit 2; }
 STAGE=/dev/shm/mrv_$J; GEOM=/dev/shm/mrv_${J}_geom
@@ -90,6 +91,7 @@ case $MODE in
     G0=$(date +%s.%N)  # timing-only steps (geometry) are excluded from the priced production start-up (Astra t1 item 7)
     DRV=$($PY -c "import json;print(sorted(json.load(open('data/temporal_lists.json'))['dev'])[0])"); echo $DRV > $O/one.txt
     # S1b item 1 + Astra t1 item 9: the pinned token-geometry check opens ONLY hashed copies of the guide / token files (manifest)
+    GEOM_MSHA=$(sha256sum $MANIFEST | cut -d' ' -f1)  # recorded; must equal the trainer's manifest sha (Astra t2 item 9)
     $PY -m mrv.wan_stage copy --manifest $MANIFEST --dst $GEOM data/guides_v1/$DRV.pt data/wan_tok_v1/$DRV.pt || { echo "TOKEN_GEOM inputs differ from the manifest"; exit 5; }
     TK=$($PY -c "import torch;g=torch.load('$GEOM/guides_v1/$DRV.pt',map_location='cpu',weights_only=False,mmap=True);t=[int(x) for x,h in zip(g['ticks'].tolist(),g['hard'].tolist()) if not h];print(t[len(t)//2])")
     $PY scripts/wan_token_check.py --scene $DRV --tick $TK --guides $GEOM/guides_v1 --tokens $GEOM/wan_tok_v1 --out $O/token_geom_${DRV}_t$TK \
@@ -103,7 +105,7 @@ case $MODE in
     REH=$?; echo "rehearsal rc=$REH"
     $PY - <<P || exit $?
 import json; j = json.load(open("$O/timing.json"))
-j["token_geometry"] = {"pass": True, "manifest_verified": True, "dir": "$O/token_geom_${DRV}_t$TK",
+j["token_geometry"] = {"pass": True, "manifest_verified": True, "manifest_sha": "$GEOM_MSHA", "dir": "$O/token_geom_${DRV}_t$TK",
                       "note": "wan_token_check.py exits 5 on failure (no timing); it read hash-on-copy staged guide / token files"}
 json.dump(j, open("$O/timing.json", "w"), indent=1)
 P

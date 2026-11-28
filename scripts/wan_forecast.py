@@ -34,8 +34,21 @@ p.add_argument("--score_parity", default="runs/wroll/score_parity_2080.json")
 p.add_argument("--a_metrics", default="runs/troll/m_A20k_indep_dev.json"); p.add_argument("--a_roll", default="runs/troll/A20k_indep_dev")
 p.add_argument("--overfit_score_tick_s", type=float, default=2.41,
                help="slice signed-scorer seconds / tick for the overfit verdict's segmentation (measured in timing 3756964)")
+p.add_argument("--canon", default=WP.CANON_LISTS, help="canonical lists (data/temporal_lists.json); tests point it at a fixture")
 a = p.parse_args()
 J = json.load(open(f"{a.timing_dir}/timing.json"))
+# Astra t2 item 3: the forecast's own train / dev IDs must be EXACTLY the canonical 144 + 6 BEFORE any encoding is read (six
+# shorter substitute dev drives would underprice the panel)
+CANON = json.load(open(a.canon))
+L_ = json.load(open(a.lists))
+_ok_l, _why_l = WP.check_lists(list(L_["train"]), list(L_["dev"]), CANON, "full")
+if not _ok_l:
+    raise SystemExit(f"forecast lists {a.lists} refused (not the canonical {a.canon}): {_why_l}")
+# Astra t2 item 11: the forecast reads THE ledger the timing charged; a missing ledger is an error, never zero spend
+if J.get("ledger_path") and os.path.normpath(a.ledger) != os.path.normpath(J["ledger_path"]):
+    raise SystemExit(f"--ledger {a.ledger} is not the timing's ledger {J['ledger_path']}: refused")
+if not os.path.exists(a.ledger):
+    raise SystemExit(f"S1 ledger {a.ledger} missing: refused (spend cannot be read)")
 RHP = a.rehearsal or f"{a.timing_dir}/rehearsal/rehearsal.json"
 RH = json.load(open(RHP)) if os.path.exists(RHP) else None
 if RH is None:
@@ -45,9 +58,7 @@ if RH.get("window_latents") != a.window_latents:  # Astra S1f 4b: rates measured
                      f"(re-run MODE=timing with PANEL_WIN={a.window_latents})")
 import torch  # after the width guard (CPU tests run the guard without torch)
 roll_tick, load_s = float(RH["roll_tick_s"]), float(RH["load_s"])
-L_ = json.load(open(a.lists))
-CANON = json.load(open(WP.CANON_LISTS))  # Astra t1 item 3: the rule compares the timing's IDs with the canonical lists
-dev = L_["dev"]
+dev = list(CANON["dev"])  # list order = the conventional donor pairing order (wan_swap_preflight.py)
 _drv = {}
 for d in dev:
     E_ = torch.load(f"{a.enc}/{d}.pt", map_location="cpu", weights_only=False, mmap=True)
@@ -59,8 +70,6 @@ PLAN = WP.plan_donors(_drv, a.window_latents, a.swap_at, lambda sc, t: os.path.e
 plan_ok = bool(PLAN["ok"] and len(PLAN["donors"]) == 6)
 panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s)
 panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"]) if plan_ok else None
-if not os.path.exists(a.ledger):  # Astra t1 item 5: a missing ledger is never zero spend
-    raise SystemExit(f"S1 ledger {a.ledger} missing: refused (spend cannot be read)")
 L = WP.Ledger(a.ledger, "forecast", write=False)
 kinds = L.by_kind()
 LE = WP.ledger_evidence(WP.Ledger.read(a.ledger), J.get("job"))
@@ -96,14 +105,20 @@ if os.path.exists(a.score_parity):
                  "score_cap_h_per_panel": round(WP.score_cap_h(2 * dev_ticks, float(PR["score_tick_s"])), 3),
                  "note": "2080 Ti hours, own ledger runs/wan_score_ledger.jsonl; not slice hours"}
 fc.update(inputs={k: (sorted(v) if isinstance(v, set) else v) for k, v in t.items()}, n_panels=a.n_panels, two_panels=two,
-          dev_ticks=dev_ticks, panel_h=round(panel_h, 3) if panel_h is not None else None, panel_plan_complete=panel_h is not None,
+          dev_ticks=dev_ticks, panel_h=panel_h, panel_plan_complete=panel_h is not None,
           panel_cost_basis="render_only_load_once", shared_ref_start_s=0.0, gate_key=GK,
           panel_settings={"window_latents": a.window_latents, "swap_at": a.swap_at}, rollout_window_latents=RH["window_latents"],
-          panel_base_h=round(panel_base_h, 3), panel_h_total=round(panel_h, 3) if panel_h is not None else None,
+          panel_base_h=panel_base_h, panel_h_total=panel_h,  # Astra t2 item 5: full precision, the SAME value as inputs.panel_h
           donor_plan=PLAN["donors"], donor_plan_ok=plan_ok, startup_s=round(startup, 1), startup_info=st_info,
           timing_train_drives=J.get("train_drives"), prod_train_drives=prod_train, roll_tick_s=round(roll_tick, 4), roll_start_s=round(load_s, 1),
           rehearsal=RHP, wall_basis=J["production_loop"].get("basis"), wall_detail={k: J["production_loop"].get(k) for k in ("full_run_mean", "last_two_blocks")},
-          scoring=score, ledger_by_kind=kinds, ledger_evidence=LE, evidence_sha=WP.evidence_sha())
+          scoring=score, ledger_by_kind=kinds, ledger_evidence=LE, evidence_sha=WP.evidence_sha(), ledger_path=os.path.normpath(a.ledger))
+# Astra t2 item 8: finalise the allocation peak AFTER the rehearsal (the slurm sampler keeps running through it); a later CPU
+# re-run of this script keeps the stored final value
+_asp = os.environ.get("MRV_MEM_SAMPLE") or (J.get("memory") or {}).get("alloc_sampler_path")
+if _asp and os.path.exists(_asp) and os.environ.get("SLURM_JOB_ID") == str(J.get("job")):
+    _AS = json.load(open(_asp))
+    J.setdefault("memory", {})["final"] = WP.memory_final(J.get("memory") or {}, _AS, os.path.getmtime(RHP), J.get("job"))
 try:
     SP = WP.score_parity_ok(a.score_parity, WP.score_binding(a.a_metrics, a.a_roll))
 except Exception as e:  # noqa: BLE001

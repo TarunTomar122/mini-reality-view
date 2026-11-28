@@ -803,7 +803,9 @@ def delta_check(rows, rtol=DELTA_RTOL, zero_abs=DELTA_ZERO_ABS):
 def select_setting(fits, match):
     """fastest fitting (grad_ckpt, micro) setting whose matched-update rows are ok (scalar AND per-tensor delta check) ->
     {"key", "micro", "grad_ckpt", "gpu_s"} or None"""
-    ok = [k for k in fits if (match.get("rows") or {}).get(k, {}).get("ok")]
+    grid = {f"gc{g}_m{m}" for g in SWEEP_GC for m in SWEEP_MICRO}  # Astra t2 item 4: never a cell outside the declared grid
+    ok = [k for k in fits if k in grid and int(fits[k].get("grad_ckpt", -1)) in SWEEP_GC and int(fits[k].get("micro", -1)) in SWEEP_MICRO
+          and (match.get("rows") or {}).get(k, {}).get("ok")]
     if not ok:
         return None
     k = min(ok, key=lambda x: (fits[x]["gpu_s"], -fits[x]["grad_ckpt"], fits[x]["micro"]))
@@ -822,10 +824,10 @@ N_TRAIN, N_DEV = 144, 6     # Astra t1 item 3: the production lists, exactly
 CANON_LISTS = "data/temporal_lists.json"
 SENS_STEP = 32              # Astra t1 item 1: positive input sensitivity is required after exactly this many optimizer steps
 BUDGET_H, JOB_H = 24.0, 12.0
-STARTUP_PARTS = ("pre_trainer_s", "process_to_ready_s", "frozen_snapshot_s", "first_update_s", "guard_verify_s", "first_probe_s",
-                 "resume_load_s")
+STARTUP_PARTS = ("pre_trainer_s", "process_to_ready_s", "parity_check_s", "frozen_snapshot_s", "first_update_s", "guard_verify_s",
+                 "first_probe_s", "resume_load_s")  # parity_check_s: production's scorer-parity binding I/O per start (Astra t2 item 7)
 EVIDENCE_FILES = ("scripts/train_wan_teacher.py", "mrv/wan_cond.py", "mrv/wan_plan.py", "mrv/wan_stage.py", "scripts/wan_forecast.py",
-                  "scripts/wan_panel.py", "scripts/wan_rollout.py", "scripts/wan_token_check.py", "slurm/wan_teacher.sh")
+                  "scripts/wan_panel.py", "scripts/wan_rollout.py", "scripts/wan_token_check.py", "slurm/wan_teacher.sh", "mrv/guide.py")
 
 
 def ids_sha(ids):
@@ -890,6 +892,9 @@ def sweep_complete(sweep, gcs=SWEEP_GC, micros=SWEEP_MICRO):
     """Astra t1 item 4: every declared (grad_ckpt, micro) cell is measured, an OOM (with its message), or explicitly skipped
     after an OOM at a SMALLER micro of the same grad_ckpt -> (ok, missing)"""
     miss = []
+    extra = sorted(set(sweep or {}) - {f"gc{g}_m{m}" for g in gcs for m in micros})
+    if extra:  # Astra t2 item 4: exactly the declared grid, no extra cells
+        miss.append(f"cells outside the declared grid: {extra}")
     for gc in gcs:
         for mb in micros:
             c = (sweep or {}).get(f"gc{gc}_m{mb}")
@@ -904,6 +909,12 @@ def sweep_complete(sweep, gcs=SWEEP_GC, micros=SWEEP_MICRO):
                 continue
             miss.append(f"gc{gc}_m{mb}: no measurement / OOM evidence")
     return not miss, miss
+
+
+def check_sweep_declared(gcs, micros):
+    """Astra t2 item 4: the timing sweep must be EXACTLY grad_ckpt {1, 0} x micro {1, 2, 4, 8}, validated before it runs"""
+    if list(gcs) != list(SWEEP_GC) or list(micros) != list(SWEEP_MICRO):
+        raise SystemExit(f"timing sweep must be exactly grad_ckpt {list(SWEEP_GC)} x micro {list(SWEEP_MICRO)}: got {list(gcs)} x {list(micros)}")
 
 
 def blocks_ok(pl, block=RETIME_BLOCK):
@@ -944,11 +955,33 @@ def evidence_sha(root="."):
     return h.hexdigest()[:16]
 
 
-def ledger_evidence(jobs, this_job):
-    """Astra t1 item 5: the S1 ledger must hold BOTH timing allocations (the first timing and this re-time) -> dict"""
+ORIGINAL_TIMING_JOB = "3756964"  # the first S1 timing allocation, charged to the ledger (council/s1-timing-r1.md)
+
+
+def ledger_evidence(jobs, this_job, original=ORIGINAL_TIMING_JOB):
+    """Astra t1 item 5 / t2 item 5: the S1 ledger must hold BOTH timing allocations: the charged ORIGINAL timing (3756964, not
+    any earlier id) and this re-time -> dict"""
     tj = sorted({j.split("-")[1] for j, v in jobs.items() if v.get("kind") == "alloc_timing" and j.startswith("alloc-")})
-    return {"timing_allocations": tj, "this_job": this_job, "this_job_charged": bool(this_job) and str(this_job) in tj,
-            "ok": len(tj) >= 2 and bool(this_job) and str(this_job) in tj}
+    return {"timing_allocations": tj, "this_job": this_job, "original": original, "original_charged": original in tj,
+            "this_job_charged": bool(this_job) and str(this_job) in tj,
+            "ok": original in tj and bool(this_job) and str(this_job) in tj and str(this_job) != original}
+
+
+def sampler_valid(AS, this_job=None):
+    """Astra t2 item 8: an allocation sampler record counts only with >= 1 VALID job-level read (memory.peak or memory.current
+    of a job_<id> cgroup) of this job"""
+    return bool(AS) and int(AS.get("n_valid", 0)) > 0 and "job_" in str(AS.get("dir") or "") and (this_job is None or str(AS.get("job")) == str(this_job))
+
+
+def memory_final(mem, AS, rehearsal_end_t, this_job=None):
+    """Astra t2 item 8: the allocation peak is finalised only AFTER the rehearsal: the trainer's peaks + the job-level allocation
+    sampler read after the rehearsal ended, over the Slurm request -> {"rule", "includes_rehearsal", "sampler_valid"}"""
+    ok_s = sampler_valid(AS, this_job)
+    tr = mem.get("rule") or {}
+    peaks = [tr.get("peak")] + ([AS.get("peak"), AS.get("max_current")] if ok_s else [])
+    r = memory_rule(peaks, mem.get("request_bytes"))
+    inc = bool(ok_s and rehearsal_end_t is not None and float(AS.get("t", 0)) >= float(rehearsal_end_t))
+    return {"rule": r, "includes_rehearsal": inc, "sampler_valid": ok_s, "pass": bool(r["pass"] is True and inc)}
 
 
 def memory_rule(peaks, request, frac=None):
@@ -998,24 +1031,29 @@ def retime_rules(J, fc, canon, score_parity, rehearsal, token_geom=None):
     tg = token_geom if token_geom is not None else J.get("token_geometry")
     ii, es = J.get("init_inertness") or {}, J.get("early_sensitivity") or {}
     R["gates_final_recipe"] = {"pass": bool((tg or {}).get("pass") and (tg or {}).get("manifest_verified") and (J.get("init_parity") or {}).get("pass")
+                                            and (tg or {}).get("manifest_sha") and (tg or {}).get("manifest_sha") == J.get("manifest_sha")
                                             and ii.get("pass") and ii.get("opt_step") == 0 and es.get("pass") and es.get("opt_step") == SENS_STEP
                                             and es.get("micro") == sel.get("micro") and es.get("grad_ckpt") == sel.get("grad_ckpt")),
                                "token_geometry": (tg or {}).get("pass"), "geometry_inputs_hashed": (tg or {}).get("manifest_verified"),
+                               "geometry_manifest_sha": (tg or {}).get("manifest_sha"), "trainer_manifest_sha": J.get("manifest_sha"),
                                "init_parity": (J.get("init_parity") or {}).get("pass"), "init_inert": ii.get("pass"), "init_opt_step": ii.get("opt_step"),
                                "sensitivity": es.get("pass"), "sensitivity_opt_step": es.get("opt_step"), "required_step": SENS_STEP}
     R["staged_hashes_eq_manifest"] = {"pass": bool(st.get("hash_equals_manifest") and not st.get("mismatches")),
                                       "files": st.get("total_files"), "bytes": st.get("total_bytes"), "manifest_sha": J.get("manifest_sha")}
     sv = J.get("staged_vs_lustre") or {}
     R["staged_batches_byte_equal_lustre"] = {"pass": bool(sv.get("all_equal") and (sv.get("batches") or 0) >= 8), "batches": sv.get("batches")}
-    mr = mem.get("rule") if isinstance(mem.get("rule"), dict) else {}
-    R["peak_memory_le_85pct_of_request"] = {**mr, "pass": mr.get("pass") is True and bool(mem.get("sampled_from_allocation")),
-                                            "sampled_from_allocation": mem.get("sampled_from_allocation")}
+    mf = mem.get("final") if isinstance(mem.get("final"), dict) else {}
+    R["peak_memory_le_85pct_of_request"] = {**(mf.get("rule") or {}), "pass": mf.get("pass") is True and mf.get("includes_rehearsal") is True
+                                            and mf.get("sampler_valid") is True, "includes_rehearsal": mf.get("includes_rehearsal"),
+                                            "sampler_valid": mf.get("sampler_valid")}
     sp_ok, sp_why = score_parity if score_parity else (False, "not checked")
     R["scorer_parity_off_slice"] = {"pass": bool(sp_ok), "why": sp_why}
     R["six_valid_donors"] = {"pass": bool(fc.get("donor_plan_ok")), "receivers": len(fc.get("donor_plan") or {})}
     rh = rehearsal or {}
     R["panel_rehearsal_byte_equal"] = {"pass": bool(rh.get("pass") and rh.get("fresh_all_ticks") and rh.get("ckpt_sha")
-                                                    and rh.get("ckpt_sha") == J.get("ckpt_sha16")),
+                                                    and rh.get("ckpt_sha") == J.get("ckpt_sha16")
+                                                    and rh.get("inputs_manifest_sha") and rh.get("inputs_manifest_sha") == J.get("manifest_sha")),
+                                       "inputs_manifest_sha": rh.get("inputs_manifest_sha"),
                                        "why": rh.get("why", "no rehearsal record"), "ckpt_sha": rh.get("ckpt_sha"), "timing_ckpt_sha": J.get("ckpt_sha16"),
                                        "fresh_all_ticks": rh.get("fresh_all_ticks")}
     inp = fc.get("inputs") or {}
@@ -1060,7 +1098,7 @@ def refresh_forecast(fc, used_h, done_kinds, start_step=0):
     return (start_step + r["updates"]) >= need, r
 
 
-def retime_gate(tj, micro, grad_ckpt, evidence=None, used_h=None, done_kinds=(), start_step=0):
+def retime_gate(tj, micro, grad_ckpt, evidence=None, used_h=None, done_kinds=(), start_step=0, ledger_path=None, ledger_jobs=None):
     """overfit / resume test / train / extend precondition -> (ok, why): the newest re-time passed every rule, selected exactly
     this (micro, grad_ckpt), was produced by the CURRENT evidence code, and its forecast still holds against the actual ledger"""
     sel = (tj or {}).get("selected_setting")
@@ -1073,6 +1111,15 @@ def retime_gate(tj, micro, grad_ckpt, evidence=None, used_h=None, done_kinds=(),
         return False, f"re-time rule failed: {rp.get('failing') or 'no retime_pass block (run scripts/wan_forecast.py)'}"
     if evidence is not None and (tj.get("evidence_sha") != evidence or (tj.get("forecast_final") or {}).get("evidence_sha") != evidence):
         return False, f"evidence code changed since the re-time ({tj.get('evidence_sha')} -> {evidence}): re-run MODE=timing"
+    if ledger_path is not None:  # Astra t2 item 11: the refresh reads THE timing's ledger, which must exist and hold both charges
+        fl = (tj.get("forecast_final") or {}).get("ledger_path")
+        if not fl or os.path.normpath(ledger_path) != os.path.normpath(fl):
+            return False, f"--ledger {ledger_path} is not the ledger the re-time was forecast on ({fl})"
+        if not os.path.exists(ledger_path):
+            return False, f"ledger {ledger_path} missing: spend unreadable (never zero)"
+        le = ledger_evidence(ledger_jobs if ledger_jobs is not None else Ledger.read(ledger_path), tj.get("job"))
+        if not le["ok"]:
+            return False, f"ledger does not hold both timing charges at refresh: {le}"
     if used_h is not None:
         ok, r = refresh_forecast(tj.get("forecast_final") or {}, used_h, done_kinds, start_step)
         if not ok:
@@ -1088,7 +1135,7 @@ ROLLOUT_FLAGS = {"unseal", "swap", "mp4", "mp4_keys", "allow_inert"}
 ROLLOUT_TYPES = {"steps": int, "shift": float, "cfg": float, "window_latents": int, "max_ticks": int, "swap_at": int, "sd_lat": int}
 ROLLOUT_OPTIONS = ["ckpt", "split", "unseal", "lists", "enc", "guides", "tokens", "keys", "seeds", "drive_list", "steps", "sampler",
                    "shift", "cfg", "cond", "window_latents", "max_ticks", "swap", "swap_at", "donors", "sd_lat", "mp4", "mp4_keys",
-                   "dtype", "ledger", "allow_inert", "shard", "plan", "out"]
+                   "dtype", "ledger", "allow_inert", "shard", "manifest", "manifest_sha", "plan", "out"]
 ROLLOUT_EXTRA_ALLOWED = {"steps", "sampler", "shift", "cfg", "window_latents", "sd_lat", "mp4", "mp4_keys", "dtype"}
 
 

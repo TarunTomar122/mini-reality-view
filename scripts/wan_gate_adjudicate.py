@@ -45,6 +45,10 @@ def sha256_file(p):
     return h.hexdigest()
 
 
+def isint(x):
+    return isinstance(x, int) and not isinstance(x, bool)
+
+
 def fin(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
@@ -85,6 +89,8 @@ def adjudicate(run_dir, gates, job, gate_key, freeze, self_sha=None):
         O = json.load(open(oj))
     except Exception as e:  # noqa: BLE001
         return False, why + [f"overfit.json unreadable ({type(e).__name__})"], None
+    if not isinstance(O, dict):  # Neon fix 3: shape guard
+        return False, why + ["overfit.json is not a JSON object"], None
     # ---- identity
     if not str(O.get("status", "")).startswith("NOT_REACHED") or O.get("PASS") is not False:
         why.append(f"overfit.json verdict {O.get('status')!r} / PASS {O.get('PASS')!r} is not the NOT_REACHED exit")
@@ -92,24 +98,30 @@ def adjudicate(run_dir, gates, job, gate_key, freeze, self_sha=None):
         why.append(f"read at update {O.get('updates')} (declared {O.get('declared_updates')}), not {UPDATES}")
     if O.get("gate_key") != gate_key:
         why.append(f"overfit.json gate_key {O.get('gate_key')} != {gate_key}")
-    if O.get("prior_not_reached") != 0:
+    if not isint(O.get("prior_not_reached")) or O.get("prior_not_reached") != 0:  # Neon fix 3: bool is not an int here
         why.append(f"prior_not_reached {O.get('prior_not_reached')} != 0 (not the first NOT_REACHED)")
     clips = O.get("clips")
     if not (isinstance(clips, list) and len(clips) == CLIPS and len({json.dumps(c) for c in clips}) == CLIPS):
         why.append(f"not {CLIPS} distinct signed clips")
+    # Neon fix 2: the verdict booleans must be those of a genuine NOT_REACHED with passing placement
+    if O.get("loss_pass") is not False or O.get("f1_pass") is not True or O.get("roundtrip_positive") is not True:
+        why.append(f"verdict flags loss_pass {O.get('loss_pass')!r} / f1_pass {O.get('f1_pass')!r} / roundtrip_positive {O.get('roundtrip_positive')!r} inconsistent with the rule")
     for k, v in SIGNED.items():
         if O.get(k) != v:
             why.append(f"{k} {O.get(k)} != signed {v}")
     # ---- wiring (F1s re-derived from the counts)
-    cnt = O.get("counts") or {}
-    ok_c = all(isinstance(cnt.get(n), list) and len(cnt[n]) == 3 and all(isinstance(x, int) and x >= 0 for x in cnt[n]) for n in ("sample", "roundtrip", "none"))
-    hy, rt, no = O.get("car_f1_sample"), O.get("car_f1_roundtrip"), (O.get("car_f1_controls") or {}).get("none")
-    if not ok_c or not all(fin(x) for x in (hy, rt, no)):
+    cnt = O.get("counts")
+    ctl = O.get("car_f1_controls")
+    ok_c = isinstance(cnt, dict) and isinstance(ctl, dict) and all(  # Neon fixes 1 / 3: tokens_only too; bool is not an int
+        isinstance(cnt.get(n), list) and len(cnt[n]) == 3 and all(isint(x) and x >= 0 for x in cnt[n]) for n in ("sample", "roundtrip", "tokens_only", "none"))
+    hy, rt = O.get("car_f1_sample"), O.get("car_f1_roundtrip")
+    no, to = (ctl.get("none"), ctl.get("tokens_only")) if isinstance(ctl, dict) else (None, None)
+    if not ok_c or not all(fin(x) for x in (hy, rt, no, to)):
         why.append("car counts / F1s missing or non-finite")
     else:
         if (O.get("car_f1_controls") or {}).get("hybrid") != hy:
             why.append("car_f1_controls.hybrid != car_f1_sample")
-        for nm, val in (("sample", hy), ("roundtrip", rt), ("none", no)):
+        for nm, val in (("sample", hy), ("roundtrip", rt), ("tokens_only", to), ("none", no)):
             if abs(f1_of(cnt[nm]) - val) > 1e-12:
                 why.append(f"{nm} car F1 {val} != F1 of its counts {f1_of(cnt[nm])}")
         if cnt["roundtrip"][0] + cnt["roundtrip"][2] <= 0:
@@ -126,7 +138,7 @@ def adjudicate(run_dir, gates, job, gate_key, freeze, self_sha=None):
     H = {}
     if isinstance(hist, list):
         for e in hist:
-            if isinstance(e, list) and len(e) == 2 and isinstance(e[0], int) and fin(e[1]):
+            if isinstance(e, list) and len(e) == 2 and isint(e[0]) and fin(e[1]):
                 if e[0] in H and H[e[0]] != e[1]:
                     why.append(f"eval_history has two values for update {e[0]}")
                 H[e[0]] = e[1]
@@ -152,7 +164,7 @@ def adjudicate(run_dir, gates, job, gate_key, freeze, self_sha=None):
                 why.append(f"eval loss not strictly decreasing {s0} -> {s1} ({H[s0]} -> {H[s1]})")
     logm = {}
     for r in records(lj):
-        if "overfit_eval" in r and isinstance(r.get("update"), int) and fin(r.get("mean")):
+        if "overfit_eval" in r and isint(r.get("update")) and fin(r.get("mean")):
             logm.setdefault(r["update"], []).append(r["mean"])
     for s in (0,) + TAIL:
         if s in H and not any(abs(round(H[s], 5) - m) <= 1.5e-5 for m in logm.get(s, [])):
@@ -187,7 +199,7 @@ def append_once(gates, rec):
     """append ONE line; existing bytes must be unchanged afterwards (checked)"""
     before = open(gates, "rb").read()
     with open(gates, "a") as f:
-        f.write("\n" + json.dumps({**rec, "time": time.time()}) + "\n")
+        f.write("\n" + json.dumps({**rec, "time": time.time()}, allow_nan=False) + "\n")  # Neon fix 1: never write NaN / Infinity
     after = open(gates, "rb").read()
     if not after.startswith(before):
         raise SystemExit("gates.jsonl changed underneath the append: inspect it")

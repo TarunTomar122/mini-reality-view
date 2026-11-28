@@ -1268,12 +1268,32 @@ for nm_, kw_, want in (
         ("refusal: an earlier NOT_REACHED for the same key (not the first)",
          {"gates_extra": [{"kind": "overfit", "gate_key": GK_A, "status": "NOT_REACHED (x)", "job": "3750000", "out": "runs/old"}]}, 1),
         ("refusal: an overfit PASS already exists for the key", {"gates_extra": [{"kind": "overfit", "gate_key": GK_A, "status": "PASS", "job": "3750001"}]}, 1),
-        ("refusal: adjudicator sha not pinned (Neon has not verified it)", {"pin": False}, 1)):
+        ("refusal: adjudicator sha not pinned (Neon has not verified it)", {"pin": False}, 1),
+        # Neon verification fixes (council/adjudicator-verify-neon.md)
+        ("Neon fix 1: NaN tokens_only F1 in both overfit.json and the registry refused", {"car_f1_controls": {"hybrid": 0.4, "tokens_only": float("nan"), "none": 0.37}}, 1),
+        ("Neon fix 1: Infinity tokens_only F1 refused", {"car_f1_controls": {"hybrid": 0.4, "tokens_only": float("inf"), "none": 0.37}}, 1),
+        ("Neon fix 1: tokens_only F1 inconsistent with its counts refused", {"car_f1_controls": {"hybrid": 0.4, "tokens_only": 0.99, "none": 0.37}}, 1),
+        ("Neon fix 2: loss_pass True refused", {"loss_pass": True}, 1),
+        ("Neon fix 2: f1_pass False refused", {"f1_pass": False}, 1),
+        ("Neon fix 2: roundtrip_positive False refused", {"roundtrip_positive": False}, 1),
+        ("Neon fix 3: prior_not_reached False (bool) refused", {"prior_not_reached": False}, 1),
+        ("Neon fix 3: boolean counts refused", {"counts": {"sample": [2, 3, 3], "roundtrip": [1, 1, 1], "tokens_only": [True, True, True], "none": [37, 63, 63]}}, 1),
+        ("Neon fix 3: boolean eval_history update refused", {"hist": [[False, 1.0]] + [[s, 1.0 - s / 4000] for s in range(100, 2001, 100)]}, 1)):
     with _tf.TemporaryDirectory() as td:
         with _cl.redirect_stdout(_io.StringIO()):
             rc_, run_, gp_, _ = _adj(td, **kw_)
         n_adj = sum(1 for l in open(gp_) if '"adjudicated": true' in l)
     check(f"adjudicator {nm_}", rc_ == want and n_adj == (1 if want == 0 else 0), (rc_, n_adj))
+with _tf.TemporaryDirectory() as td:  # Neon fix 3: non-dict overfit.json is refused, not a crash
+    run_, gp_, fz_ = _adj_fixture(td); json.dump([], open(f"{run_}/overfit.json", "w"))
+    with _cl.redirect_stdout(_io.StringIO()):
+        try:
+            rc_ = ADJ.main(["--run_dir", run_, "--gates", gp_, "--job", "3757187", "--gate_key", GK_A, "--freeze", fz_]); crash_ = False
+        except Exception:  # noqa: BLE001
+            rc_, crash_ = None, True
+    check("adjudicator Neon fix 3: a non-dict overfit.json is refused without a crash, nothing appended",
+          not crash_ and rc_ != 0 and sum(1 for l in open(gp_) if '"adjudicated": true' in l) == 0, (rc_, crash_))
+check("adjudicator Neon fix 1: the appended line is written with allow_nan=False", "allow_nan=False" in open("scripts/wan_gate_adjudicate.py").read())
 for nm_, job_, key_ in (("wrong job 3757188", "3757188", GK_A), ("wrong gate key", "3757187", "ffffffffffffffff")):
     with _tf.TemporaryDirectory() as td:
         with _cl.redirect_stdout(_io.StringIO()):

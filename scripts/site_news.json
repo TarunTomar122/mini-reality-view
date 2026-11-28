@@ -86,5 +86,13 @@
  {
   "when": "26 Nov, 04:15",
   "text": "The Stable Diffusion renderer finished 40,000 steps on the old, messy keys: photo-like streets, but car placement stopped improving after 20,000 steps."
+ },
+ {
+  "when": "28 Nov, 00:25",
+  "text": "The first live video model finished 16,000 steps: it was jumpier than A at every check (16k: +58% car jumps, +15% wobble), so it did not pass. Car accuracy stayed just inside its limit and drift was near zero. That triggers the fix agreed in advance: train it again with private noise for every frame."
+ },
+ {
+  "when": "28 Nov, 00:54",
+  "text": "The private-noise version started training after all tests passed and Astra signed the launch code (on the sixth review; each earlier one found a real hole). It trains to 12k, pauses while 12k is scored, and continues to 16k only if the safety bars allow."
  }
 ]

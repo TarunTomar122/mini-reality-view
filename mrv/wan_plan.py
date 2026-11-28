@@ -87,14 +87,15 @@ def overfit_status(loss_ok, f1_ok, rt_ok, f1_hybrid, f1_none, hist, prior_not_re
 
 
 # ------------------------------------------------------------------------------------------------------------ gate registry
-GATE_RECIPE_KEYS = ("rank", "tok_ticks", "use_tokens", "shift", "sigma_dist", "lr", "warmup", "prompt_embed", "wan", "batch")
+GATE_RECIPE_KEYS = ("rank", "tok_ticks", "use_tokens", "shift", "sigma_dist", "lr", "warmup", "prompt_embed", "wan", "batch",
+                    "micro", "grad_ckpt")  # F5 (CONVERGED item 5): micro / grad_ckpt explicit and recorded
 
 
-def gate_key(code_sha, recipe, base_sha, vae_sha, guide_version):
-    """identity a gate verdict is bound to: trainer code, model recipe, frozen base, VAE, guide version. Data lists / caches /
-    dropout / steps are excluded on purpose (the gates may run on the 48 S0c drives with dropout off)."""
+def gate_key(code_sha, recipe, base_sha, vae_sha, guide_version, manifest_sha=None):
+    """identity a gate verdict is bound to: trainer code, model recipe (incl. micro / grad_ckpt), frozen base, VAE, guide version
+    and the data manifest sha (CONVERGED item 3: the verified manifest of train + dev). Lists / dropout / steps are excluded."""
     blob = json.dumps({"code_sha": code_sha, "recipe": {k: recipe.get(k) for k in GATE_RECIPE_KEYS}, "base_sha": base_sha,
-                       "vae_sha": vae_sha, "guide_version": guide_version}, sort_keys=True, default=str)
+                       "vae_sha": vae_sha, "guide_version": guide_version, "manifest_sha": manifest_sha}, sort_keys=True, default=str)
     import hashlib
     return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
@@ -481,6 +482,53 @@ def parity_ok(record_path, binding):
     return bool(r.get("pass")) and r.get("binding") == binding
 
 
+SCORE_DEVICE = "2080 Ti"  # CONVERGED item 4: signed scoring moves off the slice to the 2080 Ti queue (where A@20k was scored)
+
+
+def score_binding(a_metrics, a_roll):
+    """the 2080 Ti scorer-parity binding: the A@20k replay binding (references, adapter, signed scorer, SD VAE weights) + the
+    scoring wrapper code (scripts/wan_score.py); the device is recorded beside it and checked by score_parity_ok"""
+    b = parity_binding(a_metrics, a_roll)
+    b["wan_score"] = _sha_file("scripts/wan_score.py")
+    return b
+
+
+def score_parity_ok(record_path, binding, device_sub=SCORE_DEVICE):
+    """-> (ok, why). The off-slice scorer parity record (scripts/wan_score.py --parity_check) must: exist, have the A@20k replay
+    PASS on the device, sharded == unsharded on the same inputs (same accepted ticks, same metrics), every part on ONE device
+    whose name contains device_sub, and exactly this binding (references / adapter / scorer / SD VAE weights / wrapper code)."""
+    if not record_path or not os.path.exists(record_path):
+        return False, "no scorer-parity record"
+    r = json.load(open(record_path))
+    why = []
+    if not r.get("replay_pass"):
+        why.append("A@20k replay parity not PASS")
+    if not r.get("sharded_equal"):
+        why.append("sharded != unsharded")
+    if device_sub not in str(r.get("device", "")):
+        why.append(f"device {r.get('device')!r} is not a {device_sub}")
+    if r.get("binding") != binding:
+        diff = sorted(k for k in set(binding) | set(r.get("binding") or {}) if (r.get("binding") or {}).get(k) != binding.get(k))
+        why.append(f"binding changed: {diff}")
+    if not r.get("pass"):
+        why.append("record pass is false")
+    return not why, "; ".join(why) or "ok"
+
+
+def score_binding_matches(part, rec):
+    """a scoring output (score_rgb.py "binding") is admissible for a panel decision only if it was produced on the parity record's
+    device with the parity record's scorer / adapter / SD VAE weights -> (ok, why)"""
+    b = (part or {}).get("binding") or {}
+    rb = rec.get("binding") or {}
+    why = []
+    if b.get("device") != rec.get("device"):
+        why.append(f"device {b.get('device')!r} != parity device {rec.get('device')!r}")
+    for k in ("score_rgb", "temporal_metrics", "sd_vae"):
+        if b.get(k) != rb.get(k):
+            why.append(f"{k} differs from the parity record")
+    return not why, "; ".join(why) or "ok"
+
+
 # ------------------------------------------------------------------------------------------------------------ forecast
 def forecast_s1(t):
     """updates S1 training can still buy (S1b item 5). t: dict with
@@ -508,12 +556,196 @@ def forecast_s1(t):
             "max_s_per_update_for_12k": round(max(0.0, avail_train) * 3600 / FLOOR_UPDATES, 3)}
 
 
+def panel_render_h(dev_ticks_x_seeds, roll_tick_s, load_s, n_modes=4, donors=None):
+    """CONVERGED items 4 / 7: the SLICE cost of one panel is rendering only, with Wan loaded ONCE per panel process: one load +
+    (n_modes + 1 swap) rollouts of every dev tick x 2 seeds + one unswapped same-length reference (2 seeds) per shared-mode donor,
+    at the measured load-once rollout rate. Scoring runs on the 2080 Ti under its own ledger (panel_score_h)."""
+    ticks = (n_modes + 1) * dev_ticks_x_seeds
+    ticks += sum(2 * int(v["n"]) for v in (donors or {}).values() if v and v.get("mode") == "shared")
+    return (load_s + ticks * roll_tick_s) / 3600
+
+
+def panel_score_h(dev_ticks_x_seeds, score_tick_s, n_modes=4):
+    """2080 Ti GPU-hours to score one panel: n_modes mode scorings + swap full + swap post-donor + swap post-receiver of every dev
+    tick x 2 seeds (post-swap scorings priced at full length: conservative), at the measured 2080 Ti per-tick scoring rate"""
+    return (n_modes + 3) * dev_ticks_x_seeds * score_tick_s / 3600
+
+
+SCORE_CAP_FACTOR = 1.25  # CONVERGED item 4: score ledger cap = 1.25 x measured scoring GPU-h per panel (S0c precedent)
+
+
+def score_cap_h(dev_ticks_x_seeds, score_tick_s, n_modes=4, factor=SCORE_CAP_FACTOR):
+    return factor * panel_score_h(dev_ticks_x_seeds, score_tick_s, n_modes)
+
+
 def panel_cost_h(dev_ticks_x_seeds, roll_tick_s, roll_start_s, score_tick_s, score_start_s, n_modes=4):
     """one full panel: n_modes + 1 (swap) rollouts and n_modes + 3 scorings (swap full / post donor / post receiver) of every
     dev tick x 2 seeds, plus the one-time A@20k replay scoring (counted in every panel, conservative), at measured rates"""
     rolls = (n_modes + 1) * (roll_start_s + dev_ticks_x_seeds * roll_tick_s)
     scores = (n_modes + 3 + 1) * (score_start_s + dev_ticks_x_seeds * score_tick_s)
     return (rolls + scores) / 3600
+
+
+# ------------------------------------------------------------------------------------------------------------- off-slice scoring
+def shard_by_drive(files, shard):
+    """rollout files "<dir>/<scene>_s<seed>.pt" of shard "i/n": the drives (sorted scene names) with index % n == i, all seeds"""
+    i, n = map(int, shard.split("/"))
+    if not 0 <= i < n:
+        raise ValueError(f"bad shard {shard}")
+    scene = lambda f: os.path.basename(f)[:-3].rsplit("_s", 1)[0]
+    sc = sorted({scene(f) for f in files})
+    return [f for f in sorted(files) if sc.index(scene(f)) % n == i]
+
+
+def _same(x, y):
+    return x == y or (isinstance(x, float) and isinstance(y, float) and (math.isclose(x, y, rel_tol=0, abs_tol=1e-9) or (x != x and y != y)))
+
+
+def compare_sharded(unsharded, shards):
+    """sharded == unsharded on the same inputs: runs partitioned (no run twice, none missing), every per-run field equal (same
+    accepted ticks, same metrics), same input files / bytes. unsharded / shards: score_rgb.py outputs with "drives" and
+    "binding". -> (ok, why list)"""
+    why, merged, ins = [], {}, {}
+    for j in shards:
+        dup = set(merged) & set(j["drives"])
+        if dup:
+            why.append(f"runs in two shards: {sorted(dup)[:3]}")
+        merged.update(j["drives"]); ins.update((j.get("binding") or {}).get("inputs") or {})
+    U = unsharded["drives"]
+    if set(merged) != set(U):
+        why.append(f"shard runs != unsharded runs: {sorted(set(merged) ^ set(U))[:4]}")
+    diff = [(r, k) for r in sorted(set(merged) & set(U)) for k in sorted(set(merged[r]) | set(U[r])) if not _same(merged[r].get(k), U[r].get(k))]
+    if diff:
+        why.append(f"sharded != unsharded on {len(diff)} fields, e.g. {diff[:6]}")
+    if ins != ((unsharded.get("binding") or {}).get("inputs") or {}):
+        why.append("shard inputs != unsharded inputs (different files or bytes)")
+    return not why, why
+
+
+def merge_score_shards(parts, manifest_sha, parity_rec):
+    """the panel decision's intake (CONVERGED item 4): only score shards bound to the RGB manifest the slice rendered (sha) and to
+    the parity record's device / scorer / adapter / SD VAE; no run scored twice. parts: [(name, score json)].
+    -> (merged {"drives", "cold"}, why list); why non-empty = refuse"""
+    why, out = [], {"drives": {}, "cold": None}
+    for name, j in parts:
+        b = j.get("binding") or {}
+        if b.get("rgb_manifest_sha") != manifest_sha:
+            why.append(f"{name}: scored RGB of another render (manifest {str(b.get('rgb_manifest_sha'))[:12]} != {str(manifest_sha)[:12]})")
+            continue
+        ok_b, why_b = score_binding_matches(j, parity_rec)
+        if not ok_b:
+            why.append(f"{name}: {why_b}"); continue
+        dup = set(out["drives"]) & set(j["drives"])
+        if dup:
+            why.append(f"{name}: runs scored twice {sorted(dup)[:3]}")
+        out["drives"].update(j["drives"])
+        if j.get("cold") is not None:
+            out["cold"] = j["cold"]
+    return out, why
+
+
+# ------------------------------------------------------------------------------------------------------------- F5 / re-time
+def matched_updates(rows, ref_key, rtol=0.02, gn_rtol=0.05):
+    """F5 matched-update check: rows {setting: {"loss", "grad_norm"}} from the SAME params / inputs / noise / seed under each
+    (grad_ckpt, micro) setting; every setting must reproduce the reference loss within rtol and grad norm within gn_rtol
+    (relative; bf16 tolerance). -> {"ref", "rows": {k: {..., "d_loss_rel", "d_gn_rel", "ok"}}, "all_ok"}"""
+    ref = rows[ref_key]; out = {}
+    for k, r in rows.items():
+        dl = abs(r["loss"] - ref["loss"]) / max(abs(ref["loss"]), 1e-12)
+        dg = abs(r["grad_norm"] - ref["grad_norm"]) / max(abs(ref["grad_norm"]), 1e-12)
+        fin = _num(r["loss"]) and _num(r["grad_norm"])
+        out[k] = {**r, "d_loss_rel": round(dl, 6), "d_gn_rel": round(dg, 6), "ok": bool(fin and dl <= rtol and dg <= gn_rtol)}
+    return {"ref": ref_key, "rtol": rtol, "gn_rtol": gn_rtol, "rows": out, "all_ok": all(v["ok"] for v in out.values())}
+
+
+def select_setting(fits, match):
+    """fastest fitting (grad_ckpt, micro) setting whose update matched the reference -> {"key", "micro", "grad_ckpt", "gpu_s"} or None
+    (no matched setting, or the reference itself not finite)"""
+    ok = [k for k in fits if (match.get("rows") or {}).get(k, {}).get("ok")]
+    if not ok:
+        return None
+    k = min(ok, key=lambda x: (fits[x]["gpu_s"], -fits[x]["grad_ckpt"], fits[x]["micro"]))
+    return {"key": k, "micro": int(fits[k]["micro"]), "grad_ckpt": int(fits[k]["grad_ckpt"]), "gpu_s": fits[k]["gpu_s"]}
+
+
+UPDATE_TARGET = 13200       # CONVERGED item 7: the forecast must buy >= floor + 10 %
+RETIME_MIN_UPDATES = 200    # Astra: >= 200 consecutive production updates
+RETIME_QUEUE_FRAC = 0.05
+RETIME_WALL_OVER_GPU = 1.10
+
+
+def startup_for_forecast(J, prod_train_drives):
+    """start-up priced per job start (CONVERGED item 7): measured from ALLOCATION to the first update on the production drive list.
+    No 48 -> 144 extrapolation: if the timing ran on the production list the measured value is used as is; otherwise the stage-in
+    is scaled by bytes and the result is flagged extrapolated (the full-list rule then fails). -> (seconds, info)"""
+    st = J.get("startup") or {}
+    meas = st.get("alloc_to_first_update_s") or st.get("process_to_first_update_s") or J.get("startup_s")
+    info = {"measured_s": meas, "from_allocation": st.get("alloc_to_first_update_s") is not None, "timing_drives": J.get("train_drives"),
+            "prod_drives": prod_train_drives, "extrapolated": False}
+    if meas is None:
+        return None, info
+    if J.get("train_drives") == prod_train_drives:
+        return float(meas), info
+    ratio = prod_train_drives / max(1, J.get("train_drives") or prod_train_drives)
+    stage = float(st.get("stage_in_s") or 0.0)
+    info.update(extrapolated=True, ratio=round(ratio, 3))
+    return float(meas) + stage * (ratio - 1.0), info
+
+
+def retime_rules(J, fc, prod_train_drives, score_parity, rehearsal, token_geom=None):
+    """CONVERGED item 7: every rule with pass / fail and its numbers; all must hold, else no overfit.
+    J = timing.json (trainer + slurm additions), fc = forecast_final (ONE panel), score_parity = (ok, why) of the 2080 Ti record,
+    rehearsal = the panel-loop rehearsal record (or None), token_geom = {"pass": bool} from the slurm geometry check."""
+    R = {}
+    st, pl, mem = J.get("stage") or {}, J.get("production_loop") or {}, J.get("memory") or {}
+    stup = J.get("startup") or {}
+    R["full_production_list_cold_allocation"] = {
+        "pass": bool(J.get("train_drives") == prod_train_drives and st.get("cold") and stup.get("alloc_to_first_update_s") is not None
+                     and not (fc.get("startup_info") or {}).get("extrapolated")),
+        "timing_drives": J.get("train_drives"), "prod_drives": prod_train_drives, "stage_cold": st.get("cold"),
+        "alloc_to_first_update_s": stup.get("alloc_to_first_update_s")}
+    R["production_updates_ge_200"] = {"pass": (pl.get("updates") or 0) >= RETIME_MIN_UPDATES, "updates": pl.get("updates")}
+    bl = pl.get("blocks") or []
+    qf = [b.get("queue_frac") for b in bl]; wg = [b.get("wall_over_gpu") for b in bl]
+    R["queue_wait_le_5pct_each_block"] = {"pass": len(bl) >= 2 and all(_num(x) and x <= RETIME_QUEUE_FRAC for x in qf), "per_block": qf}
+    R["wall_le_1.10_gpu_each_block"] = {"pass": len(bl) >= 2 and all(_num(x) and x <= RETIME_WALL_OVER_GPU for x in wg), "per_block": wg}
+    mu = J.get("matched_update") or {}
+    R["matched_update_selected"] = {"pass": bool(J.get("selected_setting")), "selected": J.get("selected_setting"),
+                                    "all_settings_matched": mu.get("all_ok"), "explicit": J.get("explicit_setting")}
+    tg = token_geom if token_geom is not None else J.get("token_geometry")
+    R["gates_final_recipe"] = {"pass": bool((tg or {}).get("pass") and (J.get("init_parity") or {}).get("pass")
+                                            and (J.get("update0_sensitivity") or {}).get("pass")),
+                               "token_geometry": (tg or {}).get("pass"), "init_parity": (J.get("init_parity") or {}).get("pass"),
+                               "update0_sensitivity": (J.get("update0_sensitivity") or {}).get("pass")}
+    R["staged_hashes_eq_manifest"] = {"pass": bool(st.get("hash_equals_manifest") and not st.get("mismatches")),
+                                      "files": st.get("total_files"), "bytes": st.get("total_bytes"), "manifest_sha": J.get("manifest_sha")}
+    sv = J.get("staged_vs_lustre") or {}
+    R["staged_batches_byte_equal_lustre"] = {"pass": bool(sv.get("all_equal") and (sv.get("batches") or 0) >= 8), "batches": sv.get("batches")}
+    R["peak_memory_le_85pct"] = {"pass": mem.get("peak_le_85pct") is True, "peak_over_request": mem.get("peak_over_request"),
+                                 "note": None if mem.get("peak_le_85pct") is not None else "cgroup peak / limit unreadable"}
+    sp_ok, sp_why = score_parity if score_parity else (False, "not checked")
+    R["scorer_parity_off_slice"] = {"pass": bool(sp_ok), "why": sp_why}
+    R["six_valid_donors"] = {"pass": bool(fc.get("donor_plan_ok")), "receivers": len(fc.get("donor_plan") or {})}
+    R["panel_rehearsal_byte_equal"] = {"pass": bool(rehearsal and rehearsal.get("pass")),
+                                       "why": (rehearsal or {}).get("why", "no rehearsal record")}
+    R["forecast_ge_13200_one_panel"] = {"pass": bool(fc.get("floor_12k_reachable") and (fc.get("updates") or 0) >= UPDATE_TARGET),
+                                        "updates": fc.get("updates"), "target": UPDATE_TARGET, "floor_12k_reachable": fc.get("floor_12k_reachable")}
+    failing = [k for k, v in R.items() if not v["pass"]]
+    return {"rules": R, "all_pass": not failing, "failing": failing}
+
+
+def retime_gate(tj, micro, grad_ckpt):
+    """overfit / resume test / train / extend precondition -> (ok, why): the newest re-time passed every rule and selected exactly
+    this (micro, grad_ckpt)"""
+    sel = (tj or {}).get("selected_setting")
+    rp = (tj or {}).get("retime_pass") or {}
+    if not sel:
+        return False, "timing.json has no selected_setting (legacy timing or no matched setting): re-run MODE=timing"
+    if (int(micro), int(grad_ckpt)) != (int(sel["micro"]), int(sel["grad_ckpt"])):
+        return False, f"--micro {micro} --grad_ckpt {grad_ckpt} != the re-time selection micro {sel['micro']} grad_ckpt {sel['grad_ckpt']}"
+    if not rp.get("all_pass"):
+        return False, f"re-time rule failed: {rp.get('failing') or 'no retime_pass block (run scripts/wan_forecast.py)'}"
+    return True, "ok"
 
 
 # ------------------------------------------------------------------------------------------------------------- budget
@@ -523,7 +755,7 @@ ROLLOUT_FLAGS = {"unseal", "swap", "mp4", "mp4_keys", "allow_inert"}
 ROLLOUT_TYPES = {"steps": int, "shift": float, "cfg": float, "window_latents": int, "max_ticks": int, "swap_at": int, "sd_lat": int}
 ROLLOUT_OPTIONS = ["ckpt", "split", "unseal", "lists", "enc", "guides", "tokens", "keys", "seeds", "drive_list", "steps", "sampler",
                    "shift", "cfg", "cond", "window_latents", "max_ticks", "swap", "swap_at", "donors", "sd_lat", "mp4", "mp4_keys",
-                   "dtype", "ledger", "allow_inert", "shard", "out"]
+                   "dtype", "ledger", "allow_inert", "shard", "plan", "out"]
 ROLLOUT_EXTRA_ALLOWED = {"steps", "sampler", "shift", "cfg", "window_latents", "sd_lat", "mp4", "mp4_keys", "dtype"}
 
 

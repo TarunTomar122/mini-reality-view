@@ -72,19 +72,19 @@ def panel(k, ref):
     cand, roll = f"runs/troll/m_V{k}k_dev.json", f"runs/troll/V{k}k_dev"
     comp, croll, cl = COMP[ref]
     check_metrics(cand, roll, "runs/troll/Aoff_rho0.95_dev"); check_rollouts(k, roll, cand); check_metrics(comp, croll)
-    cs, bs = snapshot(cand), snapshot(comp)
-    out = subprocess.run([sys.executable, "scripts/temporal_compare.py", "--compare", cs, bs, "--count_list", cl, "--floor", "0",
+    cs, bs, cls = snapshot(cand), snapshot(comp), snapshot(cl)
+    out = subprocess.run([sys.executable, "scripts/temporal_compare.py", "--compare", cs, bs, "--count_list", cls, "--floor", "0",
                           "--cold_ref", "B"], capture_output=True, text=True)
     need(out.returncode == 0 and "TCOMPARE " in out.stdout, f"comparator failed on V{k}k vs {ref}: {out.stderr[-300:]}")
     o = os.path.join(REC, f"cmp_V{k}k__{ref}.json"); open(o, "w").write(out.stdout); os.chmod(o, 0o444)
     d = json.loads(out.stdout.split("TCOMPARE ", 1)[1])
     need(d["A"] == cs and d["B"] == bs and d["drives"] == 6 and d["runs"] == 12 and not d["unpaired_drives"], f"{o}: panel identity")
-    need(d["cold_ref"] == "B" and d["count_list"] == cl, f"{o}: recipe")
+    need(d["cold_ref"] == "B" and d["count_list"] == cls, f"{o}: recipe")
     for key, fields in (("ID", ("rel", "diff")), ("W", ("rel", "diff")), ("car_f1", ("diff",)), ("late_lpips_gap", ("diff",))):
         for f in fields:
             v = d[key][f]
             need(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v), f"{o}: {key}.{f} = {v!r} not finite")
-    rec["panels"][f"V{k}k_{ref}"] = {"cand": [cand, sha256(cs)], "comp": [comp, sha256(bs)], "count_list": [cl, sha256(cl)],
+    rec["panels"][f"V{k}k_{ref}"] = {"cand": [cand, sha256(cs)], "comp": [comp, sha256(bs)], "count_list": [cl, sha256(cls)],
                                      "out": [o, sha256(o)]}
     return d
 

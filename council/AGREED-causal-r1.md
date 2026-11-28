@@ -111,3 +111,30 @@ so at 8k); gradient-cosine probe (pulled/gradcos_*.json) informational.
 The gate bars are unchanged. Added review step only: if vpriv reaches a joint pass while its lingering ghosts (ghost_ge5) are
 above A@20k's paired 95% interval, or its road IoU is below A's, the 30-drive exam is NOT launched before a council round looks
 at those costs (Fable: the 2k profile resembles the rejected warm-start 0.7: smoother by holding on to things).
+
+## Amendment A4 — next arm "vclean" (CONVERGED: Astra + Fable, 28 Nov ~02:50 UTC, BEFORE the vpriv 8k panel was read)
+Sources: council/next-arm-r1{,-astra,-fable}.md, next-arm-r1-swap-{astra,fable}.md, next-arm-r1-final-{astra,fable}.md,
+next-arm-r1-sign-astra.md (Astra SIGNED Fable's final = Astra's swap + three items). Conditional: only if vpriv has no joint
+pass (if vpriv passes, its exam takes precedence subject to N1).
+- Memory source (Astra): t* = the actual last timestep of the DDIM-25 schedule (verify before update 1; if t* > 81 back to
+  council). Training: one extra no-grad frozen-A forward at t* on the key latents noised to t* with private draws and the query's
+  camera-dropout mask; detached spatial features before each temporal block; trainable K/V read them. Each noisy query
+  (t uniform, t* excluded) reads its own token plus up to four strictly earlier ticks' saved features. Otherwise as vpriv: fresh
+  from frozen A@20k, vpriv's recorded init, seeds and draws, both clips private, 2 x 16 ticks, K = 4, eps-MSE ticks 1-15, r1
+  optimizer, 10% camera dropout. Optional key-noise jitter {t*, t*+40, t*+80} only if the probe's generated-history gain is
+  under half the teacher-forced gain at t 300 at both checkpoints.
+- Rollout: camera-only, DDIM-25, eta 0, CFG 2, one ring per block (separate CFG rows): calls 1-24 read it; call 25 runs with
+  temporal deltas off and writes its K/V after the tick; evict beyond four; clear on hard breaks; keep across camera swaps; no
+  extra forward. Gate rollout noise rho 1.0 (fixed now), provided T2 verifies memory-off at rho 1.0 reproduces signed A@20k on
+  matched inputs; if T2 fails, the gate falls back to the signed rho 0.95. (Lifts r1's "no clean past", same-step read and the
+  0.95 cap for this arm only.)
+- Pre-launch probe (Astra): at vpriv 8k AND 12k, the 8 fixed dev clips, seed 0, prefixes genuinely generated with the proposed
+  ring at rho 1.0; recipient key, cameras and eps held fixed; compare true history, a different drive's history generated with
+  identical noise, and memory off; paired eps-MSE differences averaged within then across drives; <= 60 2080 Ti-min per
+  checkpoint. Launch only if, at both checkpoints, true beats donor AND off at t 300 and is no worse than off at t 700; else
+  round r2 (not an automatic kill). The record reports true-vs-donor and true-vs-off separately. Incomplete probe = no decision.
+- Gate (A1 timing, vs signed A@20k): both eligible reductions strictly > 9.4%; car F1 >= A - 0.03; late gap vs matched cold
+  <= +0.03; AND pass conditions at the same checkpoint: lingering ghosts (ghost_ge5) <= the upper end of A's paired 95%
+  interval, and the paired 95% interval of (arm - A) road IoU not wholly below zero. N1 also applies before any exam.
+- Before update 1: T1-T7 re-checked for the new ring (clip / stream agreement through eviction, first-tick equality after
+  reset), 100-update timing + peak memory on the slice, Astra code signature.

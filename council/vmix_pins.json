@@ -3,7 +3,7 @@
  "parity_drive": "scene-0005",
  "parity_ref": "runs/cache/parity_ref/scene-0005_s0.pt",
  "parity_ref_render": "scripts/causal_rollout.py (unchanged) --ckpt runs/longA/ckpt_20000.pt --mode off --rho 1.0 --split train --seeds 0 --drive_list <scene-0005> --out runs/cache/parity_ref",
- "parity_ref_sha256": "PENDING",
+ "parity_ref_sha256": "f1272435ac0d6024fc5c9e8667ebc7d7a70c58d7b103af5625c032d230a87c7e",
  "dev_ref": "runs/troll/A20k_indep_dev",
  "dev_ref_sha256": {
   "scene-0043": "01da8be44e991c83b46f68376b9b3e393e93da3ce18942f8194093e1ac8dd2d0",

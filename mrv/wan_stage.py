@@ -474,7 +474,7 @@ def _cli(argv):
     ap.add_argument("--use_tokens", type=int, default=1)
     ap.add_argument("--margin_gb", type=float, default=MARGIN_GB)
     ap.add_argument("--drive_list", default="", help="override: whitespace-separated train drives (default: lists['train'])")
-    a = ap.parse_args(argv)
+    a = ap.parse_intermixed_args(argv)  # positionals around options: Python 3.11 parse_args refuses files after --dst
     if a.cmd == "sample":
         _sample_main(a.out)
         return 0

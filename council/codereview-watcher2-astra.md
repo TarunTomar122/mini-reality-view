@@ -1,0 +1,7 @@
+L52–54, 59–61, 68–69, 73–76: cancellation after Slurm accepts a job but before `rec` leaves no ID. Restart generates a fresh name and submits the same work again. Persist the unique name before submission and reconcile any outstanding intent before retrying.
+L58–68: the dependency graph is correct (six shards → metrics → score, plus 8k → 12k → 16k scores). Slot waits can outlast Slurm’s `MinJobAge`, making a late `afterok` invalid. Verify terminal success for aged IDs and stop on failure or unknown state.
+L38–53: if 8k appears during 4k backfill, the watcher keeps admitting 4k until the reserve binds. The nine-slot reserve bounds that delay. Rescan from 8k after each admission to give ready gates strict priority.
+L31–33, 78–84: after all gates are queued or skipped, nine continuously free slots still admit zero informational jobs. Release the reserve once the last gate is accounted for so backfill can finish.
+L40–46: if training dies after saving 4k, the missing 8k exits the watcher before it can backfill saved 2k/4k work. Drain available checkpoints before reporting the missing gate.
+L42–46: if the 12k score fails or its dependency can never succeed, neither decision marker appears. Check the recorded dependency chain and exit with the failed job ID instead of polling until walltime.
+FIX: persist submission intents, handle aged dependencies, rescan priority after admission, release the final reserve, drain saved work and detect failed gate chains.

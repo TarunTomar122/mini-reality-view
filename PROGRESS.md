@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 11:51 UTC — manifest PASS; Neon round-3 additions landed (cc2b640) and deployed; fresh bound parity running; Astra T3 (last pre-GPU review)
+- verify_manifest 3757117 PASS: data/wan_manifest_v1.json (read-only), 1,057 files of 150 drives + 7 Wan files, 132.0 GB, sha a0412b42f4cc, 1,232 s on 8 processes; every file equals its sidecar.
+- cc2b640 (Neon A / B / C): memory request = (staged + 45 GB) / 0.80 -> `mrv.wan_stage need` = 170G for the current data; source page cache dropped after each copy; scoring ledger rows matched by Slurm job id (proc- or alloc-); guide-encoding cache per drive in the load-once rollout. WAN_TESTS FAILS=0 locally (3.14) and in the cluster venv (3.11; a first cluster run hit the 500 s timeout on the busy login node, the rerun passed).
+- Fresh bound scorer parity on this revision: wsc-par 3757143 + shards 3757144-46, check 3757147 (2080 Ti). Astra T3 running; on a timing "yes": freeze the ten evidence files, then MODE=timing (144 drives, --mem 170G).
+
 ## 2026-11-28 11:37 UTC — swap converged; builder closed all t2 items (8002f8a timing, 62b3dfd production)
 - Fable's swap accepts Astra's order: items 12 / 14 / 15 close before timing and the ten evidence files freeze through the 24 h decision. Fable prefers a move-only split first (scoring / decide rules out of the identity into mrv/wan_panel_rules.py + scripts/wan_decide.py) so a bug found at the first full panel can be fixed without a third timing (~1 slice-h); Astra deferred it -> deferred (fallback path agreed by both), noted for the 24 h read.
 - Builder: all 11 open t2 items fixed with repros that fail on the old code (8002f8a, 62b3dfd); Neon's 11:30 P0s (memory request / source page cache, scoring ledger ids, guide-encoding cache) being added now. Then Astra T3 (last pre-GPU review, listed items only), deploy, verify the manifest, fresh bound parity on the 2080 Ti, freeze, MODE=timing on 144 drives.

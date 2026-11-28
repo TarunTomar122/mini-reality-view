@@ -12,3 +12,10 @@ ca845bef1b7e8e439bc6ce6905b674c6255202db0d70fc6bc31e0a0245ae52e0  slurm/wan_teac
 aad231a331559902d9bba9b576eccfd32c0ef2b3d406753bffafff3a5f9fd138  scripts/wan_rollout.py
 8cb72b5bef4c369db145ad9e35193ad374cf9177b2b212ca839506c5fc3bc57d  scripts/wan_token_check.py
 ```
+
+## Scorer files (12:37 UTC): bound by the 2080 Ti parity record (runs/wroll/score_parity_2080.json), now also read-only on both sides (Neon 12:30)
+```
+a99309e3d39ae08f9bc8d567a3c318974f9b4bfd14638e2ccfeea52b714a6d7f  scripts/score_rgb.py
+5c9186c0e54ea32b1da7f84307099a790dd4bb90f52e4f0797b9390a1281cd60  scripts/wan_score.py
+1f69ffa69cbcaa4752e0506223515469043fd9a543eda68037c59384cbeb39a4  scripts/temporal_metrics.py
+```

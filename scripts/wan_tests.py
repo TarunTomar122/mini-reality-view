@@ -328,5 +328,23 @@ with tempfile.TemporaryDirectory() as td:
     check("ledger: inner processes under an outer allocation beat only read", sum(1 for _ in open(path)) == n0)
     del os.environ["WAN_LEDGER_OUTER"]
 
+
+# ---- Astra S1f 4a: production enforcement follows the run mode, not the --kind label
+_src = open("scripts/train_wan_teacher.py").read()
+check("S1f 4a: no enforcement keyed on the KIND label", 'KIND == "train"' not in _src and _src.count("if PROD") >= 6)
+for _out, _test, _want in (("runs/wan_s1", False, True), ("runs/wan_ctest_resA_1", False, False), ("runs/wan_timing_1", True, False), ("runs/other", False, True)):
+    _prod = not _test and not any(x in _out for x in ("timing", "ctest"))
+    check(f"S1f 4a: PROD({_out}) = {_want}", _prod == _want)
+check("S1f 4a: PROD rule present", 'PROD = not TEST and not any(x in a.out for x in ("timing", "ctest"))' in _src)
+# ---- Astra S1f 4b: a forecast width different from the timed rollout's measured width is refused
+import subprocess as _sp, tempfile as _tf
+_d = _tf.mkdtemp()
+for _w, _ask, _ok in ((5, 2, False), (None, 5, False)):
+    json.dump({"rollout_breakdown": {"encode_s": 1, "sample_s": 1, "decode_s": 1, "sd_s": 1}, "rollout_window_latents": _w}, open(f"{_d}/timing.json", "w"))
+    _r = _sp.run([sys.executable, "scripts/wan_forecast.py", "--timing_dir", _d, "--rollout_s", "10", "--score_s", "10", "--window_latents", str(_ask)], capture_output=True, text=True, env={**os.environ, "PYTHONPATH": os.getcwd()})
+    check(f"S1f 4b: measured width {_w} vs forecast {_ask} refused", _r.returncode != 0 and "refused" in (_r.stderr + _r.stdout), _r.stderr[-200:])
+_sh = open("slurm/wan_teacher.sh").read()
+check("S1f 4b: timed rollout runs at PANEL_WIN and persists it", "--window_latents $PANEL_WIN --swap_at 50 --ledger" in _sh and 'j["rollout_window_latents"]' in _sh)
+
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

@@ -126,6 +126,9 @@ if a.overfit and a.steps != OVERFIT_STEPS:
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 KIND = a.kind or ("timing" if a.timing and not a.overfit else ("overfit" if a.overfit else "train"))
+# Astra S1f 4a: production enforcement (forecast reserve, budget, gates) follows the RUN MODE, never the --kind ledger label:
+# every run that is not a timing / overfit test and does not write to a *timing* / *ctest* directory is production
+PROD = not TEST and not any(x in a.out for x in ("timing", "ctest"))
 LEDGER = WP.Ledger(a.ledger, KIND).start()
 CODE_SHA = WC.code_sha(__file__, "mrv/wan_cond.py", "mrv/wan_plan.py")
 LISTS = json.load(open(a.lists))
@@ -135,7 +138,7 @@ assert not set(TRAIN) & set(DEVL), "train / dev overlap"
 assert not (set(TRAIN) | set(DEVL)) & (set(LISTS.get("decision", [])) | set(LISTS.get("final", []))), "sealed drives in train / dev"
 NL = 5
 S_SLOTS = WC.SLOTS[a.tok_ticks]
-if KIND == "train":  # production: ALWAYS the measured total for the panel's own settings; overrides may only raise it (S1e 4a / 4b)
+if PROD:  # production: ALWAYS the measured total for the panel's own settings; overrides may only raise it (S1e 4a / 4b)
     import glob as _glob
     _tj = a.timing_json or (sorted(_glob.glob("runs/wan_timing_*/timing.json"), key=os.path.getmtime) or [""])[-1]
     try:
@@ -147,7 +150,7 @@ if KIND == "train":  # production: ALWAYS the measured total for the panel's own
           f"swap at {a.panel_swap_at}, from {_tj})", flush=True)
 elif a.reserve_hours is None:  # timing / overfit / resume test: no panel reserve
     a.reserve_hours = 0.0
-if KIND == "train" and LEDGER.hours() + a.reserve_hours >= a.budget_hours:
+if PROD and LEDGER.hours() + a.reserve_hours >= a.budget_hours:
     raise SystemExit(f"S1 budget exhausted: {LEDGER.hours():.2f} h used + {a.reserve_hours} h reserve >= {a.budget_hours} h")
 
 
@@ -321,16 +324,16 @@ RECIPE = {k: getattr(a, k) for k in ("seed", "lists", "cache", "tokens", "rank",
 CFG = {"rank": a.rank, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "shift": a.shift, "n_extra": WC.N_EXTRA,
        "prompt_embed": a.prompt_embed, "wan": a.wan, "clip_latents": NL, "tok_grid": WC.TOK_GRID, "seed": a.seed}
 GATE_KEY = WP.gate_key(CODE_SHA, RECIPE, BASE_SHA, VAE_SHA, GUIDE_VERSION)
-if KIND == "train" and a.budget_hours > 24.0 + 1e-9:  # Astra 08:30: more than 24 h only on the qualifying 24 h EXTEND verdict
+if PROD and a.budget_hours > 24.0 + 1e-9:  # Astra 08:30: more than 24 h only on the qualifying 24 h EXTEND verdict
     MK = f"{a.out}/S1_24H_DECISION.json"
     v_ = json.load(open(MK)).get("verdict", "") if os.path.exists(MK) else ""
     if not v_.startswith("EXTEND"):
         raise SystemExit(f"--budget_hours {a.budget_hours} > 24 refused: {MK} missing or not an EXTEND verdict ({v_!r})")
-if KIND == "train":  # Astra S1c item 6: the bound A@20k RGB-path replay parity must have PASSED before production starts
+if PROD:  # Astra S1c item 6: the bound A@20k RGB-path replay parity must have PASSED before production starts
     if not WP.parity_ok(a.parity_record, WP.parity_binding(a.a_metrics, a.a_roll)):
         raise SystemExit(f"MODE=train refused: no A@20k replay-parity PASS bound to the current references / adapter / scorer / decoder "
                          f"({a.parity_record}); run slurm/wan_panel.sh parity")
-if KIND == "train":  # Fable 08:30: production needs PASS overfit AND PASS resume-test records for this code / recipe
+if PROD:  # Fable 08:30: production needs PASS overfit AND PASS resume-test records for this code / recipe
     ok_g, have_g = WP.gates_ok(a.gates, GATE_KEY)
     if not ok_g:
         raise SystemExit(f"MODE=train refused: gate records for key {GATE_KEY} in {a.gates}: {have_g} (need overfit PASS and resume_test PASS)")
@@ -615,7 +618,7 @@ for step in range(start, end):
         rec = {"signal_stop": step, "signal": SIG["got"], "ledger_hours": round(LEDGER.hours(), 3)}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush()
         break
-    if KIND == "train":  # remaining-hours check BEFORE the update (item 11)
+    if PROD:  # remaining-hours check BEFORE the update (item 11)
         used = LEDGER.hours(); est = (last_wall or 0.0) / 3600
         if used + est + a.reserve_hours >= a.budget_hours:
             if step > start:

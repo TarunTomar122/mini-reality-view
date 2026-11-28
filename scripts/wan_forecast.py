@@ -10,7 +10,6 @@ Writes timing.json["forecast_final"] and prints WAN_FORECAST.
   python scripts/wan_forecast.py --timing_dir runs/wan_timing_<job> --rollout_s 412 --score_s 388
 """
 import argparse, json
-import torch
 from mrv import wan_plan as WP
 
 p = argparse.ArgumentParser()
@@ -26,6 +25,9 @@ p.add_argument("--swap_at", type=int, default=50, help="swap position the S1 pan
 a = p.parse_args()
 J = json.load(open(f"{a.timing_dir}/timing.json"))
 br = J["rollout_breakdown"]
+if J.get("rollout_window_latents") != a.window_latents:  # Astra S1f 4b: rates measured at one width never price another
+    raise SystemExit(f"timing rollout measured at window {J.get('rollout_window_latents')}, forecast asked for {a.window_latents}: refused (re-run MODE=timing with PANEL_WIN={a.window_latents})")
+import torch  # after the width guard (CPU tests run the guard without torch)
 inner = br["encode_s"] + br["sample_s"] + br["decode_s"] + br["sd_s"]
 roll_tick, roll_start = inner / a.ticks, max(0.0, a.rollout_s - inner)
 score_tick = a.score_s / a.ticks

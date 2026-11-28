@@ -65,7 +65,7 @@ case $MODE in
     $T --out $O --timing --verify_cache 1 "$@" || exit $?
     t0=$(date +%s.%N)
     $PY scripts/wan_rollout.py --ckpt $O/ckpt.pt --split dev --drive_list $O/one.txt --seeds 0 --max_ticks 81 --allow_inert \
-        --ledger $LEDGER --out $O/roll || exit $?
+        --window_latents $PANEL_WIN --swap_at 50 --ledger $LEDGER --out $O/roll || exit $?
     t1=$(date +%s.%N)
     $PY scripts/score_rgb.py --rgb $O/roll --out $O/m_roll.json || exit $?
     t2=$(date +%s.%N)
@@ -73,6 +73,7 @@ case $MODE in
 import json; j = json.load(open("$O/timing.json"))
 j["rollout_81ticks_s"] = round($t1 - $t0, 1); j["score_rgb_81ticks_s"] = round($t2 - $t1, 1)
 import torch; r = torch.load("$O/roll/${DRV}_s0.pt", map_location="cpu", weights_only=False); j["rollout_breakdown"] = r["timing"]
+j["rollout_window_latents"] = int(r["window_latents"])  # Astra S1f 4b
 json.dump(j, open("$O/timing.json", "w"), indent=1); print("WAN_TIMING_FULL", json.dumps(j))
 P
     # S1b item 5: the forecast is recomputed only now, after the scorer, with every deduction

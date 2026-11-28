@@ -57,7 +57,9 @@ if RH.get("window_latents") != a.window_latents:  # Astra S1f 4b: rates measured
     raise SystemExit(f"rehearsal rollout measured at window {RH.get('window_latents')}, forecast asked for {a.window_latents}: refused "
                      f"(re-run MODE=timing with PANEL_WIN={a.window_latents})")
 import torch  # after the width guard (CPU tests run the guard without torch)
-roll_tick, load_s = float(RH["roll_tick_s"]), float(RH["load_s"])
+if "roll_tick_hit_s" not in RH or "enc_fill_tick_s" not in RH:  # Astra T3 / Neon C: cache fills priced separately
+    raise SystemExit("rehearsal.json lacks roll_tick_hit_s / enc_fill_tick_s (pre-T3 rehearsal): re-run MODE=timing")
+roll_tick, load_s, enc_fill = float(RH["roll_tick_hit_s"]), float(RH["load_s"]), float(RH["enc_fill_tick_s"])
 dev = list(CANON["dev"])  # list order = the conventional donor pairing order (wan_swap_preflight.py)
 _drv = {}
 for d in dev:
@@ -68,8 +70,8 @@ dev_ticks = sum(len(v["ticks"]) for v in _drv.values())
 # made for other settings; a total is only defined for a COMPLETE plan (six valid assignments)
 PLAN = WP.plan_donors(_drv, a.window_latents, a.swap_at, lambda sc, t: os.path.exists(f"data/sim/keys_tpv10/{sc}/t{int(t):04d}.jpg"))
 plan_ok = bool(PLAN["ok"] and len(PLAN["donors"]) == 6)
-panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s)
-panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"]) if plan_ok else None
+panel_base_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, enc_fill_tick_s=enc_fill)
+panel_h = WP.panel_render_h(2 * dev_ticks, roll_tick, load_s, donors=PLAN["donors"], enc_fill_tick_s=enc_fill) if plan_ok else None
 L = WP.Ledger(a.ledger, "forecast", write=False)
 kinds = L.by_kind()
 LE = WP.ledger_evidence(WP.Ledger.read(a.ledger), J.get("job"))

@@ -777,7 +777,7 @@ def bnd(c="hybrid", i=0, n=2, **kw):
     fl = WP.SCORE_FLAGS.get(c, (False, False, False)); src = MANX["dirs"]["swap" if c.startswith("swap") else c]
     fs = WP.shard_by_drive([f for f in MANX["runs"] if os.path.dirname(f) == src], f"{i}/{n}")
     b = {"device": "NVIDIA GeForce RTX 2080 Ti", "score_rgb": "3", "temporal_metrics": "4", "sd_vae": "5", "wan_score": "6", "weights": WT,
-         "rgb_manifest_sha": "M", "src": src, "shard": f"{i}/{n}", "inputs": {os.path.basename(f): MANX["runs"][f]["sha256"] for f in fs},
+         "bound_before_scoring": True, "rgb_manifest_sha": "M", "src": src, "shard": f"{i}/{n}", "inputs": {os.path.basename(f): MANX["runs"][f]["sha256"] for f in fs},
          "post_swap_only": fl[0], "as_receiver": fl[1], "lag_ref": "runs/troll/A20k_indep_dev" if fl[2] else None,
          "lag_ref_inputs": {"r.pt": "L"} if fl[2] else None}
     b.update(kw); return b
@@ -975,7 +975,7 @@ with _tf.TemporaryDirectory() as td:
     _r8b = _try(getattr(WS, "sample_once", None), dict(_rs, dir=f"{td}/job_9"), f"{td}/job_9", ("memory.peak", "memory.current"))
     check("T2 item 8: a job-level memory.current read is a valid sample", isinstance(_r8b, dict) and _r8b["n_valid"] == 1 and _r8b["max_current"] == 123)
 _MEM = {"rule": {"pass": True, "peak": 100e9}, "request_bytes": 145e9}
-_AS8 = {"n_valid": 50, "dir": "/sys/fs/cgroup/x/job_9", "job": "9", "peak": 110e9, "max_current": 105e9, "t": 2000.0}
+_AS8 = {"n_valid": 50, "dir": "/sys/fs/cgroup/x/job_9", "job": "9", "peak": 110e9, "max_current": 105e9, "t": 2000.0, "t_valid": 2000.0}
 check("T2 item 8: a valid sampler read after the rehearsal finalises the peak over the request",
       isinstance(_try(getattr(WP, "memory_final", None), _MEM, _AS8, 1500.0, "9"), dict) and _try(getattr(WP, "memory_final", None), _MEM, _AS8, 1500.0, "9").get("pass") is True)
 for _nm, _as, _rt in (("no valid job-level read (trainer-only peak)", {**_AS8, "n_valid": 0}, 1500.0),
@@ -1130,5 +1130,32 @@ _rol = open("scripts/wan_rollout.py").read()
 check("Neon C: the guide Wan-VAE encoding + fold_src are cached per exact (drive, tick) frame sequence and reused across seeds / modes",
       'ekey = tuple((src[i][0]["sc"], int(src[i][1])) for i in fr)' in _rol and "extra = _ENC.get(ekey)" in _rol and "_ENC[ekey] = extra" in _rol
       and _rol.find("extra = _ENC.get(ekey)") < _rol.find("zg = WC.wan_encode(vae, gvid)"))
+# ---- Astra T3 (last pre-GPU review) repros
+# item 8: one valid read at t=100, rehearsal ends at 200, both reads fail at 300 -> coverage must NOT include the rehearsal
+_rs8 = {"t0": 0, "dir": "/x/job_9", "version": "v2", "max_current": None, "peak": None, "n": 0, "n_valid": 0, "job": "9"}
+import unittest.mock as _um
+with _um.patch.object(WS, "_read_int", side_effect=[100, None]), _um.patch.object(WS.time, "time", return_value=100.0):
+    WS.sample_once(_rs8, "/x/job_9", ("memory.peak", "memory.current"))
+with _um.patch.object(WS, "_read_int", side_effect=[None, None]), _um.patch.object(WS.time, "time", return_value=300.0):
+    WS.sample_once(_rs8, "/x/job_9", ("memory.peak", "memory.current"))
+_mf8 = WP.memory_final({"rule": {"peak": 100}, "request_bytes": 170}, _rs8, 200.0, "9")
+check("T3 item 8 repro (Astra): a failed read after the rehearsal does not extend coverage -> includes_rehearsal False, no PASS",
+      _rs8.get("t_valid") == 100.0 and _rs8["t"] == 300.0 and _mf8["includes_rehearsal"] is False and _mf8["pass"] is False, (_rs8, _mf8))
+with _um.patch.object(WS, "_read_int", side_effect=[120, 120]), _um.patch.object(WS.time, "time", return_value=310.0):
+    WS.sample_once(_rs8, "/x/job_9", ("memory.peak", "memory.current"))
+check("T3 item 8: a successful read after the rehearsal covers it", WP.memory_final({"rule": {"peak": 100}, "request_bytes": 170}, _rs8, 200.0, "9")["includes_rehearsal"] is True)
+# item 12: a panel shard explicitly unbound before scoring is refused at panel intake
+_ok12, _w12 = WP.score_binding_matches({"binding": {**bnd("hybrid", 0, 2), "bound_before_scoring": False}}, PRr)
+_ok12b, _w12b = WP.score_binding_matches({"binding": bnd("hybrid", 0, 2)}, PRr)
+check("T3 item 12: the same shard bound before scoring is admitted", _ok12b, _w12b)
+check("T3 item 12 repro (Astra): a panel shard marked bound_before_scoring=False is refused", not _ok12 and "before scoring" in _w12, _w12)
+# Neon C: cache fills priced separately (20 s encode + 100 s other per pass of 100 ticks, 8 ordinary renders -> 820 s, not 880 s)
+_hit, _fill = 1.0, 0.2   # per tick: repeat work 1.0 s, fill 0.2 s
+_h = WP.panel_render_h(200, _hit, 0.0, n_modes=3, enc_fill_tick_s=_fill)   # 100 dev ticks x 2 seeds; 3 modes + swap = 8 renders of 100 ticks
+check("T3 Neon C repro (Astra): 8 ordinary-like renders of a 100-tick drive = 800 s repeat + one fill per distinct sequence (ordinary + swap)",
+      abs(_h * 3600 - (8 * 100 * _hit + 2 * 100 * _fill)) < 1e-6, _h * 3600)
+_src = open("scripts/wan_forecast.py").read() + open("scripts/wan_panel.py").read()
+check("T3 Neon C: forecast prices roll_tick_hit_s + enc_fill_tick_s from the rehearsal; the rehearsal requires fill-then-hit",
+      "roll_tick_hit_s" in _src and "enc_fill_tick_s=enc_fill" in _src and "guide-encoding cache did not fill then hit" in _src)
 print(f"WAN_TESTS FAILS={FAILS}")
 sys.exit(1 if FAILS else 0)

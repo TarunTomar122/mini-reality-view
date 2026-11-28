@@ -431,6 +431,8 @@ def sample_once(rec, d, names):
     rec["n"] += 1
     rec["n_valid"] = rec.get("n_valid", 0) + int(cur is not None or pk is not None)
     rec["t"] = time.time()
+    if cur is not None or pk is not None:  # Astra T3 item 8: the time of the last SUCCESSFUL job-level read
+        rec["t_valid"] = rec["t"]
     return rec
 
 

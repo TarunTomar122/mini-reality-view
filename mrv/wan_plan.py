@@ -569,6 +569,8 @@ def score_binding_matches(part, rec):
             why.append(f"{k} differs from the parity record")
     if not weights_resolved(b.get("weights")):
         why.append("metric weights not resolved to file digests")
+    if b.get("bound_before_scoring") is not True:  # Astra T3 item 12: as parity intake
+        why.append("binding not recorded before scoring")
     return not why, "; ".join(why) or "ok"
 
 
@@ -627,13 +629,18 @@ def forecast_s1(t):
             "max_s_per_update_for_12k": round(max(0.0, avail_train) * 3600 / FLOOR_UPDATES, 3)}
 
 
-def panel_render_h(dev_ticks_x_seeds, roll_tick_s, load_s, n_modes=4, donors=None):
+def panel_render_h(dev_ticks_x_seeds, roll_tick_s, load_s, n_modes=4, donors=None, enc_fill_tick_s=0.0):
     """CONVERGED items 4 / 7: the SLICE cost of one panel is rendering only, with Wan loaded ONCE per panel process: one load +
     (n_modes + 1 swap) rollouts of every dev tick x 2 seeds + one unswapped same-length reference (2 seeds) per shared-mode donor,
     at the measured load-once rollout rate. Scoring runs on the 2080 Ti under its own ledger (panel_score_h)."""
+    # Astra T3 / Neon C: roll_tick_s is the CACHE-HIT per-tick rate; the guide Wan-VAE encoding is filled once per distinct frame
+    # sequence per drive (enc_fill_tick_s per tick): once for the ordinary renders (all modes and seeds share the receiver's
+    # frames), once for the swap renders (donor frames after the swap, seed-independent), once per shared-mode reference of n ticks
     ticks = (n_modes + 1) * dev_ticks_x_seeds
-    ticks += sum(2 * int(v["n"]) for v in (donors or {}).values() if v and v.get("mode") == "shared")
-    return (load_s + ticks * roll_tick_s) / 3600
+    shared = sum(int(v["n"]) for v in (donors or {}).values() if v and v.get("mode") == "shared")
+    ticks += 2 * shared
+    fills = 2 * (dev_ticks_x_seeds // 2) + shared  # ordinary + swap sequences per drive (dev ticks each) + shared references
+    return (load_s + ticks * roll_tick_s + fills * enc_fill_tick_s) / 3600
 
 
 def panel_score_h(dev_ticks_x_seeds, score_tick_s, n_modes=4):
@@ -1028,7 +1035,8 @@ def memory_final(mem, AS, rehearsal_end_t, this_job=None):
     tr = mem.get("rule") or {}
     peaks = [tr.get("peak")] + ([AS.get("peak"), AS.get("max_current")] if ok_s else [])
     r = memory_rule(peaks, mem.get("request_bytes"))
-    inc = bool(ok_s and rehearsal_end_t is not None and float(AS.get("t", 0)) >= float(rehearsal_end_t))
+    # Astra T3 item 8: coverage needs a SUCCESSFUL job-level read after the rehearsal ended (a failed read never extends coverage)
+    inc = bool(ok_s and rehearsal_end_t is not None and AS.get("t_valid") is not None and float(AS["t_valid"]) >= float(rehearsal_end_t))
     return {"rule": r, "includes_rehearsal": inc, "sampler_valid": ok_s, "pass": bool(r["pass"] is True and inc)}
 
 

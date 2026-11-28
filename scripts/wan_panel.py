@@ -180,9 +180,18 @@ if a.rehearsal:
     ticks = sum(len(r_["ticks"]) for r_ in runs_)
     inner = sum(sum(r_["timing"][k] for k in ("encode_s", "sample_s", "decode_s", "sd_s")) for r_ in runs_)
     wall_runs = sum(r_["wall_s"] for r_ in PT["runs"])
+    # Astra T3 / Neon C: the loop's first run (tokens mode) fills the guide-encoding cache, the second (hybrid, same drive / frames)
+    # hits it: fill cost = encode-time difference; repeat work priced at the hit run's own per-tick rate
+    t_miss, t_hit = runs_[0]["timing"], runs_[1]["timing"]
+    enc_fill_s = max(0.0, t_miss["encode_s"] - t_hit["encode_s"])
+    hit_inner = sum(t_hit[k] for k in ("encode_s", "sample_s", "decode_s", "sd_s")); hit_wall = PT["runs"][1]["wall_s"]
+    cache_ok = t_miss.get("encode_cache_miss", 0) > 0 and t_hit.get("encode_cache_miss", 0) == 0 and t_hit.get("encode_cache_hit", 0) > 0
+    if not cache_ok:
+        why.append(f"guide-encoding cache did not fill then hit (miss run {t_miss.get('encode_cache_miss')} / {t_miss.get('encode_cache_hit')}, hit run {t_hit.get('encode_cache_miss')} / {t_hit.get('encode_cache_hit')})")
     rec = {"pass": not why, "why": "; ".join(why) or "byte-equal", "receiver": R, "rgb_sha_loop": A_["rgb_sha"], "rgb_sha_fresh": B_["rgb_sha"],
            "ticks": ticks, "load_s": PT["load_s"], "roll_tick_inner_s": round(inner / ticks, 4), "roll_tick_wall_s": round(wall_runs / ticks, 4),
-           "roll_tick_s": round(max(inner, wall_runs) / ticks, 4), "window_latents": int(A_["window_latents"]), "fresh_process_s": round(fresh_wall, 1),
+           "roll_tick_s": round(max(inner, wall_runs) / ticks, 4), "roll_tick_hit_s": round(max(hit_inner, hit_wall) / n_r, 4),
+           "enc_fill_s": round(enc_fill_s, 3), "enc_fill_tick_s": round(enc_fill_s / n_r, 5), "window_latents": int(A_["window_latents"]), "fresh_process_s": round(fresh_wall, 1),
            "ckpt_sha": CK_SHA16 if A_["ckpt_sha"] == B_["ckpt_sha"] == CK_SHA16 else None, "fresh_all_ticks": bool(ok_f1 and ok_f2),
            "drive_ticks": n_r, "plan_timing": PT, "timing_s": timing,
            "inputs_manifest_sha": _TJ["manifest_sha"] if A_.get("inputs_manifest_sha") == B_.get("inputs_manifest_sha") == _TJ["manifest_sha"] else None}

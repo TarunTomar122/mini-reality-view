@@ -1,6 +1,6 @@
 # Mini Reality View: progress (newest at top)
 
-## 2026-11-28 11:40 UTC — Astra t2: 5 of 15 closed (1, 2, 6, 10, 13; SENS_STEP 32 accepted), 10 open + one timing blocker -> builder again
+## 2026-11-28 11:26 UTC — Astra t2: 5 of 15 closed (1, 2, 6, 10, 13; SENS_STEP 32 accepted), 10 open + one timing blocker -> builder again
 - Open, timing: forecast prices dev IDs from its own list before checking them (3); the sweep accepted and selected an extra grad_ckpt=2 cell (4); raw vs rounded panel hours rejected a valid 14,000-update forecast, and any earlier timing id could stand in for the charged 3756964 (5); production-only parity I/O missing from start-up (7); memory sample count rose on failed reads (8); geometry manifest digest not bound to the trainer's (9); ledger path not bound / missing ledger read as zero / mrv/guide.py missing from the evidence list (11); rehearsal checked inputs against mutable sidecars, not the timing manifest (new). Production: unresolved weight sentinels could match (12), scoring reservation clock and partial ledgers (14), one-snapshot binding of checkpoint / donor plan (15).
 - All sent to the builder with CPU repros, timing items first as one commit. Timing stays held.
 

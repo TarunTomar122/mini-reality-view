@@ -1,13 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
-## 2026-11-28 09:30 UTC — Astra SIGNED S1 production (yes) at fc01ccf
+## 2026-11-28 09:08 UTC — Astra SIGNED S1 production (yes) at fc01ccf
+- Clock note: the three entries above / below were first stamped 09:10 / 09:25 / 09:30, ahead of the clock (cluster `date -u` 09:08); corrected.
 - council/codereview-wan-s1h-astra.md: both S1g items closed; "SIGNED (production): yes". MODE=train may start once its own gates pass (timing geometry / init parity -> A@20k RGB-path parity -> overfit 2k PASS + resume_test PASS); the trainer enforces them.
 
-## 2026-11-28 09:25 UTC — Astra S1g: production still "no" -> fixed; re-sign h requested
+## 2026-11-28 09:06 UTC — Astra S1g: production still "no" -> fixed; re-sign h requested
 - Astra S1g (council/codereview-wan-s1g-astra.md): 4a a forwarded --out runs/wan_timing_* made a 40,000-update train job skip the reserve, budget stops and gates (the S1f rule used the directory name); 4b the trainer / panel still accepted a stored forecast without checking the width its rates were measured at.
 - Fixed: production is now decided by the run mode only (PROD unless --timing / --overfit / --resume_test); --resume_test is a bounded exemption (<= 16 updates, *ctest* dir); MODE=train / extend append --production after any forwarded args and the trainer refuses it with any test flag. The forecast stores rollout_window_latents; the reserve helper and the panel refuse a forecast whose measured width differs from (or lacks) the panel width. Tests pass locally and on the cluster venv (real trainer repros; WAN_TESTS FAILS=0). Timing job 3756964 unaffected (timing branch unchanged).
 
-## 2026-11-28 09:10 UTC — Astra S1f: production still "no" (2 items) -> fixed (17c4875); timing job resubmitted
+## 2026-11-28 09:04 UTC — Astra S1f: production still "no" (2 items) -> fixed (17c4875); timing job resubmitted
 - Astra S1f (council/codereview-wan-s1f-astra.md): 4a the train / extend reserve and budget checks were keyed on the --kind ledger label (a different label skipped them); 4b with PANEL_WIN != 5 the timing rollout still ran at width 5 while the forecast priced width PANEL_WIN.
 - Fixed: production enforcement (forecast reserve, budget stop, >24 h rule, parity / overfit / resume gates) now follows the run mode (any non-test run outside *timing* / *ctest* dirs), never the label; the timed rollout runs at --window_latents $PANEL_WIN, timing.json records rollout_window_latents, and wan_forecast.py refuses any other width (or a missing one). CPU repros added; WAN_TESTS FAILS=0.
 - Slurm snapshots the batch script at submit, so the pending MODE=timing 3756860 would have run the old shell and then been refused by the new forecast: cancelled and resubmitted unchanged as 3756964 (same caches dependency, same node / slice). Astra re-sign g requested.

@@ -1,5 +1,11 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 09:36 UTC — PRE-REGISTERED before timing.json is read (Fable 09:30 + Astra 09:30)
+- Token-geometry check inside MODE=timing PASSED (scene-0043 tick 54: median reprojection error 10.7 px vs 45.0 px for the wrong-camera control; ray recompute exact).
+- If the forecast says the 12k batch-8 floor is NOT reachable inside 24 slice-h after gates and panels: no production start; the measured bottleneck goes back to council, with Fable's default candidate first (2x2 pooling of the raw-view tokens, then re-time), restating the cap to the owner only second.
+- Freeze: once MODE=overfit is submitted, scripts/train_wan_teacher.py, mrv/wan_cond.py and mrv/wan_plan.py (the gate-key files) are not edited until MODE=train has started; any change would void the overfit / resume PASS records (Fable).
+- Clock note: the 09:33 entry below was stamped ahead of the clock (cluster `date -u` read 09:31 when that check ran).
+
 ## 2026-11-28 09:33 UTC — timing started; full guide build done (150 guides); full-train caches submitted; council 09:30 asked
 - MODE=timing 3756964 started 09:29 on the H200 3g slice (saxa). Its first log lines include an argparse "ambiguous option --sw" usage message: that is stderr from a wan_tests.py case that checks abbreviated rollout options are refused (expected), not a failure.
 - Full guide build complete: data/guides_v1 holds 150 guides (144 train + 6 dev).

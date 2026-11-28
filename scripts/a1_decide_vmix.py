@@ -48,12 +48,16 @@ red = min(-d["ID"]["rel"], -d["W"]["rel"])
 safe = d["car_f1"]["diff"] >= -0.03 and d["late_lpips_gap"]["diff"] <= 0.03
 def drive_means(path):  # ghost_ge5 per drive, seeds pooled within drive (equal drive weights), from a signed metrics file
     m = json.load(open(path))["drives"]; acc = {}
+    need(len(m) == 12 and all(r.rsplit("_s", 1)[1] in ("0", "1") for r in m), f"{path}: not exactly 12 runs with seeds 0 / 1")
     for run, v in m.items():
         need(num(v.get("ghost_ge5")), f"{path}: {run} ghost_ge5 missing / non-finite")
         acc.setdefault(run.rsplit("_s", 1)[0], []).append(float(v["ghost_ge5"]))
     return {k: sum(x) / len(x) for k, x in acc.items()}
 ga, gb = drive_means(d["A"]), drive_means(d["B"])  # comparator: A = arm (candidate), B = signed A@20k
 need(set(ga) == set(gb) and len(ga) == 6, f"ghost drive sets differ / not 6: {sorted(ga)} vs {sorted(gb)}")
+for path_ in (d["A"], d["B"]):  # every matched drive must have BOTH seeds 0 and 1 in both reopened files (Astra launcher review 2)
+    runs_ = set(json.load(open(path_))["drives"])
+    need(runs_ == {f"{x}_s{s}" for x in gb for s in (0, 1)}, f"{path_}: runs {sorted(runs_)} != the 6 drives x seeds 0 / 1")
 import numpy as np  # the comparator's bootstrap: np.random.default_rng(0), 2000 equal-weight drive resamples, sorted drive order
 rng = np.random.default_rng(0); drv = sorted(gb); boots = []
 for _ in range(2000):

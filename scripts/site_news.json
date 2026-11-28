@@ -98,5 +98,9 @@
  {
   "when": "28 Nov, 02:30",
   "text": "First look at the private-noise version (2k steps, look-only): it is already a bit LESS jumpy than A on car jumps (-9%) and 27% less jumpy than its own memory-off version, where the first live model was 62% jumpier than A at the same point. The catch: car accuracy is near its limit and more fake cars linger. The checks that count start at 8k."
+ },
+ {
+  "when": "28 Nov, 03:10",
+  "text": "Private-noise version at 8k (the first check that counts): car jumps are 10% below A, but wobble is level with A, and car accuracy and drift both crossed their safety limits, with more fake cars lingering (18 vs 4 per drive). One more safety miss at 12k stops this version. The next design (memory that reads the finished picture of past frames) is coded and passing its first tests."
  }
 ]

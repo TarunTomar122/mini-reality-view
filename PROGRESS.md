@@ -1,6 +1,6 @@
 # Mini Reality View: progress (newest at top)
 
-## 2026-11-28 10:25 UTC — MODE=timing 3756964 done: gates PASS, but the 12k floor is NOT reachable as measured -> pre-registered: no production, bottleneck to council
+## 2026-11-28 10:20 UTC — MODE=timing 3756964 done: gates PASS, but the 12k floor is NOT reachable as measured -> pre-registered: no production, bottleneck to council
 - Gates inside timing: token geometry PASS (10.7 px vs 45.0 px control); init parity PASS (stock vs wrapped 0.0, guide / tokens inert 0.0, finite); update-0 sensitivity PASS (guide 0.16, tokens 0.005 at sigma 0.6; control 0). Trainable: LoRA 43.7M + new 5.85M. Inert 81-tick rollout (scene-0043): car F1 0.0, road IoU 0.11 (untrained, as expected).
 - Measured (H200 MIG 3g.71gb, batch 8): GPU work per update 3.6 s at micro 1 (5.6 GB peak) to 4.0 s at micro 8 (17.7 GB); best micro 1. But the production loop takes 10.7 s per update: the single prefetch thread needs 10.7 s to assemble a batch (queue wait 7.1 s) -> the GPU idles ~2/3 of the time. Start-up 1,146 s for 48 drives (cache sha verification + Wan load), scaled to 3,437 s for 144. Panel: 13.9 slice-h each (rollout 0.70 s / tick + 381 s start per rollout; RGB scoring 2.41 s / tick dominates).
 - Forecast: overfit 7.5 h + resume test 3.0 h + two panels 27.9 h -> available -15.1 h of the 24 h; floor_12k_reachable = false. Timing used 0.71 slice-h of the S1 ledger.

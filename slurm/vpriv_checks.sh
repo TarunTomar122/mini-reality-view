@@ -12,7 +12,7 @@
 # If training dies, saved checkpoints are still drained before the watcher reports the missing one.
 #   sbatch --cpus-per-task=1 --mem=2G --time=9:00:00 -J vpriv-watch -o logs2/%x-%j.out slurm/vpriv_checks.sh
 cd $HOME/mini-reality-view
-G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --cpus-per-task=4 --mem=48G"
+G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --cpus-per-task=4 --mem=48G --exclude=damnii10"  # damnii10: broken GPU (Neon 01:30)
 S=runs/vpriv_gate/watch; mkdir -p $S || exit 1
 die() { echo "WATCH_FAIL $*" >&2; exit 1; }
 rec() { echo "$2" > $S/$1 && [ "$(cat $S/$1)" = "$2" ] || die "cannot record $1"; }
@@ -21,18 +21,18 @@ free() {  # free slots (min of both limits); returns 1 if squeue failed
   m=$(echo "$q" | grep mini-reality-view | grep -vc JobHeldUser); a=$(echo "$q" | grep -c .)
   local f=$(( 16 - m )); [ $(( 20 - a )) -lt $f ] && f=$(( 20 - a )); echo $f; }
 gates_done() { [ -e $S/8.done ] && [ -e $S/12.done ] && [ -e $S/16.done ]; }
-take() {  # is a slot free for job class of $k?
-  local f need=1; case $k in 2|4) gates_done || need=10;; esac; f=$(free) || return 1; [ "$f" -ge $need ]; }
+take() {  # is a slot free for job class of $k? (the 2k / 4k reserve applies only while training runs and gates remain)
+  local f need=1; case $k in 2|4) gates_done || ! running || need=10;; esac; f=$(free) || return 1; [ "$f" -ge $need ]; }
 jobstate() {  # active | done | failed | unknown
   local s; s=$(squeue -h -j $1 -o "%T %r" 2>/dev/null)
   if [ -n "$s" ]; then [[ "$s" == *DependencyNeverSatisfied* ]] && echo failed || echo active; return; fi
-  s=$(sacct -n -X -P -j $1 -o State 2>/dev/null | head -1)
+  s=$(sacct -n -X -P -S now-3days -j $1 -o State 2>/dev/null | head -1)
   case "$s" in COMPLETED) echo done;; PENDING|RUNNING|REQUEUED|SUSPENDED|CONFIGURING|COMPLETING) echo active;; "") echo unknown;; *) echo failed;; esac; }
 deps() {  # deps <id...>: prints ":id" for still-active ids; COMPLETED ids are dropped; failed / unknown -> stop
   local j st; for j in "$@"; do st=$(jobstate $j)
     case $st in active) printf ":%s" $j;; done) ;; *) die "dependency $j is $st";; esac; done; }
 byname() {  # ids carrying exactly this name, from squeue AND sacct (both must succeed)
-  local q1 q2; q1=$(squeue -u $USER -h -n $1 -o %i) || return 1; q2=$(sacct -u $USER -X -n -P --name=$1 -o JobID) || return 1
+  local q1 q2; q1=$(squeue -u $USER -h -n $1 -o %i) || return 1; q2=$(sacct -u $USER -X -n -P -S now-3days --name=$1 -o JobID) || return 1
   printf "%s\n%s\n" "$q1" "$q2" | grep -E '^[0-9]+$' | sort -u; }
 submit() {  # submit <state key> <base name> <sbatch args...>: intent first, then one sbatch, then the id
   local key=$1 base=$2 n j q; shift 2
@@ -47,11 +47,27 @@ submit() {  # submit <state key> <base name> <sbatch args...>: intent first, the
   die "ambiguous sbatch for $n (matches: ${q:-none})"; }
 running() { local q; q=$(squeue -u $USER -h -n vpriv -o %i) || return 0; [ -n "$q" ]; }  # queue error: assume running
 
+reconcile() {  # outstanding intents (name recorded, no id) are resolved BEFORE any admission check
+  local f key n q
+  for f in $S/*.name; do [ -e "$f" ] || continue; key=${f%.name}; [ -s $key ] && continue
+    n=$(cat $f); q=$(byname $n) || die "lookup failed for intent $n"
+    case $(echo "$q" | grep -c .) in 1) rec ${key#$S/} $q; echo "adopted $n = $q";; 0) ;; *) die "intent $n matches several jobs: $q";; esac
+  done; }
+check_chain() {  # any failed job in a gated chain (shards, metrics, score) stops the watcher with its id; unknown state is
+                 # tolerated for at most 10 passes per job
+  local f st u
+  for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/16.sh* $S/16.m $S/16.c; do
+    [ -e "$f" ] || continue; case $f in *.name|*.unk) continue;; esac
+    st=$(jobstate $(cat $f))
+    case $st in failed) die "gated chain job $(cat $f) (${f#$S/}) failed";;
+      unknown) u=$(( $(cat $f.unk 2>/dev/null || echo 0) + 1 )); echo $u > $f.unk
+        [ $u -gt 10 ] && die "gated chain job $(cat $f) (${f#$S/}) state unknown for 10 passes";;
+      *) rm -f $f.unk;; esac
+  done; }
 pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothing admissible now (sleep), 2 = all done
   local k ck out sh p dep missing=""
   alldone=1
-  for x in 8 12; do  # a failed gated score job stops everything (its decision will never appear)
-    if [ -s $S/$x.c ] && [ "$(jobstate $(cat $S/$x.c))" = failed ]; then die "${x}k score job $(cat $S/$x.c) failed"; fi; done
+  reconcile; check_chain
   for k in 8 12 16 2 4; do
     [ -e $S/$k.done ] && continue
     alldone=0; ck=runs/vpriv/ckpt_${k}000.pt

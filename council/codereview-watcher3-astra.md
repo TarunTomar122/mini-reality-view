@@ -1,0 +1,6 @@
+L35–43: Restart can duplicate a job that finished before midnight. The name-only accounting query starts at midnight. Search from the persisted intent time and stop if accounting visibility is uncertain. [Slurm time windows](https://slurm.schedmd.com/sacct.html#SECTION_DEFAULT-TIME-WINDOW)
+L68–88: Slot and dependency checks precede intent lookup. An accepted job can occupy the last admissible slot and block its own adoption. Reconcile outstanding intents before admission checks.
+L23–25, 58–69: With training dead before 8k, saved 4k and nine free slots, the reserve blocks 4k every pass and the missing-checkpoint diagnostic is never reached. Release the reserve when the remaining gates cannot run.
+L26–33, 53–54: A failed shard can leave metrics pending with DependencyNeverSatisfied while its score still shows ordinary Dependency. Inspect recorded ancestors and report the blocking ID. Bound retries for unknown gate state.
+The immediate priority rescan, reserve release after all gate markers, completed-dependency removal and stderr diagnostics check out.
+FIX: reconcile intents across midnight and before admission, release stranded slots after training dies, and detect failures throughout the gate chain.

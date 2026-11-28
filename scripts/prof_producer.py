@@ -14,6 +14,7 @@ T = {}
 t0 = time.time()
 for sc in drives:
     T[sc] = torch.load(f"{a.tokens}/{sc}.pt", map_location="cpu", weights_only=False, mmap=True)
+drives = [d for d in drives if T[d]["tokens"].shape[0] >= 25]  # eligible clips need >= 17 ticks (one-tick drives have none)
 print("PROF open_mmap_s", round(time.time() - t0, 2), "drives", len(T), "shape", tuple(T[drives[0]]["tokens"].shape), T[drives[0]]["tokens"].dtype, flush=True)
 
 

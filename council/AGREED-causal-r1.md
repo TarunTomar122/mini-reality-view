@@ -138,3 +138,18 @@ pass (if vpriv passes, its exam takes precedence subject to N1).
   interval, and the paired 95% interval of (arm - A) road IoU not wholly below zero. N1 also applies before any exam.
 - Before update 1: T1-T7 re-checked for the new ring (clip / stream agreement through eviction, first-tick equality after
   reset), 100-update timing + peak memory on the slice, Astra code signature.
+
+## Amendment A5 — arm "vmix" (CONVERGED: Fable proposal council/r2-swap-fable.md, Astra SIGNED council/r2-sign-astra.md, 28 Nov ~03:45 UTC)
+Sources: council/review-20261128-0330-{astra,fable,neon}.md, r2-swap-{astra,fable}.md, r2-sign-astra.md. Replaces A4's launch
+predicate (the A4 probe read R2 with vpriv's readers) for this arm only; everything else in A4 stands.
+- Memory source: updates 1-2000 = real key latents; from update 2001 one of the two clips per update (coin on a third
+  resumable RNG stream) reads CACHED frozen-A@20k generated latents of the same ticks instead; real key target always.
+- Jitter (both sources): per clip, memory timestep uniform from {1, 41, 81} on a separate resumable RNG; latents noised with
+  private draws; detached frozen-A features at that timestep with the query's camera-dropout mask.
+- Cache: frozen A@20k, memory off, rho 1.0, DDIM-25, eta 0, CFG 2, style 2, drive-keyed initial noise, seed 0, final fp16
+  latents for every usable tick of the 144 train drives; built on 2080 Tis while the slice trains. Parity check before use:
+  one train drive re-rendered by the matched memory-off rollout, max |latent diff| < 0.01; report train vs dev cache-to-key
+  MSE. If the cache check has not passed by update 2000 the job holds there.
+- Rollout, gate (rho 1.0 after clean T2 PASS), bars incl. ghost / road pass conditions, A1 timing and N1: as A4. The 8k
+  own-history probe (trained reader on its own generated prefixes) is a non-gating report. Signed control if attribution is
+  needed: pure key + jitter A4. Before update 1: T1-T7 (clean suite), Astra code review, 100-update timing.

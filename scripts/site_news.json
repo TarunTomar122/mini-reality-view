@@ -1,11 +1,35 @@
 [
  {
-  "when": "27 Nov, 06:45",
-  "text": "Memory version C (trained partly on its own output) is the best so far on the practice drives: 12-19% fewer car jumps, 9-11% less wobble, car placement and drift fine. Its only weak point is a few lingering fake cars (+4 to +6 per drive; B had +8 to +14), which we will deal with later. The reviewers now pick the one version to train long."
+  "when": "28 Nov, 05:40",
+  "text": "Next version 'vmix' is coded, tested and signed. Its memory first reads real past frames, then also frames the model drew itself. Its cache of drawn frames had to be redrawn one frame at a time (drawing 8 at once changed the numbers slightly); the redraw matches exactly and finishes around 07:00. Meanwhile the big GPU trains the matching comparison version. Speed: merging the fine-tuning weights made frames ~2x faster (1.6 s at 25 steps, 0.3 s at 4 steps; goal 0.1 s)."
+ },
+ {
+  "when": "28 Nov, 03:30",
+  "text": "Private-noise version stopped at 12k under the pre-agreed rule (two safety misses in a row): car accuracy and the picture difference to the key were over their limits at 8k and 12k (mostly a constant offset, not growing drift). Smoothness at 12k was its best (15% fewer car jumps and 7% less wobble than A; the bar is 9.4% on both), but it did not improve at every check. The next design's first test also missed, so the council is designing round 2."
+ },
+ {
+  "when": "28 Nov, 03:10",
+  "text": "Private-noise version at 8k (the first check that counts): car jumps are 10% below A, but wobble is level with A, and car accuracy and drift both crossed their safety limits, with more fake cars lingering (18 vs 4 per drive). One more safety miss at 12k stops this version. The next design (memory that reads the finished picture of past frames) is coded and passing its first tests."
+ },
+ {
+  "when": "28 Nov, 02:30",
+  "text": "First look at the private-noise version (2k steps, look-only): it is already a bit LESS jumpy than A on car jumps (-9%) and 27% less jumpy than its own memory-off version, where the first live model was 62% jumpier than A at the same point. The catch: car accuracy is near its limit and more fake cars linger. The checks that count start at 8k."
+ },
+ {
+  "when": "28 Nov, 00:54",
+  "text": "The private-noise version started training after all tests passed and Astra signed the launch code (on the sixth review; each earlier one found a real hole). It trains to 12k, pauses while 12k is scored, and continues to 16k only if the safety bars allow."
+ },
+ {
+  "when": "28 Nov, 00:25",
+  "text": "The first live video model finished 16,000 steps: it was jumpier than A at every check (16k: +58% car jumps, +15% wobble), so it did not pass. Car accuracy stayed just inside its limit and drift was near zero. That triggers the fix agreed in advance: train it again with private noise for every frame."
  },
  {
   "when": "27 Nov, 06:55",
   "text": "Change of plan: we were spending most GPU time on drawing and grading test videos and too little on training (training was about 13%). Now: ONE memory version trained long (about 20k steps) next to a no-memory version of the same length, quick checks every 5k steps with a side-by-side video, and one full exam at the end. The two AI reviewers pick which version. The car map is parked, not dead: it only ever got 1-2k steps."
+ },
+ {
+  "when": "27 Nov, 06:45",
+  "text": "Memory version C (trained partly on its own output) is the best so far on the practice drives: 12-19% fewer car jumps, 9-11% less wobble, car placement and drift fine. Its only weak point is a few lingering fake cars (+4 to +6 per drive; B had +8 to +14), which we will deal with later. The reviewers now pick the one version to train long."
  },
  {
   "when": "27 Nov, 06:30",
@@ -86,25 +110,5 @@
  {
   "when": "26 Nov, 04:15",
   "text": "The Stable Diffusion renderer finished 40,000 steps on the old, messy keys: photo-like streets, but car placement stopped improving after 20,000 steps."
- },
- {
-  "when": "28 Nov, 00:25",
-  "text": "The first live video model finished 16,000 steps: it was jumpier than A at every check (16k: +58% car jumps, +15% wobble), so it did not pass. Car accuracy stayed just inside its limit and drift was near zero. That triggers the fix agreed in advance: train it again with private noise for every frame."
- },
- {
-  "when": "28 Nov, 00:54",
-  "text": "The private-noise version started training after all tests passed and Astra signed the launch code (on the sixth review; each earlier one found a real hole). It trains to 12k, pauses while 12k is scored, and continues to 16k only if the safety bars allow."
- },
- {
-  "when": "28 Nov, 02:30",
-  "text": "First look at the private-noise version (2k steps, look-only): it is already a bit LESS jumpy than A on car jumps (-9%) and 27% less jumpy than its own memory-off version, where the first live model was 62% jumpier than A at the same point. The catch: car accuracy is near its limit and more fake cars linger. The checks that count start at 8k."
- },
- {
-  "when": "28 Nov, 03:10",
-  "text": "Private-noise version at 8k (the first check that counts): car jumps are 10% below A, but wobble is level with A, and car accuracy and drift both crossed their safety limits, with more fake cars lingering (18 vs 4 per drive). One more safety miss at 12k stops this version. The next design (memory that reads the finished picture of past frames) is coded and passing its first tests."
- },
- {
-  "when": "28 Nov, 03:30",
-  "text": "Private-noise version stopped at 12k under the pre-agreed rule (two safety misses in a row): car accuracy and the picture difference to the key were over their limits at 8k and 12k (mostly a constant offset, not growing drift). Smoothness at 12k was its best (15% fewer car jumps and 7% less wobble than A; the bar is 9.4% on both), but it did not improve at every check. The next design's first test also missed, so the council is designing round 2."
  }
 ]

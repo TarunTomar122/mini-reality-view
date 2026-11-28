@@ -65,6 +65,9 @@ for _ in range(2000):
     boots.append(sum(gb[x] for x in pick) / len(pick))
 a_upper = float(np.percentile(boots, 97.5))
 arm_mean = sum(ga.values()) / len(ga)
+a_mean = sum(gb.values()) / len(gb)  # recomputed means must equal the comparator's own ghost_ge5 values (Neon 05:30)
+need(abs(arm_mean - d["ghost_ge5"]["A"]) < 1e-6 and abs(a_mean - d["ghost_ge5"]["B"]) < 1e-6,
+     f"recomputed ghost means {arm_mean} / {a_mean} != comparator {d['ghost_ge5']['A']} / {d['ghost_ge5']['B']}")
 ghost_ok = arm_mean <= a_upper   # A4: arm mean <= upper end of A's 95% interval
 road_ok = d["road_iou"]["ci95"][1] >= 0.0     # arm - A road IoU interval not wholly below zero
 bars = elig and red > 0.094 and safe

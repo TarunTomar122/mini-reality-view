@@ -1,5 +1,12 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 05:36 UTC — Neon 05:30 corrections
+- Cache ETA corrected: 7 / 12 shards landed on damnii11 (~3.2 s / tick vs ~1.9 s elsewhere); shard 7 finishes ~06:46-06:50, cache check ~10-12 min later -> handoff ~07:00, not ~06:35. Also: scene-0005's batch-1 parity ran on the same host (opencast) as the reference, so cross-host 2080 Ti parity is not yet shown (the full cache check covers only that drive's parity).
+- launch_vctl.sh and launch_vmix.sh's pending mode were added after Astra's launch signature, and the clean suite never exercised --arm vclean --jitter 1,41,81 / --control (the control's gate and trainer start were real-run only) -> sent to Astra for review with handoff_vmix.sh. council/vmix-pending-final-astra.md committed.
+- Site: news list now newest-first (slice showed the oldest six), stale "private-noise version training" / 3.4 s / plan box fixed.
+- a1_decide_vmix now asserts its recomputed ghost means equal the comparator's ghost_ge5 values.
+- Still open (Neon): no 3k / 5k / 7k vctl snapshots (only rolling ckpt.pt; vctl reaches 8000 ~06:53); serial metrics; latent_change not in vmix scoring; optimizer state in every checkpoint.
+
 ## 2026-11-28 05:34 UTC — handoff rule fixed BEFORE it acts (Astra + Fable 05:30); control 8k pre-registration
 - Yield rule (written before the cache check passes): handoff job 3756467 runs after cache check 3756387 succeeds; it waits for the next completed rolling save of runs/vctl/ckpt.pt (every 500 updates); if that save is at 7000-7500 it keeps going to the 8000 save (Fable: first gated checkpoint for the control, <= ~13 min on vmix; it waits for the SAVE, never a score: Astra); then cancels vctl, checks the saved checkpoint (step, optimizer, RNG), and runs launch_vmix.sh passed + the vmix watcher. vctl resumes later from runs/vctl/ckpt.pt under its original control record (a resume launcher still has to be written: launch_vctl.sh refuses an existing run).
 - Pre-registered: a pass by the CONTROL at 8k (if its panel is rendered) launches no exam by itself; it is the A5 attribution reference for vmix (matched vctl / vmix at 4k is the first comparison that can attribute a difference to mixed history: Astra). The control's 2k panel will not take 2080 Tis from the cache rebuild.

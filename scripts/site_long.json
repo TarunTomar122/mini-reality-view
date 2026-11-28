@@ -162,13 +162,13 @@
   ],
   [
    "now",
-   "Next design (council round 2)",
-   "memory that reads the finished picture of past frames: real past frames help, but frames the model drew itself hurt so far; council redesigning"
+   "Next version 'vmix' (coded, tested, signed)",
+   "memory reads real past frames, then also frames A drew itself; comparison version trains now, vmix takes over when its cache passes (~07:00)"
   ],
   [
    "later",
    "Make it fast enough to be live",
-   "now 3.4 s per frame (0.6 s at 4 steps) on a small GPU; target 0.1 s"
+   "now 1.6 s per frame at 25 steps, 0.3 s at 4 steps (LoRA merged) on a small GPU; target 0.1 s"
   ]
  ]
 }

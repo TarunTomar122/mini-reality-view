@@ -137,7 +137,7 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <section class="now" id="now">
     <h2>Right now</h2>
     <p class="goal">Goal: a smooth video that can run LIVE (frame by frame, never looking ahead), with cars in the right place.</p>
-    <p>The first live video model (A frozen + small time layers that look back 4 frames) finished all 16,000 training steps. Car accuracy stayed just inside its limit and the picture barely drifted, but it was JUMPIER than A at every check, so it did not pass. That triggers the fix the council agreed in advance: train the same thing again, but give every frame its own private noise while training, so the time layers have to learn from what the past frames show instead of copying the shared noise pattern. It was stopped at 12k by the agreed rule: smoother than A on car jumps, but car accuracy and the picture offset crossed their safety limits at both 8k and 12k. The council is now designing the next version. The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
+    <p>The first live video model (A frozen + small time layers that look back 4 frames) finished all 16,000 training steps. Car accuracy stayed just inside its limit and the picture barely drifted, but it was JUMPIER than A at every check, so it did not pass. That triggers the fix the council agreed in advance: train the same thing again, but give every frame its own private noise while training, so the time layers have to learn from what the past frames show instead of copying the shared noise pattern. It was stopped at 12k by the agreed rule: smoother than A on car jumps, but car accuracy and the picture offset crossed their safety limits at both 8k and 12k. The next version (vmix: memory that reads real past frames and frames the model drew itself) is coded and tested; it starts when its cache passes (~07:00). The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
 
     <h3>Closed: the memory version (one past frame) vs A</h3>
     <div class="race" id="race"></div>
@@ -193,15 +193,15 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
 
   <!--PLAN-->
   <h2>The plan from here</h2>
-  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 150" role="img" aria-label="Plan: first live model closed (no pass); private-noise version training to 12k, pause for the 12k check, then 16k; checks from 8k decide; then make it fast">
+  <div class="card treewrap"><svg class="tree" viewBox="0 0 880 150" role="img" aria-label="Plan: first live model and private-noise version closed (no pass); next version vmix trains after its cache passes; checks from 8k decide; then make it fast">
   <defs><marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="var(--ink-3)"/></marker></defs>
   <rect x="10" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
   <text x="105" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Live model v1</text>
-  <text x="105" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">16k: jumpier than A · closed</text>
+  <text x="105" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">v1 + private noise: closed</text>
   <path d="M200 65 H228" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="232" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--accent)" stroke-width="2"/>
-  <text x="327" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Private-noise version</text>
-  <text x="327" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">training · 12k, pause, 16k · now</text>
+  <text x="327" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">vmix (next version)</text>
+  <text x="327" y="78" text-anchor="middle" font-size="12" fill="var(--ink-3)">starts ~07:00 · 12k, pause, 16k</text>
   <path d="M422 65 H450" stroke="var(--ink-3)" stroke-width="1.5" marker-end="url(#ah)"/>
   <rect x="454" y="30" width="190" height="70" rx="10" fill="var(--surface)" stroke="var(--line)" stroke-width="1.5"/>
   <text x="549" y="58" text-anchor="middle" font-size="14" font-weight="600" fill="var(--ink)">Checks + videos</text>

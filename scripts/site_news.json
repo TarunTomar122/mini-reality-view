@@ -1,5 +1,9 @@
 [
  {
+  "when": "28 Nov, 06:15",
+  "text": "Change of plan: we stop bolting time layers onto the image model and switch to a real pretrained video model (about 1.3 to 2 billion parameters) that already knows how things move. The research council is picking the model and the plan. The image-model runs still on the cluster were stopped; their results stay in the lab notes."
+ },
+ {
   "when": "28 Nov, 05:40",
   "text": "Next version 'vmix' is coded, tested and signed. Its memory first reads real past frames, then also frames the model drew itself. Its cache of drawn frames had to be redrawn one frame at a time (drawing 8 at once changed the numbers slightly); the redraw matches exactly and finishes around 07:00. Meanwhile the big GPU trains the matching comparison version. Speed: merging the fine-tuning weights made frames ~2x faster (1.6 s at 25 steps, 0.3 s at 4 steps; goal 0.1 s)."
  },

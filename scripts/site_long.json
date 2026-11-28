@@ -161,9 +161,14 @@
    "best smoothness at 12k (-15% car jumps, -7% wobble vs A; bar 9.4%) but car accuracy and the picture offset over their limits at 8k and 12k -> stopped by the agreed rule"
   ],
   [
+   "done",
+   "vmix (image model + memory of its own frames): not run",
+   "coded and tested, but stopped before training by the switch to a pretrained video model"
+  ],
+  [
    "now",
-   "Next version 'vmix' (coded, tested, signed)",
-   "memory reads real past frames, then also frames A drew itself; comparison version trains now, vmix takes over when its cache passes (~07:00)"
+   "Switch to a pretrained video model",
+   "open model of ~1.3-2B parameters (e.g. Wan 2.1 1.3B, LTX-Video 2B, Cosmos-Predict2 2B); council choosing; then condition on our cameras, make it causal and fast"
   ],
   [
    "later",

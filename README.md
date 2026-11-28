@@ -17,13 +17,20 @@ and its surroundings, seen from a camera floating behind it, comes out. Drawn by
 | 1 | Make answer keys from real data (lidar points, then 3D reconstructions) and train a small renderer | done |
 | 2 | Start from Stable Diffusion instead: photo-like pictures, cars roughly in place | done |
 | 3 | Practise in a driving simulator first | done: a head start, not a better model |
-| 4 | **Real photos in, clean game-style third-person view out** | **running now** |
-| 5 | Phone photos, speed (1–4 steps), video, final write-up | next |
+| 4 | Real photos in, clean game-style third-person view out (single-frame model "A") | done |
+| 5 | Smooth video with a one-frame memory on top of A | closed: smoother, but drift and car mistakes grew |
+| 6 | Live video by bolting small time layers onto the frozen image model | closed: see below |
+| 7 | **Switch to a real pretrained video model (~1.3-2B), made live and camera-conditioned** | **planning now** |
 
-**Now:** our answer keys were always messy (smears, holes), and the model copied the mess. So we switched the target:
-the same real camera photos go in, but the answer is a game render of the exact same moment, where every car and
-person sits where it really was. Three experiments are running to pick the starting model and check whether ~7,900
-pairs are enough ([plan](council/PLAN-tpv.md)).
+**Now (28 Nov):** we stopped trying to turn an image model into a video model. Two overnight runs added time layers to
+the frozen Stable Diffusion model A: with shared noise it got 58% jumpier than A; with private noise it got smoother
+(15% fewer car jumps, 7% less wobble at 12k) but placed cars worse and left fake cars lingering, so the agreed safety
+rule stopped it. These layers only compare the same pixel across frames, while everything in a driving view moves, and
+they start from nothing with about 4 hours of driving to learn from. The next step is a model that has already learned
+motion from millions of videos (open-weight, about 1.3 to 2 billion parameters, e.g. Wan 2.1 1.3B, LTX-Video 2B or
+Cosmos-Predict2 2B), conditioned on our six cameras and made causal and fast for live use. A research council is
+choosing the backbone and the plan ([brief](council/pivot-video-r1.md)); A stays as the single-frame reference and
+the signed smoothness / accuracy / drift checks stay the same.
 
 ## The problem
 

@@ -19,9 +19,7 @@ cont() {  # stage-2 resume 12k -> 16k (caller holds the gate lock and has checke
         slurm/py.sbatch scripts/train_causal.py --init runs/longA/ckpt_20000.pt --out runs/vpriv --K 4 --rho 0.95 \
         --rho_decision council/rho_decision.json --private_clips $PRIV --steps 16000 --resume 2>$G2/cont_sbatch.err)
     if ! [[ "$J" =~ ^[0-9]+$ ]]; then
-      if grep -q "Batch job submission failed" $G2/cont_sbatch.err; then  # definite rejection: nothing was queued -> a retry is safe
-        rm -f $G2/CONT_PENDING; echo "SCORE_FAIL continuation rejected by Slurm ($(head -1 $G2/cont_sbatch.err)); intent cleared, retry allowed"; exit 1; fi
-      echo "SCORE_FAIL continuation sbatch ambiguous ('$J'; CONT_PENDING kept; check sacct)"; exit 1; fi
+      echo "SCORE_FAIL continuation sbatch failed ('$J', $(head -1 $G2/cont_sbatch.err)); CONT_PENDING kept: reconcile by hand (sacct -n -X --name=vpriv)"; exit 1; fi
     echo "job=$J resume 12000->16000 private_clips=$PRIV" > $G2/CONTINUED && grep -q "job=$J" $G2/CONTINUED || { echo "SCORE_FAIL receipt"; exit 1; }
     echo "CONTINUED vpriv to 16k: job $J"
 }

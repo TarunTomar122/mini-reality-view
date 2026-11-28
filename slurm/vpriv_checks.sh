@@ -59,7 +59,7 @@ reconcile() {  # outstanding intents (name recorded, no id) are resolved BEFORE 
 check_chain() {  # any failed job in a gated chain (shards, metrics, score) stops the watcher with its id; unknown state is
                  # tolerated for at most 10 passes per job
   local f st u
-  for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/12.early $S/16.sh* $S/16.m $S/16.c; do
+  for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/16.sh* $S/16.m $S/16.c; do
     [ -e "$f" ] || continue; case $f in *.name|*.unk|*.time) continue;; esac
     st=$(jobstate $(cat $f))
     case $st in failed) die "gated chain job $(cat $f) (${f#$S/}) failed";;
@@ -72,12 +72,16 @@ pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothi
   alldone=1
   reconcile; check_chain
   # early continuation (Fable 01:30): 12k saved and the 8k decision safe -> the 12k decision cannot stop the run -> resume now
-  # requires the CURRENT 8k score job to have COMPLETED (not just any a1_8k.json), and 2 free slots (helper + trainer)
+  # requires the CURRENT 8k score job to have COMPLETED (not just any a1_8k.json); run INLINE by the watcher (no helper job, so
+  # no slot race with the watcher's own passes); one attempt only; any failure is left for manual reconciliation and the
+  # regular 12k path (Astra early reviews 1-2)
   if [ -f runs/vpriv/ckpt_12000.pt ] && [ -s $S/8.c ] && [ "$(jobstate $(cat $S/8.c))" = done ] && [ -s runs/vpriv_gate/a1_8k.json ] \
-     && [ ! -s $S/12.early ] && [ ! -e runs/vpriv_gate/CONTINUED ]; then
+     && [ ! -e $S/12.early ] && [ ! -e runs/vpriv_gate/CONTINUED ]; then
     if [ "$(.venv/bin/python -c "import json;print(json.load(open('runs/vpriv_gate/a1_8k.json')).get('safe') is True)")" = True ]; then
-      f=$(free) || return 1; [ "$f" -ge 2 ] || return 1
-      submit 12.early vcont --cpus-per-task=1 --mem=4G --time=0:30:00 -o logs2/%x-%j.out slurm/vpriv_score.sh early $(cat $S/8.c); return 0
+      f=$(free) || return 1; [ "$f" -ge 1 ] || return 1
+      rec 12.early started
+      bash slurm/vpriv_score.sh early $(cat $S/8.c) > $S/early.log 2>&1; rc=$?
+      rec 12.early "rc=$rc"; echo "$(date -u +%H:%M) early continuation rc=$rc: $(tail -1 $S/early.log)"; return 0
     fi
   fi
   for k in 8 12 16 2 4; do
@@ -121,7 +125,7 @@ pass() {  # admits at most ONE job; returns 0 = admitted (rescan now), 1 = nothi
     rec $k.done queued; return 0
   done
   if [ $alldone = 1 ]; then  # keep monitoring until every gated chain job is terminal (check_chain dies on failures)
-    for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/12.early $S/16.sh* $S/16.m $S/16.c; do
+    for f in $S/8.sh* $S/8.m $S/8.c $S/12.sh* $S/12.m $S/12.c $S/16.sh* $S/16.m $S/16.c; do
       [ -e "$f" ] || continue; case $f in *.name|*.unk|*.time) continue;; esac
       [ "$(jobstate $(cat $f))" = done ] || return 1
     done

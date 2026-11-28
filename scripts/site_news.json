@@ -1,5 +1,9 @@
 [
  {
+  "when": "28 Nov, 09:08",
+  "text": "The code that trains the new video model passed its last safety review: the reviewer signed it off for the full training run. Before that run starts, it still has to pass four short checks on the cluster: how fast it is, whether it reproduces our old scores exactly, whether it can learn a few clips by heart, and whether it can stop and resume without changing the result. The first of these (speed) starts in about half an hour, once the data it needs is ready."
+ },
+ {
   "when": "28 Nov, 06:50",
   "text": "First check of the new video model (Wan 2.1, 1.3B) passed: squeezing our game-style answer videos through Wan's compressor and back keeps cars well (car score 0.79-0.83 out of 1.0, better than the old image model's compressor at 0.75). Wan runs in about 20-45 ms per step on our training GPU slice. Next: the camera guide and the first training run."
  },

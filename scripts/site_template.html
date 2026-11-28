@@ -137,7 +137,7 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
   <section class="now" id="now">
     <h2>Right now</h2>
     <p class="goal">Goal: a smooth video that can run LIVE (frame by frame, never looking ahead), with cars in the right place.</p>
-    <p>Tonight: the live video model = A frozen + small time layers that look back 4 frames. Final tests and the noise-mix decision run first, then it trains on its own (checks at 2k / 4k are look-only; the bars apply from 8k). The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
+    <p>The first live video model (A frozen + small time layers that look back 4 frames) finished all 16,000 training steps. Cars stayed accurate and nothing drifted, but it was JUMPIER than A at every check, so it did not pass. That triggers the fix the council agreed in advance: train the same thing again, but give every frame its own private noise while training, so the time layers have to learn from what the past frames show instead of copying the shared noise pattern. It starts as soon as the last test run passes and Astra signs the code. The memory version below is closed: smoother than A, but drift and car mistakes grew with training.</p>
 
     <h3>Closed: the memory version (one past frame) vs A</h3>
     <div class="race" id="race"></div>
@@ -150,9 +150,9 @@ footer { margin-top: 56px; font-size: 13px; color: var(--ink-3); border-top: 1px
     <h3>Steps</h3>
     <div class="steps" id="steps"></div>
 
-    <h3>Live model checks so far (noise mix 0.95)</h3>
-    <img src="figs/vlive_2k_8k.png" alt="Live video model vs A at 2k, 4k and 8k: still jumpier than A; 8k worse than 4k; car accuracy and drift fine" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
-    <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k are look-only; 8k is the first that counts: no pass on smoothness, cars accurate, no drift, so training continued to 16k.</p>
+    <h3>Live model, all checks (noise mix 0.95)</h3>
+    <img src="figs/vlive_2k_16k.png" alt="Live video model vs A at 2k to 16k: jumpier than A at every check; car accuracy and drift fine" style="max-width:100%;border:1px solid var(--line);border-radius:8px">
+    <p class="small">Bars above zero = jumpier than A. The pass line is 9.4% less jumpy than A (blue). 2k / 4k were look-only; 8k, 12k and 16k counted: no pass on smoothness at any of them, while cars stayed accurate (16k: 0.435 vs A 0.446, allowed down to 0.416) and drift stayed at zero. Dropping any one drive does not change this.</p>
 
     <h3>Watch it</h3>
     <div class="vids">

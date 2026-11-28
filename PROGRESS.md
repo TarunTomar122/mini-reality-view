@@ -1,5 +1,13 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 00:25 UTC — 16k GATED CHECK: no pass, safety met -> A3 "vpriv" TRIGGERED (both clips private); 12k logged; T5 fix
+- V12k (signed, 6 dev x 2 seeds, logged late): vs A@20k ID +48.0%, W +19.7%, car F1 0.4671 vs 0.4456 OK, late gap +0.002 OK, flips +6.9%; vs own cold ID +22.0%, W +10.2% -> no pass, safety met (A1: continue).
+- V16k: vs A@20k ID 0.1560 vs 0.0989 (+57.7%, CI of diff 0.043..0.073), W 33.99 vs 29.57 (+14.9%, CI 0.77..8.06), both eligible; car F1 0.4351 vs 0.4456 (-0.0105, CI -0.035..0.017; floor -0.03) OK; late gap +0.0016 (CI -0.004..0.006) OK; recall 0.432 vs 0.446; flips +13.7%; lingering ghosts 0.50 vs 4.33.
+  vs own cold (off at 0.95): ID 0.1604 vs 0.1151 (+39.4%), W +8.9%, F1 -0.010, recall -0.020 (CI -0.036..-0.004), ghosts 0.50 vs 3.42.
+- Leave-one-drive-out @16k vs A (runs/s_lock/lodo_V16k_vs_A20k.json): ID +52.9..+64.7%, W +10.2..+19.5%, F1 -0.021..-0.003, late -0.0002..+0.0040 -> robust to any single drive; safety bars hold in every subset.
+- Verdict (AGREED + A1 + A3): no joint pass at 8k / 12k / 16k; both safety bars met at 16k -> A3 TRIGGER MET. 16k ID and W are NOT lower than own cold -> mixture = BOTH clips private (private_clips 2). vlive closed as the control. docs/figs/vlive_2k_16k.png.
+- Suite T5 failure (3755757) diagnosed as cross-process GPU nondeterminism (salt-only arm differed from tick 0 with empty history, identical noise keys / sources). Fix 067cd12: suite runs T5 / T6 rollouts through scripts/det_run.py (cudnn deterministic, no TF32, CUBLAS_WORKSPACE_CONFIG) so causal_rollout.py (bound to the rho decision fingerprint) is unchanged. 15 files sha-verified on the cluster; full suite re-running (3755915). vpriv launch waits for suite FAILS=0 + Astra's final signature.
+
 ## 2026-11-27 23:49 UTC — vpriv fixtures ALL PASS on ad1b0aa; T2 PASS; suite T1-T4 PASS (T5-T7 running)
 - vprivA (3755758): seeded init hash identical across 3 processes (9f21e926a01825a8); private 0 reproduces vlive's update-100 batch_sha exactly (0ae901af00; loss 0.0065 = 0.0065, info only); modes 0 / 1 / 2 share the cumulative pick hash at 100 (ce5cfd0555) and pass the frozen guard (incl. two private clips). FAILS=0.
 - vprivB (3755759): resume split after odd update 1 == straight run for updates 1-3 (batch_sha and loss identical); resuming with a changed private count exits before any update (log lines 3 -> 3, ckpt sha unchanged); private-2 checkpoint rolls out at rho 0.95 and records train_noise {private_clips 2, rho_shared_clips 0.95}. FAILS=0.

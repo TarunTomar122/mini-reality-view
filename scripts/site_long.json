@@ -151,9 +151,14 @@
    "all tests passed; noise mix 0.95 chosen by the pre-agreed rule (0.5 / 0.8 / 0.9 made A too jumpy)"
   ],
   [
+   "done",
+   "Trained the live model (16k steps)",
+   "cars accurate and no drift, but jumpier than A at every check (16k: +58% car jumps, +15% wobble) -> no pass"
+  ],
+  [
    "now",
-   "Training the live model",
-   "8k check: cars accurate and no drift, but still JUMPIER than A (+51% car jumps); 12k / 16k next; if no pass by 16k, a pre-agreed fix (private noise per frame) trains next"
+   "Live model, private-noise version",
+   "same model, but each training frame gets its own noise so it must use what the past shows; starts after the last test run + Astra's code signature"
   ],
   [
    "later",

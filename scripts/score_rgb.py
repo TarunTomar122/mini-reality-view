@@ -15,7 +15,8 @@ Extensions (Astra item 9):
       per-run field must equal the signed result; exit 1 otherwise).
   --as_receiver  : strip the swap (swap_from = -1, src_ticks = ticks): a swapped render scored against the RECEIVER's keys.
   --post_swap_only : keep only ticks from swap_from on; with --as_receiver vs the receiver keys, else vs the DONOR keys (written
-      under the donor's scene name with the donor's ticks, no lag test), for the donor-following check of scripts/wan_panel.py;
+      under the donor's scene name with the donor's ticks as <donor>_s<seed>x<receiver>, no lag test), for the donor-following
+      check of scripts/wan_panel.py;
       only positions whose receiver AND donor ticks are placement ticks (% 5 == 0) with both keys present stay accepted, so the
       two scores use identical frames ("common_frames" recorded).
 Pseudo-rollouts go to a FRESH directory (<rgb>_roll_<tag>_<pid>_<time>, refused if it exists), never reused.
@@ -92,8 +93,9 @@ for f in sorted(glob.glob(f"{SRC}/*_s[0-9]*.pt")):
         rgb = rgb[sf:]
         if "restart" in R:
             R["restart"][0] = True
-        if not a.as_receiver:  # score vs the DONOR keys: the donor's scene name and ticks, no lag test
-            R["ticks"] = R["src_ticks"].clone(); sc = R["other"]
+        if not a.as_receiver:  # score vs the DONOR keys: the donor's scene name and ticks, no lag test; the file name carries the
+            # receiver too ("<donor>_s<seed>x<receiver>"), so a donor used by two receivers cannot collide
+            R["ticks"] = R["src_ticks"].clone(); seed = f"{seed}x{sc}"; sc = R["other"]
         R["swap_from"] = -1; R["other"] = ""; R.pop("src_ticks", None)
     elif a.as_receiver and sf >= 0:
         R["swap_from"] = -1; R["other"] = ""; R.pop("src_ticks", None)

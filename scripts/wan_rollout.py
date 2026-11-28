@@ -51,6 +51,7 @@ p.add_argument("--window_latents", type=int, default=5)
 p.add_argument("--max_ticks", type=int, default=0)
 p.add_argument("--swap", action="store_true")
 p.add_argument("--swap_at", type=int, default=50)
+p.add_argument("--donors", default="", help="swap donor plan json (scripts/wan_swap_preflight.py): receiver -> {donor, mode full|shared, n}")
 p.add_argument("--sd_lat", type=int, default=1)
 p.add_argument("--mp4", action="store_true")
 p.add_argument("--mp4_keys", action="store_true")
@@ -156,6 +157,9 @@ if a.drive_list:
         raise SystemExit(f"--drive_list drives not in split {a.split}: {sorted(want - set(drives))}")
     drives = [d for d in drives if d in want]
 si_, sn_ = map(int, a.shard.split("/"))
+DONORS = json.load(open(a.donors)) if a.donors else None
+if DONORS is not None and not DONORS.get("ok"):
+    raise SystemExit(f"{a.donors}: swap preflight did not pass")
 if a.mp4:
     os.makedirs(f"{a.out}/mp4", exist_ok=True)
 SENS = None
@@ -176,11 +180,19 @@ for di, sc in enumerate(drives):
     if di % sn_ != si_:
         continue
     D = load_drive(sc); E = D["E"]
-    other = ALL[(ALL.index(sc) + len(ALL) // 2) % len(ALL)]
-    D2 = load_drive(other) if a.swap else None
+    other, swap_mode = ALL[(ALL.index(sc) + len(ALL) // 2) % len(ALL)], "conventional"
     n_full = len(E["ticks"]) if not a.max_ticks else min(a.max_ticks, len(E["ticks"]))
+    if a.swap and DONORS is not None:  # planned donor (Astra / Neon 08:30): full = donor >= receiver; shared = receiver cut to n
+        dp = DONORS["donors"].get(sc)
+        if not dp:
+            raise SystemExit(f"{sc}: no qualifying donor in {a.donors}")
+        other, swap_mode = dp["donor"], dp["mode"]
+        if swap_mode == "shared":
+            n_full = min(n_full, int(dp["n"]))
+    D2 = load_drive(other) if a.swap else None
     n = min(n_full, len(D2["E"]["ticks"])) if D2 is not None else n_full
-    # windows (and so noise keys) the UNSWAPPED receiver run uses at full length: a swap run must reproduce them exactly
+    # windows (and so noise keys) of the UNSWAPPED receiver run at the reference length (full, or the shared n): a swap run must
+    # reproduce them exactly
     exp_windows = [[int(E["ticks"][sg[0]]), w0, w1, n0] for sg in WP.segments(E["ticks"][:n_full].tolist(), E["hard"][:n_full].tolist())
                    for w0, w1, n0 in WP.plan_windows(1 + -(-(len(sg) - 1) // 4), a.window_latents)]
     rt, rh = E["ticks"][:n].tolist(), E["hard"][:n].tolist()
@@ -266,6 +278,8 @@ for di, sc in enumerate(drives):
                "swap_from": swap_pos if swap_pos is not None else -1, "other": other if D2 is not None else "", "seed": seed,
                "swap_boundaries_matched": (segs == segs0 and windows == exp_windows) if D2 is not None else None,
                "windows_match_unswapped": windows == exp_windows, "truncated_by_donor": n < n_full, "sensitivity": SENS,
+               "swap_mode": swap_mode if D2 is not None else None, "swap_ref_ticks": n_full if D2 is not None else None,
+               "train_dropout": {k: (ck.get("recipe") or {}).get(k) for k in ("p_drop_both", "p_drop_guide_only", "p_drop_tokens_only")},
                "code_sha": ck.get("code_sha"), "base_sha": ck.get("base_sha"), "batch": 1, **SETTINGS}
         if sdv is not None:
             t0 = time.time(); lats = []

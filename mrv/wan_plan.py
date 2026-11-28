@@ -277,17 +277,23 @@ def decide_s1(cmp, step, stage, swap, prod=None, modes=None, prior_24h=None):
     g["swap"] = (swap.get("ok") is True) if isinstance(swap, dict) else (swap is True)
     g["production"] = bool(prod and prod.get("ok"))
     g["modes"] = bool(modes and modes.get("ok"))
-    others = all(g[k] for k in ("complete", "finite", "road_iou", "ID", "W", "swap", "production", "modes"))
+    # S1b / Astra 08:30: a verdict (PASS / EXTEND / STOP) needs COMPLETE evidence; missing or blocked swap evidence, an
+    # incomplete or non-finite panel, a non-production checkpoint or missing mode panels -> INVALID (no 24 h marker), never STOP
+    swap_evidence = isinstance(swap, dict) and not swap.get("blocked") and _num(swap.get("donor_f1")) and _num(swap.get("receiver_f1"))
+    g["swap_evidence"] = bool(swap_evidence)
+    evidence = all(g[k] for k in ("complete", "finite", "production", "modes", "swap_evidence"))
+    others = evidence and all(g[k] for k in ("road_iou", "ID", "W", "swap"))
     all_pass = others and g["car_f1"]
     in_band = finite and EXT_LOW <= vals["car_f1"][0] < PASS_CAR_F1
     if stage not in ("check", "24h", "final"):
         raise ValueError(stage)
+    missing = [k for k in ("complete", "finite", "production", "modes", "swap_evidence") if not g[k]]
     if step < FLOOR_UPDATES:
         verdict = "unresolved (below the 12k-update floor; A1)"
     elif stage == "check":
         verdict = "informational check (no verdict)"
-    elif not g["production"] or not g["modes"]:
-        verdict = "INVALID (not a production checkpoint with batch 8, or the four full-length mode panels are incomplete)"
+    elif not evidence:
+        verdict = f"INVALID (incomplete evidence: {missing}; no verdict, no 24 h marker)"
     elif stage == "24h":
         if prior_24h is not None:
             verdict = "INVALID (the 24 h read happens once; one already exists)"
@@ -337,6 +343,96 @@ def donor_following(runs, margin=0.10, drives=6, seeds=("0", "1")):
             "lag_values": lags, "lag_excluded_runs": excluded, "per_drive": per}
 
 
+# ------------------------------------------------------------------------------------------------------------ swap donors
+def swap_segments(rt, rh, dt, dh, swap_pos):
+    """the swap rollout's segmentation (scripts/wan_rollout.py): receiver ticks / hard before the swap, donor hard ticks and donor
+    tick gaps after it (the swap itself is no break)"""
+    n = len(rt); segs, cur = [], []
+    hards = [rh[i] if i < swap_pos else dh[i] for i in range(n)]
+    srct = [rt[i] if i < swap_pos else dt[i] for i in range(n)]
+    for i in range(n):
+        if hards[i]:
+            if cur: segs.append(cur)
+            cur = []; continue
+        if cur and (rt[i] != rt[cur[-1]] + 1 or (i > swap_pos and cur[-1] >= swap_pos and srct[i] != srct[cur[-1]] + 1)):
+            segs.append(cur); cur = []
+        cur.append(i)
+    if cur: segs.append(cur)
+    return segs
+
+
+def swap_preflight(recv, donor, W=5, swap_at=50, has_key=None):
+    """CPU preflight of one receiver / donor assignment (Astra / Neon 08:30). recv / donor: {"name", "ticks", "ok", "hard"}.
+    Checks: donor at least as long as the receiver (no truncation); the swapped run's segments and windows identical to the
+    unswapped full-length receiver's; common placement frames after the swap (receiver AND donor tick % 5 == 0, accepted, keys
+    present); structurally lag-eligible 5-tick windows (consecutive accepted donor ticks with keys, no restart inside).
+    Lag eligibility also needs a nonzero cold car F1 on those ticks, which only scoring shows."""
+    hk = has_key or (lambda sc, t: True)
+    rt, rh, ro = recv["ticks"], recv["hard"], recv["ok"]
+    n = len(rt)
+    res = {"receiver": recv["name"], "donor": donor["name"], "len_receiver": n, "len_donor": len(donor["ticks"])}
+    res["full_length"] = len(donor["ticks"]) >= n and donor["name"] != recv["name"]
+    if not res["full_length"]:
+        res["ok"] = False; return res
+    dt, dh, do = donor["ticks"][:n], donor["hard"][:n], donor["ok"][:n]
+    segs0 = segments(rt, rh)
+    sp = snap_swap(segs0, swap_at, W)
+    res["swap_pos"] = sp
+    if sp is None:
+        res.update(windows_identical=False, ok=False); return res
+    segs = swap_segments(rt, rh, dt, dh, sp)
+    win = lambda sg_: [[rt[g_[0]], w0, w1, n0] for g_ in sg_ for w0, w1, n0 in plan_windows(1 + -(-(len(g_) - 1) // 4), W)]
+    res["windows_identical"] = segs == segs0 and win(segs) == win(segs0)
+    acc = lambda i: (ro[i] if i < sp else do[i]) and not (rh[i] if i < sp else dh[i])
+    res["common_frames"] = sum(1 for i in range(sp, n) if rt[i] % 5 == 0 and dt[i] % 5 == 0 and acc(i)
+                               and hk(recv["name"], rt[i]) and hk(donor["name"], dt[i]))
+    restarts = set()
+    for g_ in segs:
+        L = 1 + -(-(len(g_) - 1) // 4)
+        restarts |= {g_[f] for f in window_first_frames(L, W) if f < len(g_)}
+    lag_w = 0
+    for i in range(sp, n - 4):
+        w = list(range(i, i + 5))
+        if all(acc(j) and hk(donor["name"], dt[j]) for j in w) and all(dt[w[q + 1]] == dt[w[q]] + 1 for q in range(4)) \
+                and not any(j in restarts for j in w[1:]):
+            lag_w += 1
+    res["lag_windows"] = lag_w
+    res["ok"] = bool(res["windows_identical"] and res["common_frames"] > 0 and lag_w > 0)
+    return res
+
+
+def plan_donors(drives, W=5, swap_at=50, has_key=None):
+    """donor per dev receiver (Astra / Neon 08:30). Preference: (1) FULL mode: the conventional pairing (the drive half the list
+    away, scripts/causal_rollout.py) if it passes swap_preflight, else the qualifying donor closest in length that is at least as
+    long; (2) SHARED mode, only if no full-length donor qualifies: the longest donor whose length n passes the preflight with the
+    receiver cut to n; the swap is then compared with an UNSWAPPED receiver run of the same length n (scripts/wan_panel.py renders
+    it). Donors may repeat (score_rgb names donor-keyed files per receiver). drives: {name: {"ticks", "ok", "hard"}}.
+    Returns {"donors": {recv: {"donor", "mode", "n"} | None}, "checks": {...}, "ok": bool}."""
+    names = list(drives)
+    out, checks = {}, {}
+    cut = lambda D, n: {k: v[:n] for k, v in D.items()}
+    for i, r in enumerate(names):
+        R = {"name": r, **drives[r]}
+        conv = names[(i + len(names) // 2) % len(names)]
+        cands = [conv] + sorted((d for d in names if d not in (r, conv)), key=lambda d: (len(drives[d]["ticks"]) - len(R["ticks"]), d))
+        chosen = None
+        for d in cands:
+            c = swap_preflight(R, {"name": d, **drives[d]}, W, swap_at, has_key)
+            if c["ok"]:
+                chosen = {"donor": d, "mode": "full", "n": None}; checks[r] = c; break
+            checks.setdefault(r, c)
+        if chosen is None:
+            for d in sorted((d for d in names if d != r), key=lambda d: (-len(drives[d]["ticks"]), d)):
+                n = len(drives[d]["ticks"])
+                if n >= len(R["ticks"]):
+                    continue
+                c = swap_preflight({"name": r, **cut(drives[r], n)}, {"name": d, **drives[d]}, W, swap_at, has_key)
+                if c["ok"]:
+                    chosen = {"donor": d, "mode": "shared", "n": n}; checks[r] = {**c, "mode": "shared"}; break
+        out[r] = chosen
+    return {"donors": out, "checks": checks, "ok": all(v is not None for v in out.values())}
+
+
 # ------------------------------------------------------------------------------------------------------------ forecast
 def forecast_s1(t):
     """updates S1 training can still buy (S1b item 5). t: dict with
@@ -344,12 +440,14 @@ def forecast_s1(t):
       wall_s (production-loop seconds / update incl. prefetch wait), startup_s (one trainer start), probe_s, val_every,
       save_s, save_every, n_numbered (numbered saves in the planned run), job_h (wall limit of one training job),
       panel_h (measured cost of ONE full panel), n_panels, overfit_updates (2000), resume_updates (16 + 8 + 8),
-      overfit_verdict_h (sampling + decode + scorer of the 8 clips).
-    Pending overfit / resume test are charged at the same per-update cost plus their starts unless already in done_kinds."""
+      overfit_verdict_h (sampling of the 8 clips in all THREE modes + decodes + scorer), overfit_evals_h (the recurring
+      fixed-noise evals every 100 updates).
+    Pending overfit / resume test are charged at the same per-update cost plus their starts unless done_kinds says they have a
+    PASS record (a failed gate is not finished: it will run again)."""
     per_upd = t["wall_s"] + t["probe_s"] / max(1, t["val_every"]) + t["save_s"] / max(1, t["save_every"])
     pend = {}
     if "overfit" not in t["done_kinds"]:
-        pend["overfit_h"] = (t["startup_s"] + t["overfit_updates"] * t["wall_s"]) / 3600 + t["overfit_verdict_h"]
+        pend["overfit_h"] = (t["startup_s"] + t["overfit_updates"] * t["wall_s"]) / 3600 + t["overfit_verdict_h"] + t.get("overfit_evals_h", 0.0)
     if "resume_test" not in t["done_kinds"]:
         pend["resume_test_h"] = (3 * t["startup_s"] + t["resume_updates"] * t["wall_s"]) / 3600
     pend["panels_h"] = t["n_panels"] * t["panel_h"]

@@ -71,7 +71,8 @@ def cmp(car, road=0.50, roadA=0.49, idr=-0.2, wr=-0.2, cp=True):
             "road_iou": {"A": road, "B": roadA}, "ID": {"rel": idr, "can_pass": cp}, "W": {"rel": wr, "can_pass": cp}}
 PROD = WP.production_ok({"timing": False, "recipe": {"batch": 8, "overfit": 0}, "args": {"kind": ""}})
 MODES = {"ok": True, "why": []}
-D = lambda c, st, stage, sw=True, prod=PROD, modes=MODES, prior=None: WP.decide_s1(c, st, stage, {"ok": sw}, prod, modes, prior)
+D = lambda c, st, stage, sw=True, prod=PROD, modes=MODES, prior=None: WP.decide_s1(c, st, stage, {"ok": sw, "blocked": [], "donor_f1": 0.5,
+                                                                                                  "receiver_f1": 0.2}, prod, modes, prior)
 check("production checkpoint ok", PROD["ok"], PROD)
 check("batch 4 is not production", not WP.production_ok({"timing": False, "recipe": {"batch": 4, "overfit": 0}, "args": {}})["ok"])
 check("timing / overfit / resume_test kinds are not production",
@@ -96,6 +97,16 @@ check("ineligible ID fails", not D(cmp(0.46, cp=False), 12000, "24h")["all_pass"
 check("NaN car F1 fails", not D(cmp(float("nan")), 12000, "24h")["all_pass"])
 check("incomplete panel fails", not D({**cmp(0.46), "runs": 11}, 12000, "24h")["all_pass"])
 check("check stage gives no verdict", D(cmp(0.46), 12000, "check")["verdict"].startswith("informational"))
+SW_OK = {"ok": True, "blocked": [], "donor_f1": 0.5, "receiver_f1": 0.2}
+DS = lambda c, st, stage, sw, prior=None: WP.decide_s1(c, st, stage, sw, PROD, MODES, prior)
+check("passing quality + ZERO swap runs at 12k -> INVALID, not STOP (Astra repro)",
+      DS(cmp(0.46), 12000, "24h", {"ok": False, "blocked": ["run ids: 0 runs over 0 drives"], "donor_f1": float("nan"), "receiver_f1": float("nan")})["verdict"].startswith("INVALID"))
+check("blocked swap evidence -> INVALID", DS(cmp(0.41), 14000, "24h", {**SW_OK, "ok": False, "blocked": ["windows differ"]})["verdict"].startswith("INVALID"))
+check("missing swap (None) -> INVALID", DS(cmp(0.46), 14000, "24h", None)["verdict"].startswith("INVALID"))
+check("complete swap evidence that misses the rule -> STOP", DS(cmp(0.46), 14000, "24h", {**SW_OK, "ok": False})["verdict"].startswith("STOP"))
+check("complete evidence below thresholds -> STOP", DS(cmp(0.40), 14000, "24h", SW_OK)["verdict"].startswith("STOP"))
+check("incomplete compare panel -> INVALID", DS({**cmp(0.46), "runs": 11}, 14000, "24h", SW_OK)["verdict"].startswith("INVALID"))
+check("final with blocked swap -> INVALID", DS(cmp(0.46), 20000, "final", {**SW_OK, "blocked": ["x"]}, "EXTEND 12 h")["verdict"].startswith("INVALID"))
 
 
 def swaprun(df=0.5, rf=0.2, frames=20, wm=True, excl=False, rec=True, start=0):
@@ -117,6 +128,25 @@ check("swap: non-recoveries count as infinity", WP.donor_following(nr)["median_l
 check("swap: margin 0.10 not met", not WP.donor_following({k: swaprun(df=0.29, rf=0.2) for k in RUNS})["ok"])
 check("swap: margin met with room", WP.donor_following({k: swaprun(df=0.31, rf=0.20) for k in RUNS})["ok"])
 
+# --- swap donor preflight (Astra / Neon 08:30) ---------------------------------------------------------------------------
+mk = lambda n_, hard_at=(): {"ticks": list(range(n_)), "ok": [True] * n_, "hard": [i in hard_at for i in range(n_)]}
+DRV = {"scene-0043": mk(109), "scene-0393": mk(200), "scene-0234": mk(200), "scene-0396": mk(200), "scene-0285": mk(190), "scene-0468": mk(200)}
+pf = WP.swap_preflight({"name": "scene-0393", **DRV["scene-0393"]}, {"name": "scene-0043", **DRV["scene-0043"]})
+check("preflight: shorter donor (0043 for 0393) fails", not pf["ok"] and not pf["full_length"], pf)
+plan = WP.plan_donors(DRV)
+check("donor plan: every receiver gets a donor at least as long (full mode here)", plan["ok"] and all(
+      v["mode"] == "full" and len(DRV[v["donor"]]["ticks"]) >= len(DRV[r]["ticks"]) and v["donor"] != r for r, v in plan["donors"].items()), plan["donors"])
+check("donor plan: chosen pairs pass windows / frames / lag", all(plan["checks"][r]["ok"] and plan["checks"][r]["windows_identical"]
+                                                             and plan["checks"][r]["common_frames"] > 0 and plan["checks"][r]["lag_windows"] > 0 for r in DRV))
+pf2 = WP.swap_preflight({"name": "a", **mk(200)}, {"name": "b", **mk(200, hard_at=(120,))})
+check("preflight: donor hard tick after the swap changes windows -> fails", not pf2["windows_identical"] and not pf2["ok"], pf2)
+pf3 = WP.swap_preflight({"name": "a", **mk(200)}, {"name": "b", **mk(200)}, has_key=lambda sc, t: sc != "b")
+check("preflight: no donor keys -> no common frames / lag -> fails", pf3["common_frames"] == 0 and not pf3["ok"], pf3)
+pl2 = WP.plan_donors({"x": mk(300), "y": mk(100), "z": mk(100)})
+check("donor plan: longest drive falls back to SHARED mode at the longest donor's length",
+      pl2["ok"] and pl2["donors"]["x"] == {"donor": "y", "mode": "shared", "n": 100} and pl2["donors"]["y"]["mode"] == "full", pl2["donors"])
+check("donor plan: impossible when no donor passes", not WP.plan_donors({"x": mk(300), "y": mk(30)})["ok"])
+
 # --- forecast (S1b item 5) --------------------------------------------------------------------------------------------
 T_ = {"budget_h": 24.0, "used_h": 1.0, "done_kinds": {"timing"}, "wall_s": 2.0, "startup_s": 300.0, "probe_s": 30.0, "val_every": 500,
       "save_s": 20.0, "save_every": 500, "n_numbered": 10, "job_h": 12.0, "panel_h": 1.0, "n_panels": 2, "overfit_updates": 2000,
@@ -127,6 +157,7 @@ exp_avail = 24 - 1 - exp_pend - 10 * 20 / 3600
 check("forecast deducts overfit / resume test / panels / numbered saves", abs(fc["available_h"] - exp_avail) < 1e-3, fc)
 exp_ups = int((exp_avail - 2 * 300 / 3600) * 3600 / (2.0 + 30 / 500 + 20 / 500))
 check("forecast updates after job starts and recurring probes / saves", fc["updates"] == exp_ups and fc["training_jobs"] == 2, (fc, exp_ups))
+check("forecast charges recurring overfit evals", abs(WP.forecast_s1({**T_, "overfit_evals_h": 0.5})["pending"]["overfit_h"] - (exp_pend - 2.0 - (900 + 64) / 3600 + 0.5)) < 1e-3)
 check("forecast skips charged kinds", "overfit_h" not in WP.forecast_s1({**T_, "done_kinds": {"overfit", "resume_test"}})["pending"])
 check("forecast floor flag", WP.forecast_s1({**T_, "wall_s": 7.0})["floor_12k_reachable"] is False)
 check("panel cost", abs(WP.panel_cost_h(1000, 0.5, 60, 1.0, 120) - (5 * (60 + 500) + 8 * (120 + 1000)) / 3600) < 1e-9)

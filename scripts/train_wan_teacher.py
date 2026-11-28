@@ -300,6 +300,11 @@ RECIPE = {k: getattr(a, k) for k in ("seed", "lists", "cache", "tokens", "rank",
 CFG = {"rank": a.rank, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "shift": a.shift, "n_extra": WC.N_EXTRA,
        "prompt_embed": a.prompt_embed, "wan": a.wan, "clip_latents": NL, "tok_grid": WC.TOK_GRID, "seed": a.seed}
 GATE_KEY = WP.gate_key(CODE_SHA, RECIPE, BASE_SHA, VAE_SHA, GUIDE_VERSION)
+if KIND == "train" and a.budget_hours > 24.0 + 1e-9:  # Astra 08:30: more than 24 h only on the qualifying 24 h EXTEND verdict
+    MK = f"{a.out}/S1_24H_DECISION.json"
+    v_ = json.load(open(MK)).get("verdict", "") if os.path.exists(MK) else ""
+    if not v_.startswith("EXTEND"):
+        raise SystemExit(f"--budget_hours {a.budget_hours} > 24 refused: {MK} missing or not an EXTEND verdict ({v_!r})")
 if KIND == "train":  # Fable 08:30: production needs PASS overfit AND PASS resume-test records for this code / recipe
     ok_g, have_g = WP.gates_ok(a.gates, GATE_KEY)
     if not ok_g:
@@ -466,7 +471,7 @@ def qget(Q_, step):
 # ------------------------------------------------------------------------------------------------- timing mode
 if a.timing and not a.overfit:
     rep = {"gpu": torch.cuda.get_device_name(), "batch": a.batch, "tok_ticks": a.tok_ticks, "use_tokens": bool(a.use_tokens), "micro": {},
-           "startup_s": round(time.time() - LEDGER.t0, 1)}  # process start -> ready to train (loads, hashes, parity)
+           "startup_s": round(time.time() - LEDGER.t0, 1), "train_drives": len(TRAIN)}  # process start -> ready to train (loads, hashes, parity)
     s_ = 0
     # (1) microbatch sweep at global batch 8 (synchronous batches; forward / backward / Adam timed separately)
     for mb in [int(x) for x in a.timing_micro.split(",") if a.batch % int(x) == 0]:

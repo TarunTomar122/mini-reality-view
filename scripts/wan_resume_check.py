@@ -1,6 +1,6 @@
 """Astra items 11 / S1b 10: interrupted + resumed training must equal uninterrupted training (slurm/wan_teacher.sh MODE=resume_test
-runs 16 updates straight vs 8 + resume 8). Compares two trainer checkpoints: same step, same chained data hash (every batch's
-picks / noise / sigma / dropout), same init sha, same optimizer step counts, and EVERY trainable tensor within its OWN tolerance:
+runs 16 updates straight vs 8 + resume 8). Compares two trainer checkpoints: BOTH at --expect_step (16), same chained data hash (every batch's
+picks / noise / sigma / dropout), same init sha, identical per-parameter Adam step counts reaching 16, and EVERY trainable tensor within its OWN tolerance:
 max |a - b| <= --rel x max |a| (that tensor's scale) + --abs, so a diverging small tensor (a gate, a LoRA-B) cannot hide behind
 large weights; Adam moments are checked the same way. Bitwise equality is reported (GPU attention backward uses atomics, so it is
 not required). Exit 0 = equivalent.
@@ -12,11 +12,15 @@ import torch
 p = argparse.ArgumentParser(); p.add_argument("a"); p.add_argument("b")
 p.add_argument("--rel", type=float, default=1e-3); p.add_argument("--abs", type=float, default=1e-6)
 p.add_argument("--gates", default="", help="append the verdict to this gate registry (MODE=train needs a resume_test PASS)")
+p.add_argument("--expect_step", type=int, default=16, help="both checkpoints must be at this update (16 = 16 straight vs 8 + 8)")
 a = p.parse_args()
 A = torch.load(a.a, map_location="cpu", weights_only=False); B = torch.load(a.b, map_location="cpu", weights_only=False)
 res = {"step": (A["step"], B["step"]), "chain_equal": A["pick_chain"] == B["pick_chain"], "init_equal": A.get("init_sha") == B.get("init_sha")}
-sa = sorted({int(v["step"]) for v in A["opt"]["state"].values()}); sb = sorted({int(v["step"]) for v in B["opt"]["state"].values()})
-res["adam_steps"] = (sa, sb)
+# per-parameter Adam step counts (a parameter without a gradient in some update has fewer steps): identical per parameter id
+pa = {i: int(v["step"]) for i, v in A["opt"]["state"].items()}; pb = {i: int(v["step"]) for i, v in B["opt"]["state"].items()}
+sa, sb = sorted(set(pa.values())), sorted(set(pb.values()))
+res["adam_steps"] = (sa, sb); res["adam_per_param_equal"] = pa == pb
+res["adam_max_is_expected"] = bool(pa) and max(pa.values()) == a.expect_step
 
 
 def compare(da, db, label):
@@ -46,8 +50,9 @@ res.update(tensors=len(A["trainable"]), gates_checked=len(gates), bitwise_weight
            failing=(bad_w + bad_m)[:20], worst_weight_ratio=[(round(r, 3), k) for r, k, _, _ in worst_w],
            worst_adam_ratio=[(round(r, 3), k) for r, k, _, _ in worst_m], tol={"rel": a.rel, "abs": a.abs})
 res["gate_key"] = (A.get("gate_key"), B.get("gate_key"))
-res["PASS"] = bool(A["step"] == B["step"] and res["chain_equal"] and res["init_equal"] and sa == sb and not bad_w and not bad_m
-                   and A.get("gate_key") and A.get("gate_key") == B.get("gate_key"))
+res["expect_step"] = a.expect_step
+res["PASS"] = bool(A["step"] == B["step"] == a.expect_step and res["chain_equal"] and res["init_equal"] and res["adam_per_param_equal"]
+                   and res["adam_max_is_expected"] and not bad_w and not bad_m and A.get("gate_key") and A.get("gate_key") == B.get("gate_key"))
 if a.gates:
     from mrv import wan_plan as WP
     WP.gate_append(a.gates, {"kind": "resume_test", "gate_key": A.get("gate_key"), "status": "PASS" if res["PASS"] else "FAIL",

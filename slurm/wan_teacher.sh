@@ -6,11 +6,13 @@
 #                     then one 81-tick dev rollout + the RGB scorer on it, each timed  -> runs/wan_timing_<job>/
 #   MODE=overfit    : bug gate: 8 distinct clips, 2,000 updates, fixed-noise eval + decoded placement check, hybrid + tokens-only
 #                     + none samples (exit 0 PASS, 6 NOT_REACHED = rerun longer / lr 3e-4 (once per gate key), 4 FAIL,
-#                     7 PENDING = stopped before 2,000: resume); verdict appended to runs/wan_gates/gates.jsonl
+#                     7 PENDING = stopped before 2,000: resubmit with --export=ALL,MODE=overfit,OUT=<that run dir>);
+#                     verdict appended to runs/wan_gates/gates.jsonl
 #   MODE=resume_test: 16 updates uninterrupted vs 8 + resume 8; scripts/wan_resume_check.py must pass
 #   MODE=train      : the S1 run, runs/wan_s1, resumable; REFUSES to start without PASS overfit + PASS resume_test records for
 #                     its gate key (code / model recipe / base / VAE / guide version); stops when ledger + 2 h reserve reaches 24 h
-#   MODE=extend     : the one signed 12 h extension (budget 36 h), only after the 24 h panel said EXTEND
+#   MODE=extend     : the one signed 12 h extension (budget 36 h); refuses (exit 8) before using the allocation unless
+#                     runs/wan_s1/S1_24H_DECISION.json holds an EXTEND verdict
 # Submit (resubmit the same line to continue after a time limit; --resume picks up runs/wan_s1/ckpt.pt):
 #   sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=96G --time=12:00:00 -J wan-s1 -o logs2/%x-%j.out \
 #          --export=ALL,MODE=train slurm/wan_teacher.sh [extra trainer flags, e.g. --micro 4]
@@ -19,6 +21,10 @@ export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDI
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True MALLOC_ARENA_MAX=2
 mkdir -p $TMPDIR logs2
 PY=.venv/bin/python; MODE=${MODE:-timing}; J=${SLURM_JOB_ID:-manual}; LEDGER=runs/wan_s1_ledger.jsonl
+if [ "$MODE" = extend ]; then  # Astra 08:30: the 12 h extension only on the qualifying 24 h verdict, checked BEFORE any allocation use
+  $PY -c "import json,sys;v=json.load(open('runs/wan_s1/S1_24H_DECISION.json'))['verdict'];print('24h marker:',v);sys.exit(0 if v.startswith('EXTEND') else 1)" \
+    || { echo "MODE=extend refused: runs/wan_s1/S1_24H_DECISION.json missing or not an EXTEND verdict"; exit 8; }
+fi
 nvidia-smi --query-gpu=name,memory.total --format=csv,noheader 2>/dev/null
 sha256sum mrv/wan_cond.py mrv/wan_plan.py scripts/train_wan_teacher.py scripts/wan_rollout.py scripts/score_rgb.py slurm/wan_teacher.sh
 echo "start $(date -u) on $(hostname) mode=$MODE"
@@ -71,7 +77,9 @@ P
     $PY scripts/wan_forecast.py --timing_dir $O --rollout_s $(echo "$t1 - $t0" | bc) --score_s $(echo "$t2 - $t1" | bc) --ledger $LEDGER
     rc=$? ;;
   overfit)
-    run_fg $T --out runs/wan_ctest_overfit_$J --overfit 8 --batch 8 --steps 2000 --p_drop_both 0 --p_drop_guide_only 0 --p_drop_tokens_only 0 --p_holes 0 \
+    # OUT=<dir of the stopped run> resubmits a preempted / signal-stopped gate in the SAME directory with --resume (Astra 08:30)
+    O=${OUT:-runs/wan_ctest_overfit_$J}; RS=; [ -n "$OUT" ] && RS=--resume
+    run_fg $T --out $O $RS --overfit 8 --batch 8 --steps 2000 --p_drop_both 0 --p_drop_guide_only 0 --p_drop_tokens_only 0 --p_holes 0 \
        --val_every 0 --save_every 500 "$@"; rc=$? ;;
   resume_test)
     A=runs/wan_ctest_resA_$J; B=runs/wan_ctest_resB_$J; C="--kind resume_test --steps 16 --save_every 8 --val_every 0 --save_at 16"  # 16 vs 8 + 8

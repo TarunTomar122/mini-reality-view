@@ -220,6 +220,55 @@ so the gates can run on the 48 S0c drives with dropout off.
 **Splits.** `scripts/build_guides.py` (train / dev; sealed drives only with `--unseal`) and `scripts/fit_depth_scale.py`
 (train only) now pass their resolved drives through `mrv.wan_plan.check_split_membership`. That's a two-line change in each.
 
+## Astra / Neon 08:30 production fixes
+
+**Decision.** `decide_s1` returns INVALID whenever the evidence is incomplete:
+- swap evidence missing or blocked;
+- the compare panel incomplete or not finite;
+- not a production checkpoint;
+- the four mode panels missing.
+
+No 24 h marker is written for INVALID. STOP is only returned for complete evidence that misses a signed threshold.
+
+**Swap donors.** `scripts/wan_swap_preflight.py` (CPU; the panel runs it first and stops on failure) uses
+`mrv.wan_plan.plan_donors` to pick each dev receiver's donor.
+- **Full mode:** the conventional pairing if it qualifies, else the donor closest in length that is at least as long as the
+  receiver.
+- **Shared mode:** used only if no full-length donor qualifies. The receiver is cut to the longest qualifying donor's length n,
+  and the panel renders an unswapped hybrid receiver run of that same n for the comparison.
+
+Every assignment must have:
+- no truncation;
+- segments, windows and noise identical to its unswapped reference;
+- common placement frames;
+- structurally lag-eligible windows.
+
+The rollout reads the plan via `--donors`. Donor-keyed post-swap files are named `<donor>_s<seed>x<receiver>`, so a donor can
+serve more than one receiver.
+
+**Panel budget.**
+- The reserve is the measured `forecast_final.panel_h` from the newest `timing.json` (or `--panel_estimate_h`); there is no
+  zero default.
+- The ledger is polled every 30 s while each step runs, and the step is terminated at the cap.
+
+**Resume check.** Both checkpoints must be at step 16, with per-parameter Adam step counts equal and reaching 16, plus the
+per-tensor tolerances.
+
+**Extend.** `MODE=extend` exits 8 before using the allocation unless `runs/wan_s1/S1_24H_DECISION.json` holds an EXTEND
+verdict. The trainer also refuses `--budget_hours` above 24 without that marker.
+
+**Forecast.** Charges:
+- the overfit verdict in all three sampled modes, plus decodes and segmentation;
+- the recurring fixed-noise evals (22 × 3 forwards);
+- start-up scaled from the timing drive list to the production one (×144/48);
+- overfit and resume-test runs as pending unless the gate registry holds a PASS.
+
+**Preempted overfit.** Resubmit with `--export=ALL,MODE=overfit,OUT=<that run dir>`. This reuses the directory with
+`--resume`.
+
+**Dropout marginals.** Both 20% drop marginals (guide, tokens) are recorded with every mode comparison and with the swap in
+`<name>_panel.json`, and in each rollout file (`train_dropout`).
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.

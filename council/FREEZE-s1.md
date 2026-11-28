@@ -19,3 +19,8 @@ a99309e3d39ae08f9bc8d567a3c318974f9b4bfd14638e2ccfeea52b714a6d7f  scripts/score_
 5c9186c0e54ea32b1da7f84307099a790dd4bb90f52e4f0797b9390a1281cd60  scripts/wan_score.py
 1f69ffa69cbcaa4752e0506223515469043fd9a543eda68037c59384cbeb39a4  scripts/temporal_metrics.py
 ```
+
+## Exit-6 adjudicator (13:52 UTC): signed by Astra (council/review-20261128-1330-swap2-astra.md) before the result; verified by Neon (council/adjudicator-verify-neon.md, adjudicator-verify2-neon.md: VERIFIED yes); pinned here before any use; read-only on both sides
+```
+fa6af9ae37619e796916cf641dcc4fda86675729aaed39a410024629cbe07fde  scripts/wan_gate_adjudicate.py
+```

@@ -14,11 +14,18 @@ blocks (mrv/clean_video.py) train; the SD 1.5 UNet, A's LoRA and A's CameraAdapt
 Init: torch.manual_seed(seed) right before the blocks are built (same construction as vpriv -> same init; checked against
 vpriv's recorded init_sha with --init_ref). Rollout noise rho is A4's gate rho (1.0; 0.95 only if T2 fails), stored in the
 checkpoint as "rho", separately from the training noise.
-Logged every 100 updates: loss, grad norm, out-norm, age-bias size, step_s, data_s, mem_s, peak GB, batch_sha, code_sha.
+Production admission (council/codereview-vclean-astra.md): vpriv's recorded init_sha, seed, block names, base_sha and training
+inputs (lists, enc, rays, frames, clips) must match, and --gate_record (scripts/vclean_gate.py) must re-verify NOW: signed vpriv
+no-joint-pass outcome, valid probe reading LAUNCH, clean suite FAILS=0 with code hashes == these files, timing record, and the T2
+result that fixes the gate rho (1.0 on a matched T2 pass, 0.95 only on a documented numeric T2 failure); --rho_gate must equal
+the record's. --timing runs skip the gate (throwaway weights, *timing* / *ctest* dirs only).
+Logged every 100 updates (every update with --timing): loss, grad norm, out-norm, age-bias size, step_s, data_s, mem_s, peak GB,
+batch_sha (vpriv's formula), mem_sha (memory-noise draws + t), code_sha.
 
-  python scripts/train_clean.py --init runs/longA/ckpt_20000.pt --out runs/vclean --steps 16000 [--rho_gate 1.0] [--resume]
+  python scripts/train_clean.py --init runs/longA/ckpt_20000.pt --out runs/vclean --steps 16000 --rho_gate 1.0 \
+      --gate_record runs/vclean_gate/record.json [--resume]
 """
-import argparse, hashlib, json, os, time
+import argparse, hashlib, json, os, subprocess, sys, time
 import torch
 from diffusers import UNet2DConditionModel, DDPMScheduler, DDIMScheduler
 from peft import LoraConfig
@@ -39,7 +46,8 @@ p.add_argument("--clips", type=int, default=2)
 p.add_argument("--steps", type=int, default=16000)
 p.add_argument("--save_at", default="1000,2000,4000,6000,8000,10000,12000,14000,16000")
 p.add_argument("--seed", type=int, default=0)
-p.add_argument("--init_ref", default="runs/vpriv/args.json", help="vpriv's args.json: its recorded init_sha / seed must equal ours (A4: vpriv's recorded init)")
+p.add_argument("--init_ref", default="runs/vpriv/args.json", help="vpriv's args.json: recorded init_sha / seed / block names / base_sha / training inputs must equal ours (A4: vpriv's recorded init, seeds and draws)")
+p.add_argument("--gate_record", default="", help="record written by scripts/vclean_gate.py; required unless --timing")
 p.add_argument("--resume", action="store_true")
 p.add_argument("--max_steps_this_job", type=int, default=0, help="stop after this many updates (timing / staged runs)")
 p.add_argument("--timing", action="store_true", help="timing / test run: output dir must contain 'timing' or 'ctest'; weights are throwaway")
@@ -50,15 +58,31 @@ if a.K != 4 or a.frames != 16 or a.clips != 2:
 if a.timing and not any(s in a.out for s in ("timing", "ctest")):
     raise SystemExit("--timing runs must write to a *timing* / *ctest* directory")
 PRIVATE_CLIPS, TRAIN_RHO = 2, 0.0  # A4: both clips private (rho 0 training noise), as vpriv
+CODE_FILES = ["scripts/train_clean.py", "mrv/clean_video.py", "mrv/sd.py", "mrv/noise.py"]
+assert os.path.samefile(__file__, CODE_FILES[0]), "run from the repo root as scripts/train_clean.py"
+CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in CODE_FILES)).hexdigest()[:12]
+GATE, GATE_SHA = None, None
+if not a.timing:  # production: the gate record must re-verify now and bind this exact code and gate rho
+    if not a.gate_record:
+        raise SystemExit("production training needs --gate_record (scripts/vclean_gate.py)")
+    _r = subprocess.run([sys.executable, "scripts/vclean_gate.py", "--verify", a.gate_record], capture_output=True, text=True)
+    if _r.returncode != 0:
+        raise SystemExit(f"gate record does not verify now: {_r.stdout[-800:]} {_r.stderr[-800:]}")
+    GATE = json.load(open(a.gate_record)); GATE_SHA = hashlib.sha256(open(a.gate_record, "rb").read()).hexdigest()
+    if not GATE.get("valid") or GATE.get("rho_gate") not in (1.0, 0.95) or GATE["rho_gate"] != a.rho_gate:
+        raise SystemExit(f"--rho_gate {a.rho_gate} != the gate record's {GATE.get('rho_gate')} (valid={GATE.get('valid')})")
+    for f_ in CODE_FILES:
+        if GATE.get("code_sha256", {}).get(f_) != hashlib.sha256(open(f_, "rb").read()).hexdigest():
+            raise SystemExit(f"{f_} is not the code the gate's suite tested")
 os.makedirs(a.out, exist_ok=True)
 dev, AMP = "cuda", torch.bfloat16
 SD = "sd-legacy/stable-diffusion-v1-5"
-CODE_SHA = hashlib.sha1(b"".join(open(f, "rb").read() for f in [__file__, "mrv/clean_video.py", "mrv/sd.py", "mrv/noise.py"])).hexdigest()[:12]
 _dd = DDIMScheduler.from_pretrained(SD, subfolder="scheduler"); _dd.set_timesteps(25)
-T_STAR = int(_dd.timesteps[-1])  # the actual last timestep of the rollout's DDIM-25 schedule (expected 1)
+DDIM_TS = [int(x) for x in _dd.timesteps]  # the rollout's actual DDIM-25 schedule (recorded)
+T_STAR = DDIM_TS[-1]  # its last timestep (expected 1)
 if T_STAR > 81:
     raise SystemExit(f"A4: t* = {T_STAR} > 81 -> back to council")
-print(f"t* = {T_STAR} (DDIM-25 last timestep)", flush=True)
+print(f"t* = {T_STAR} (DDIM-25 last timestep; schedule {DDIM_TS})", flush=True)
 TRAIN = json.load(open(a.lists))["train"]
 assert not set(TRAIN) & set(json.load(open(a.lists))["dev"]), "train / dev overlap"
 RAYS = torch.load(a.rays)
@@ -100,13 +124,15 @@ TW = add_clean_temporal(unet, a.K)
 INIT_SHA = hashlib.sha256(b"".join(q.detach().float().cpu().numpy().tobytes() for w in TW for q in w.temporal.parameters())).hexdigest()[:16]
 BLOCK_NAMES = [n for n, m in unet.named_modules() if m.__class__.__name__ == "WithCleanTemporal"]
 assert len(BLOCK_NAMES) == 16 and len(TW) == 16, len(TW)
-INIT_MATCH = None
-if os.path.exists(a.init_ref):
+INIT_MATCH, REF_DIFF = None, ["init_ref missing"]
+if os.path.exists(a.init_ref):  # vpriv's recorded init, seed, blocks, frozen base and training inputs
     ref_ = json.load(open(a.init_ref))
-    INIT_MATCH = ref_.get("init_sha") == INIT_SHA and ref_.get("seed") == a.seed and ref_.get("block_names") == BLOCK_NAMES
-    print(f"init_sha {INIT_SHA} vs {a.init_ref} {ref_.get('init_sha')} (seed {ref_.get('seed')}): {'MATCH' if INIT_MATCH else 'DIFFERENT'}", flush=True)
+    REF_DIFF = [k_ for k_, v_ in (("init_sha", INIT_SHA), ("seed", a.seed), ("block_names", BLOCK_NAMES), ("base_sha", BASE_SHA), ("lists", a.lists),
+                                  ("enc", a.enc), ("rays", a.rays), ("frames", a.frames), ("clips", a.clips)) if ref_.get(k_) != v_]
+    INIT_MATCH = not REF_DIFF
+    print(f"init_sha {INIT_SHA} vs {a.init_ref} {ref_.get('init_sha')}: {'MATCH (init, seed, blocks, base, inputs)' if INIT_MATCH else 'DIFFERENT ' + str(REF_DIFF)}", flush=True)
 if not a.timing and not INIT_MATCH:
-    raise SystemExit(f"A4: vclean must start from vpriv's recorded init (init_ref {a.init_ref}: match={INIT_MATCH})")
+    raise SystemExit(f"A4: vclean must start from vpriv's recorded init, seeds, base and inputs (init_ref {a.init_ref}: differs in {REF_DIFF})")
 for w in TW:
     w.temporal.to(dev).float().requires_grad_(True)
 adapter = CameraAdapter(n_styles=ck0["args"].get("n_styles", 3)); adapter.load_state_dict(ck0["adapter"], strict=True)
@@ -128,11 +154,11 @@ if os.path.exists(ck):
     if s_.get("timing") and not a.timing:
         raise SystemExit("refusing to resume production training from a timing / test checkpoint")
     rec_ = s_.get("args", {}).get("clean", {})
-    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("frames", a.frames), ("clips", a.clips), ("rho_gate", a.rho_gate)):
+    for key_, want_ in (("seed", a.seed), ("lists", a.lists), ("enc", a.enc), ("rays", a.rays), ("frames", a.frames), ("clips", a.clips), ("rho_gate", a.rho_gate)):
         if rec_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: recipe {key_} {rec_.get(key_)} != {want_}")
     for key_, want_ in (("K", a.K), ("init", a.init), ("rho", a.rho_gate), ("t_star", T_STAR), ("base_sha", BASE_SHA), ("init_sha", INIT_SHA),
-                        ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA), ("memory", "tstar_final_call")):
+                        ("block_names", BLOCK_NAMES), ("code_sha", CODE_SHA), ("memory", "tstar_final_call"), ("ddim_timesteps", DDIM_TS)):
         if s_.get(key_) != want_:
             raise SystemExit(f"incompatible resume: {key_} {s_.get(key_)} != {want_}")
     if len(s_["temporal"]) != len(TW):
@@ -140,7 +166,8 @@ if os.path.exists(ck):
     for w, sd_ in zip(TW, s_["temporal"]):
         w.temporal.load_state_dict(sd_, strict=True)
     opt.load_state_dict(s_["opt"]); start = s_["step"]; print("resumed at", start, flush=True)
-json.dump({**vars(a), "arm": "vclean", "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "base_sha": BASE_SHA, "t_star": T_STAR,
+json.dump({**vars(a), "arm": "vclean", "code_sha": CODE_SHA, "init_sha": INIT_SHA, "init_match": INIT_MATCH, "init_ref_diff": REF_DIFF, "base_sha": BASE_SHA,
+           "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "gate_record_sha256": GATE_SHA, "gate": GATE,
            "block_names": BLOCK_NAMES, "clip_starts": len(starts), "drives_with_clips": sum(1 for v in COVER.values() if v),
            "drives_without_clips": [k for k, v in COVER.items() if not v], "clips_per_drive": COVER}, open(f"{a.out}/args.json", "w"), indent=1)
 TRAIN_NOISE = {"private_clips": PRIVATE_CLIPS, "rho": TRAIN_RHO, "t_rule": f"U{{0..999}} minus t*={T_STAR} (t* draws redrawn, separate generator)",
@@ -149,7 +176,8 @@ TRAIN_NOISE = {"private_clips": PRIVATE_CLIPS, "rho": TRAIN_RHO, "t_rule": f"U{{
 
 def save(step, path):
     d = {"temporal": [w.temporal.state_dict() for w in TW], "opt": opt.state_dict(), "step": step, "init": a.init, "K": a.K, "frames": Fn,
-         "arm": "vclean", "memory": "tstar_final_call", "t_star": T_STAR, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
+         "arm": "vclean", "memory": "tstar_final_call", "t_star": T_STAR, "ddim_timesteps": DDIM_TS, "rho": a.rho_gate, "train_noise": TRAIN_NOISE,
+         "gate_record_sha256": GATE_SHA,
          "noise_policy": "one t per clip (t* excluded); fully private eps per tick; memory = t* features of the key latents",
          "code_sha": CODE_SHA, "base_sha": BASE_SHA, "init_sha": INIT_SHA, "block_names": BLOCK_NAMES, "timing": a.timing,
          "args": {**ck0["args"], "clean": vars(a)}, "adapter": ck0["adapter"], "lora": ck0["lora"]}
@@ -242,6 +270,7 @@ for step in range(start, end):
     eps_mem = torch.randn(a.clips * Fn, 4, 32, 64, generator=gm)
     batch_sha = hashlib.sha1(str(pick).encode() + t.numpy().tobytes() + eps[:, 0, 0, 0].numpy().tobytes() + drop.numpy().tobytes()).hexdigest()[:10]
     PICK_H.update(str(pick).encode() + t.numpy().tobytes() + drop.numpy().tobytes())
+    mem_sha = hashlib.sha1(t.numpy().tobytes() + eps_mem[:, 0, 0, 0].numpy().tobytes()).hexdigest()[:10]  # vclean-only draws (resume test)
     tok, lat, ray = [], [], []
     for sc, i in (starts[k] for k in pick):
         e = E[sc]
@@ -278,7 +307,7 @@ for step in range(start, end):
                "out_norm": round(sum(w.temporal.out.weight.norm().item() ** 2 for w in TW) ** 0.5, 4),
                "age_bias_abs": round(sum(w.temporal.age_bias.abs().sum().item() for w in TW), 4),
                "step_s": round(t_gpu / n_acc, 3), "mem_s": round(t_mem / n_acc, 3), "data_s": round(t_data / n_acc, 3),
-               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "pick_sha_cum": PICK_H.hexdigest()[:10],
+               "mem_gb": round(torch.cuda.max_memory_allocated() / 1e9, 1), "batch_sha": batch_sha, "mem_sha": mem_sha, "pick_sha_cum": PICK_H.hexdigest()[:10],
                "private_clips": PRIVATE_CLIPS, "t_star": T_STAR, "code_sha": CODE_SHA}
         print(rec, flush=True); log.write(json.dumps(rec) + "\n"); log.flush(); t_data = t_gpu = t_mem = 0.0; n_acc = 0
         T_WIN, N_WIN = time.time(), step + 1 - start

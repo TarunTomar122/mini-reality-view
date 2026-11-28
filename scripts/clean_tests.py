@@ -14,6 +14,8 @@ the new ring"). Exits 1 if any test fails. T2 / T5 / T6 use scripts/clean_rollou
         UNet on CPU (fp32), else --init = A@20k on CUDA (fp32, TF32 off)
   part 2 (--t7, CUDA + data): T7 frozen guard via scripts/train_clean.py --timing (LoRA + adapter bit-identical after a real
         step, 16/16 out weights moved, t* reported), then --resume compatibility (one more update from the saved checkpoint)
+  The authoritative suite is slurm/clean_tests.sh (this file --small and --init, T5 / T6 rollouts, the full T7 resume / recipe
+  checks and the 100-update timing record); T2 is slurm/clean_t2.sh.
 
   python scripts/clean_tests.py --small                     # CPU
   python scripts/clean_tests.py --init runs/longA/ckpt_20000.pt --t7   # A6000

@@ -17,6 +17,7 @@ p = argparse.ArgumentParser()
 p.add_argument("--arm", choices=["sd", "wan", "wanstill"], required=True); p.add_argument("--out", required=True)
 p.add_argument("--template", default="runs/troll/A20k_indep_dev"); p.add_argument("--keys", default="data/sim/keys_tpv10")
 p.add_argument("--wan", default="Wan-AI/Wan2.1-T2V-1.3B-Diffusers"); p.add_argument("--window", type=int, default=41, help="4k+1 ticks per Wan VAE call; 0 = the whole drive in one call (codec state continuous, padded to 4k+1)")
+p.add_argument("--save_rgb", action="store_true", help="also save the RGB frames (uint8) to <out>_rgb for direct scoring (scripts/score_rgb.py)")
 a = p.parse_args()
 assert a.window == 0 or (a.window - 1) % 4 == 0
 dev = "cuda"; os.makedirs(a.out, exist_ok=True)
@@ -67,5 +68,9 @@ for tf in sorted(glob.glob(f"{a.template}/*_s0.pt")):
     if a.arm != "sd":
         err = (Y[have] - X[have]).abs().mean().item(); out["s0"]["wan_l1_vs_key"] = err
     torch.save(out, f"{a.out}/{sc}_s0.pt"); stats[sc] = out["s0"]; print(sc, out["s0"], flush=True)
+    if a.save_rgb:  # direct-RGB scoring (Astra 06:30): no second codec
+        os.makedirs(a.out + "_rgb", exist_ok=True)
+        o2 = {k: v for k, v in out.items() if k != "lat"}; o2["rgb"] = ((src.clamp(-1, 1) + 1) * 127.5).round().to(torch.uint8)
+        torch.save(o2, f"{a.out}_rgb/{sc}_s0.pt")
 json.dump(stats, open(f"{a.out}/s0_stats.json", "w"), indent=1)
 print("S0_DONE", a.arm, a.out)

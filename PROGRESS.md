@@ -1,5 +1,14 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 03:18 UTC — vclean pre-launch probe: R2 (valid miss); clean T2 PASS (gate rho 1.0 admissible); vpriv 8k LODO robust
+- A4 probe (scripts/clean_probe.py, 2080 Ti, ~5 min per checkpoint incl. setup, all admission checks passed; runs/probe/clean_probe_8k12k.json): vpriv blocks reading FINAL-call (t* = 1) features of genuinely generated prefixes at rho 1.0, recipient eps-MSE, paired, drive means:
+  8k:  t300 donor-true -0.0038 (true WORSE than a stranger's past; 1 / 6 drives positive), off-true -0.0311 (true ~30% worse than memory off; 0 / 6), t700 off-true -0.0063 (0 / 6); teacher-forced (real key latents at t*) gain +0.0198.
+  12k: t300 donor-true -0.0056, off-true -0.0332, t700 off-true -0.0069; teacher gain +0.0213.
+  Reading: launch rule missed at both checkpoints -> R2 (round r2, not an automatic kill). Generated-history gain (-0.031) is far below half the teacher gain (+0.020) -> the jitter indicator is on. Caveat (Fable, on record): these are vpriv's blocks, never trained on final-step or generated features; a clean REAL past helps (teacher gain), a generated past hurts.
+- Clean T2 (3756258): clean_rollout --mode off at rho 1.0 == signed A@20k exactly (109 ticks, max |diff| 0) -> vclean's gate rho 1.0 is admissible.
+- vpriv 8k LODO: F1 -0.040..-0.052, late +0.036..+0.043 in every subset -> both safety misses robust to dropping any drive; smoothness ID -7.6..-12.7%, W +1.3..+1.4%.
+- vpriv 12k panel scoring (decision ~03:25: a second safety miss = A1 stop).
+
 ## 2026-11-28 03:07 UTC — vpriv 8k GATED: no pass, BOTH safety bars MISSED (first strike; 12k decides); vclean code + full-model tests pass
 - P8k signed panel (6 dev x 2 seeds) vs A@20k: ID 0.0934 vs 0.1041 (-10.3%, CI of diff -0.018..-0.004), W 29.48 vs 29.32 (+0.5%, CI -1.18..+1.57) -> smaller reduction -0.5% (bar > 9.4%): NO smoothness pass; car F1 0.392 vs 0.4456 (-0.0537, CI -0.085..-0.026; floor -0.03) MISS; late gap +0.041 (CI +0.032..+0.052; cap +0.03) MISS; road IoU -0.024 (CI -0.039..-0.011); early gap +0.038; lingering ghosts 17.7 vs 4.33; flips -26%; recall -0.013.
   vs own cold (off at 0.95): ID -18.9%, W -4.4% (CI to +0.8), F1 -0.053, ghosts 17.7 vs 3.42.

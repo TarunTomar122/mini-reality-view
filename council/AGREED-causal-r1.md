@@ -106,3 +106,8 @@ so at 8k); gradient-cosine probe (pulled/gradcos_*.json) informational.
   vpriv uses a seeded, recorded init (torch.manual_seed(seed) before the blocks). Accepted for the decision gates (vs A@20k /
   own cold). Every vpriv-vs-vlive number is labelled "policy + init"; a pure "policy" claim later needs vlive's noise policy run
   from vpriv's seed (matched-init control).
+
+## Note N1 (builder, 28 Nov 02:33 UTC, BEFORE the vpriv 8k panel was read; Fable 02:30 request; to be confirmed by Astra at the next round)
+The gate bars are unchanged. Added review step only: if vpriv reaches a joint pass while its lingering ghosts (ghost_ge5) are
+above A@20k's paired 95% interval, or its road IoU is below A's, the 30-drive exam is NOT launched before a council round looks
+at those costs (Fable: the 2k profile resembles the rejected warm-start 0.7: smoother by holding on to things).

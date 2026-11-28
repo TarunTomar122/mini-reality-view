@@ -1,0 +1,11 @@
+# Astra · next-arm r1 swap
+
+(a) **Keep mine.** Read t* from the actual DDIM-25 schedule. At training, run frozen A once at t* on privately noised key latents with the query’s camera-dropout mask. Detach the spatial features and train K/V on them. At rollout, disable temporal deltas on the final call and publish its K/V after the tick. This gives training and rollout the same feature source and noise level.
+
+(b) **Accept Fable.** Gate vclean at ρ=1.0 once T2 verifies that memory-off reproduces signed A@20k on matched inputs and seeds. Each smoothness metric then needs a reduction strictly above 9.4% from its own cold baseline. Check shared-seed copying with the donor control below.
+
+(c) **Keep mine.** At vpriv 8k and 12k, use the eight fixed dev clips and generate four-tick prefixes at the proposed ρ=1.0. Compare true history, a different drive’s history generated with identical noise, and memory off. Hold recipient inputs fixed and average paired ε-MSE differences by drive. At both checkpoints, true must beat donor and off at t=300 and be no worse than off at t=700. A miss sends the design to r2. Cap each checkpoint at one 2080 Ti-hour. This tests whether the proposed ring carries scene-specific information under deployment noise. A ρ=0.5 rollout of same-step memory answers a different question.
+
+(d) **Accept Fable.** For vclean to pass, require lingering ghosts at or below the upper end of A’s paired 95% interval and road IoU at least A’s on the matched panel. Apply these at the same checkpoint as the signed bars, as pass conditions only. At vpriv 2k, ghosts rose from 4.33 to 12 while F1 and late gap stayed inside their limits. Confirm N1 for vpriv.
+
+CONVERGED SPEC: If vpriv passes, its exam takes precedence subject to N1. On a signed vpriv miss and two passing probes, train vclean from frozen A@20k with vpriv’s initialization, private draws, optimizer and loss. Each noisy query before t* reads itself plus up to four strictly earlier final-call rows from one ring per block, with separate CFG branches. Budget one extra frozen forward per training update and zero extra rollout calls. Gate at ρ=1.0 under A1 timing, with both eligible reductions strictly above 9.4%, car F1 ≥ A−0.03, late gap ≤ matched cold +0.03, and the ghost and road conditions above.

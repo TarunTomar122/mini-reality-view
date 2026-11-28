@@ -8,7 +8,10 @@ for the guide with the flat-ground underlay (415c470). Every model load uses `lo
 | File | What it does |
 |---|---|
 | `mrv/wan_cond.py` | The model: guide channels, gated per-frame token cross-attention, LoRA r32 on 10 targets x 30 blocks (asserted), seeded init. Also init diagnostics, sensitivity probe, guide intake checks and per-tick token rays. |
-| `mrv/wan_plan.py` | Torch-free rules: segments, streams, clip candidates, windows, swap snapping, S1 decision, slice-hour ledger. |
+| `mrv/wan_plan.py` | Torch-free rules: segments, streams, clip candidates, windows, swap snapping, S1 decision, slice-hour ledger, re-time rule, panel / scoring costs, scorer-parity binding. |
+| `mrv/wan_stage.py` | Torch-free data trust and staging: manifest reading, hash-while-copy stage-in (8 streams), change alarm, memory need / cgroup readers, production-loop blocks. |
+| `scripts/verify_manifest.py` | CPU job: hashes every cache / token / guide / enc file of train + dev (and the Wan snapshot) against the sidecars; writes ONE read-only manifest + its sha. |
+| `scripts/wan_score.py`, `slurm/wan_score.sh` | Signed scoring on 2080 Ti jobs: scorer parity (A@20k replay, sharded == unsharded) and sharded panel scoring under its own capped ledger. |
 | `scripts/wan_tests.py` | CPU tests of `wan_plan`: soft reject, hard break, gap, short tail, candidate counts, decisions, ledger. Run with plain `python3`. |
 | `scripts/wan_tokens.py` | Camera tokens taken from the guide's own depth pass (shared), with per-tick Plücker rays from the guide's K / cam2tick. |
 | `scripts/wan_token_check.py` | Ray geometry check on one pinned tick: road photo colours vs the guide, with a wrong-camera control. |
@@ -16,13 +19,14 @@ for the guide with the flat-ground underlay (415c470). Every model load uses `lo
 | `scripts/train_wan_teacher.py` | The trainer, with timing / overfit / resume / train modes and the ledger budget. |
 | `scripts/wan_rollout.py` | Renders whole drives in windows, at fixed noise. Covers the ablation modes and the swap (snapped to a window start), and writes RGB (+ SD latents). |
 | `scripts/score_rgb.py` | Runs the signed scorer on RGB. Handles donor and cold references (real SD decode), receiver / post-swap scoring, A@20k replay parity, and a fresh roll directory. |
-| `scripts/wan_panel.py`, `slurm/wan_panel.sh` | The full dev panel through the signed `temporal_compare.py`, plus the swap check and the S1 decision. |
+| `scripts/wan_panel.py`, `slurm/wan_panel.sh` | The full dev panel in three steps: render on the slice (Wan loaded once), score on 2080 Ti jobs, decide on CPU through the signed `temporal_compare.py`, plus the swap check and the S1 decision. Also the load-once rehearsal. |
 | `scripts/wan_resume_check.py` | Checks that resumed training equals uninterrupted training. |
 | `slurm/wan_teacher.sh` | Modes: timing, overfit, resume_test, train, extend. |
 
 ## Order of work
 
-Every GPU step from 4 onwards debits `runs/wan_s1_ledger.jsonl`, the 24 h S1 budget.
+Every slice step from 4 onwards debits `runs/wan_s1_ledger.jsonl`, the 24 h S1 budget. Scoring on the 2080 Ti debits its own
+ledger, `runs/wan_score_ledger.jsonl`, reported separately (council/s1-timing-r1-CONVERGED.md item 4).
 
 1. **Guides.** `scripts/build_guides.py --drives train,dev` writes `data/guides_v1` with the underlay, `src`, coverage and
    `complete` sidecars. Pin a version with `--expect_version` if shards run at different times.
@@ -33,17 +37,42 @@ Every GPU step from 4 onwards debits `runs/wan_s1_ledger.jsonl`, the 24 h S1 bud
    the PNG.
 3. **Latent cache.** `slurm/py.sbatch scripts/wan_cache.py --splits train,dev --shard i/12`. Existing files are skipped only
    if every hash still matches.
-4. **Timing.** `MODE=timing` writes `runs/wan_timing_<job>/timing.json`. It records:
-   - each microbatch's wall time, forward+backward, Adam, data wait and peak allocated / reserved memory;
-   - probe, save, a 30-step window, VAE encode / decode, SD encode;
-   - an 81-tick rollout and its RGB scoring;
-   - a forecast against the 12k floor.
-
-   Choose `--micro` from it.
-5. **Bug gate.** `MODE=overfit` (exit 4 = FAIL) and `MODE=resume_test` (`RESUME_CHECK PASS`).
-6. **S1.** `MODE=train`, resubmitted as needed. It stops when the ledger plus the 2 h panel reserve reaches 24 h.
-7. **Panels.** `slurm/wan_panel.sh runs/wan_s1/ckpt_<k>.pt s1_<k>k check|24h|final`. Training must not hold the slice at
-   the same time. Stage meanings:
+3b. **Manifest** (CPU, after the S0c rebuild and the last token shard). Every later job refuses without it:
+   ```
+   sbatch -w saxa --gres=gpu:h200_1g.18gb:0 --cpus-per-task=8 --mem=16G -t 3:00:00 -J verify-manifest -o logs2/%x-%j.out \
+          slurm/py.sbatch scripts/verify_manifest.py --out data/wan_manifest_v1.json --nproc 8
+   ```
+   It prints `VERIFY_MANIFEST PASS` and writes `data/wan_manifest_v1.json` (read-only) and `data/wan_manifest_v1.json.sha256`.
+   Any data change means a new manifest under a new name (manifests are never overwritten).
+3c. **Scorer parity on the 2080 Ti** (once; again after any scorer / adapter / SD VAE / wrapper change). Four GPU jobs and a
+   CPU check (see the header of `slurm/wan_score.sh`):
+   ```
+   G="--gres=gpu:nvidia_geforce_rtx_2080_ti:1 --exclude=damnii10 --cpus-per-task=4 --mem=32G"
+   sbatch $G --time=8:00:00 -J wsc-par -o logs2/%x-%j.out slurm/wan_score.sh parity
+   for i in 0 1 2; do sbatch $G --time=4:00:00 -J wsc-par$i -o logs2/%x-%j.out slurm/wan_score.sh parity $i/3; done
+   sbatch -d afterok:<ids> --cpus-per-task=1 --mem=8G --time=0:30:00 -J wsc-pchk -o logs2/%x-%j.out slurm/wan_score.sh parity_check 3
+   ```
+   It writes `runs/wroll/score_parity_2080.json` with the measured 2080 Ti seconds per scored tick.
+4. **Re-time** (`MODE=timing`, 144 drives, cold allocation). The memory request is the staged bytes + 48 GB:
+   ```
+   M=$(.venv/bin/python -m mrv.wan_stage need --manifest data/wan_manifest_v1.json)    # about 145G
+   sbatch -w saxa --gres=gpu:h200_3g.71gb:1 --cpus-per-task=8 --mem=$M --time=2:00:00 -J wan-timing -o logs2/%x-%j.out \
+          --export=ALL,MODE=timing,MICRO=1,GRAD_CKPT=1 slurm/wan_teacher.sh
+   ```
+   `runs/wan_timing_<job>/timing.json` records the stage-in (bytes, seconds, MB/s, every hash equal to the manifest), the
+   grad_ckpt x micro sweep with the matched-update check and the `selected_setting`, the `--use_tokens 0` reading (diagnostic),
+   200 production updates in 32-update blocks, 8 staged batches against Lustre, the cgroup peak, start-up from the allocation,
+   the load-once rehearsal (`rehearsal/rehearsal.json`), `forecast_final` (one panel; the two-panel number beside it) and
+   `retime_pass`. Re-run `python scripts/wan_forecast.py --timing_dir runs/wan_timing_<job>` after the scorer parity lands to
+   refresh `retime_pass`. If any rule fails: no overfit (F4, then re-time; fail again -> owner).
+5. **Bug gate.** `MODE=overfit` (exit 4 = FAIL) and `MODE=resume_test` (`RESUME_CHECK PASS`), both with
+   `MICRO` / `GRAD_CKPT` equal to the re-time's `selected_setting` and `--mem=$(... need --manifest ... --no_dev)`.
+6. **S1.** `MODE=train` (same `MICRO` / `GRAD_CKPT`, `--mem=$M`), resubmitted as needed. It stops when the ledger plus ONE
+   measured render-only panel reaches 24 h.
+7. **Panels.** Render on the slice: `slurm/wan_panel.sh runs/wan_s1/ckpt_<k>.pt s1_<k>k check|24h|final` (training must not
+   hold the slice at the same time). Score on 2080 Ti jobs: `slurm/wan_score.sh panel s1_<k>k <what> <i>/2` for the seven
+   scorings (hybrid, guide, tokens, none, swap_full, swap_postdonor, swap_postrecv; 14 jobs, inside the 16-job cap). Decide on
+   CPU: `slurm/wan_panel.sh decide runs/wan_s1/ckpt_<k>.pt s1_<k>k <stage>`. Stage meanings:
    - Below 12k updates the result is unresolved.
    - At `24h`: pass, or one 12 h extension (`MODE=extend`) only for car F1 in [0.4156, 0.4456) with every other gate passed,
      otherwise stop and re-council.
@@ -128,13 +157,14 @@ max(10 × control, 1e-3 × |v|) on each path.
 **Timing (item 4).** Forward and backward are timed separately. After an OOM, the fastest microbatch that fitted is restored.
 The production prefetch-queue wait is measured.
 
-**Forecast (item 5).** `scripts/wan_forecast.py` runs after the 81-tick scorer and deducts:
+**Forecast (item 5; superseded in part by the S1 timing r1 section below).** `scripts/wan_forecast.py` runs after the
+trainer timing and the load-once rehearsal (no slice scoring any more) and deducts:
 - ledger hours;
 - the pending overfit gate and resume test;
 - recurring probes and saves;
 - numbered saves;
-- trainer starts;
-- `--n_panels` measured full panels.
+- trainer starts, measured from the allocation incl. the stage-in;
+- `--n_panels` (default 1) render-only panels at the load-once rate.
 
 **Overfit gate (item 6).**
 - Both gates are read only at update 2,000 (a shorter job prints OVERFIT_PENDING).
@@ -142,7 +172,7 @@ The production prefetch-queue wait is measured.
 - The 8 clips are sampled in the fitting microbatch.
 - The round-trip car F1 must be positive.
 
-**Panel parity (item 7).** The A@20k replay goes through the real-SD-to-RGB path. The cached pass is bound to the shas of the
+**Panel parity (item 7; now on the 2080 Ti, see below).** The A@20k replay goes through the real-SD-to-RGB path. The cached pass is bound to the shas of the
 reference metrics, the reference rollouts, `score_rgb.py`, `temporal_metrics.py` and the SD VAE files. Any change triggers a
 replay.
 
@@ -286,8 +316,8 @@ verdict. The trainer also refuses `--budget_hours` above 24 without that marker.
    - The cap is checked again right before the 24 h marker is published.
 5. **Forecast gate filter.** Gate costs are skipped only for PASS records whose gate key equals the production key (recorded
    by timing).
-6. **Parity before training.** `MODE=train` requires the bound A@20k replay-parity PASS. Produce it with
-   `slurm/wan_panel.sh parity`.
+6. **Parity before training.** `MODE=train` requires the bound scorer-parity PASS, now produced on the 2080 Ti
+   (`slurm/wan_score.sh parity` + `parity_check`; see the S1 timing r1 section).
 7. **Resume test.** It checks that leg B saved update 8 before leg three runs.
 
 ## Astra S1d fixes
@@ -319,6 +349,62 @@ panel's own settings and records them as `panel_settings`.
 - Astra's repro (A–F 200/200/180/180/180/180, B ticks 50–56 rejected): width 5 needs no shared reference; width 2 needs one
   180-tick reference at two seeds. This is a CPU test.
 
+## S1 timing r1 converged (`council/s1-timing-r1-CONVERGED.md`)
+
+Measured on 28 Nov: the loop waited on cold Lustre reads (10.7 s per update, 2/3 of the GPU idle), every start re-hashed
+~60 GB (1,146 s at 48 drives), and a panel cost 13.9 slice-h because scoring ran on the slice and Wan was loaded per rollout.
+The forecast said the 12k floor was out of reach. The council's fixes, as built:
+
+**F2, one rule: a byte is trusted only if it was hashed.** `scripts/verify_manifest.py` (CPU) hashes every cache, token,
+guide and enc file of train + dev and checks it against the sidecars (cache / token `.pt` against their own sidecar; guide /
+enc against the cache sidecar's `guide_sha` / `enc_sha`; the token sidecar must name the same guide / enc). It also pins the
+sidecars and the Wan HF snapshot files. One mismatch and no manifest is written. The manifest's sha goes into the gate key and
+beside `DATA_SHA` in `args.json`, every checkpoint and every log line. The trainer's per-start re-hash (`--verify_cache`) is
+gone.
+
+**F1, staging.** Each trainer process copies the token + latent caches (and sidecars) of the drives it opens, plus the Wan
+transformer / VAE folders, to `/dev/shm/mrv_<job>` with 8 streams, hashing while copying; every hash must equal the
+manifest. Caches are memory-mapped from there and Wan loads from the staged copy (the recipe keeps the repo id, so the gate
+key does not change with the path). Guide and enc files are never opened by the trainer; their size / mtime is a change
+alarm only (a mismatch refuses: re-run the manifest job). The resume-test legs of one allocation reuse what that allocation
+staged (receipt with the job id and manifest sha). The slurm EXIT trap deletes the stage dir. Staged files count against the
+memory cgroup: the request is staged bytes + 48 GB (`python -m mrv.wan_stage need`), and both the script (exit 9) and the
+trainer refuse when they can read a smaller limit.
+
+**F5, explicit settings.** `--micro` and `--grad_ckpt` have no defaults and are required in every mode (`MICRO` /
+`GRAD_CKPT` in slurm); both are in the recipe and the gate key. Timing sweeps grad_ckpt {1, 0} x micro {1, 2, 4, 8}, then a
+matched-update check (same params, inputs, noise and seed: loss within 2 %, grad norm within 5 %) before selecting the fastest
+matched setting. A `--use_tokens 0` GPU time is recorded as a diagnostic only (how much F4 could save). Overfit, resume test,
+train and extend refuse unless their setting equals `selected_setting`, `retime_pass` passed every rule and the timing ran
+with the same gate key.
+
+**Re-time (item 7).** The production loop runs >= 200 updates from the staged data at the selected setting. The forecast uses
+the slowest of the full-run mean and the last two 32-update block means. Start-up is measured from the allocation
+(`MRV_ALLOC_T0`) to the first update and is never extrapolated 48 -> 144 when the timing ran on 144 drives. `wan_forecast.py`
+charges ONE panel (`--n_panels 1`) and prints the two-panel number beside it ("no spare for a second read" below 12,000).
+`retime_pass` lists all 13 rules with their numbers: production list + cold allocation, >= 200 updates, queue wait <= 5 % and
+wall <= 1.10 x gpu_s in every block, matched setting selected, geometry / init parity / update-0 sensitivity, staged hashes,
+8 staged batches == Lustre, cgroup peak <= 85 % of the request (memory.peak, or a 1 s sampled maximum on older kernels),
+2080 Ti scorer parity, six valid donors, the load-once rehearsal, and >= 13,200 updates.
+
+**F3, panel.** Rendering stays on the slice: ONE `wan_rollout.py --plan` process renders the four modes, the swap and the
+shared references with Wan loaded once (per run: sensitivity state, RNG reset; a fresh UniPC solver per window; per-drive
+inputs hash-checked once per process). The slice writes `<name>_rgb_manifest.json` (sha256 and RGB sha of every file) and is
+released. Scoring runs on 2080 Ti jobs, sharded by drive, through the unchanged `score_rgb.py` -> signed `temporal_metrics.py`;
+every input must match the RGB manifest, and every output carries a binding (device, scorer / adapter / SD VAE shas, manifest
+sha). Scoring has its own ledger with a cap of 1.25 x the measured scoring GPU-h per panel (refused at the cap; a running
+shard is stopped, exit 10). Before any PASS: the A@20k replay parity on the 2080 Ti and sharded == unsharded on the same
+inputs (`score_parity_2080.json`, bound to device / references / scorer / adapter / SD VAE / wrapper code); `MODE=train` and
+the decision both require it. The decision step only reads shards bound to the manifest the slice rendered. The panel's slice
+cost in the forecast and the train / extend reserve is rendering only, priced from the rehearsal's load-once rate and one model
+load. The panel content is unchanged: 6 drives x 2 seeds, every eligible tick, four modes, swap, references, six valid donors,
+every signed bar.
+
+**Rehearsal.** In `MODE=timing`, after the trainer, one receiver run is rendered by the load-once loop (after a tokens-only
+run in the same process) and by a fresh process; RGB, SD latents, flags and windows must be byte-equal.
+
+**F4 (2x2 token pooling)** is held, as agreed: only if the re-time misses.
+
 ## Open points
 
 - **Donor-following rule.** The swap margin (0.10) and lag rule above are mine, not signed.
@@ -327,3 +413,7 @@ panel's own settings and records them as `panel_settings`.
 - **Underlay-off guides.** These (`--no_underlay`) are refused as model inputs. Ablating the underlay needs a separate cache
   version.
 - **Car-weighted loss (Fable c2).** Not implemented.
+- **Rehearsal determinism.** The rehearsal assumes the Wan forward is bit-deterministic across processes on the same GPU. If
+  it fails only through kernel nondeterminism, that is a finding for the council, not a reason to loosen the check.
+- **Overfit verdict scoring rate.** The overfit verdict still segments frames on the slice; the forecast prices it at the
+  slice rate measured in 3756964 (2.41 s / tick, `--overfit_score_tick_s`).

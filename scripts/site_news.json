@@ -1,5 +1,9 @@
 [
  {
+  "when": "28 Nov, 06:50",
+  "text": "First check of the new video model (Wan 2.1, 1.3B) passed: squeezing our game-style answer videos through Wan's compressor and back keeps cars well (car score 0.79-0.83 out of 1.0, better than the old image model's compressor at 0.75). Wan runs in about 20-45 ms per step on our training GPU slice. Next: the camera guide and the first training run."
+ },
+ {
   "when": "28 Nov, 06:15",
   "text": "Change of plan: we stop bolting time layers onto the image model and switch to a real pretrained video model (about 1.3 to 2 billion parameters) that already knows how things move. The research council is picking the model and the plan. The image-model runs still on the cluster were stopped; their results stay in the lab notes."
  },

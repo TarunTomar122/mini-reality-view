@@ -1,5 +1,10 @@
 # Mini Reality View: progress (newest at top)
 
+## 2026-11-28 01:42 UTC — early continuation signed OK (Astra); vlive 16k latent-change copy warning: none
+- Early continuation went through three Astra checks (stale 8k decision, helper slot race, intent clearing): final form 98ec4f8 = the watcher itself runs the resume inline, once, only after the CURRENT 8k score job COMPLETED with safe == true; any sbatch failure keeps CONT_PENDING for manual reconciliation; the regular 12k path stays as fallback. Astra: OK. Watcher 3756105.
+- vlive 16k per-tick latent change vs A@20k: ratio 3.01 (warning only if < 0.7), falling change in 5 / 12 runs (A: 5 / 12) -> no copy (freeze) warning; consistent with a jumpier, not stuck, picture. Swap-lag and long-minus-short (reset_gap.py) still scoring.
+- vpriv 5,500 updates at 01:42 (0.50 s / update).
+
 ## 2026-11-28 01:39 UTC — council review 01:30 (Astra + Fable + Neon): corrections, watcher priority, early continuation, copy-warning fixes
 - CORRECTIONS (Neon): (1) "vpriv loss ~0.12-0.14 vs vlive ~0.007" compared single random-t log rows: over updates 100-4000 (n=40) the mean / median is 0.0615 / 0.0484 for vpriv vs 0.0316 / 0.0282 for vlive (~2x, not ~20x). (2) The trainer copy probe runs under rho 0.95 SHARED noise (train_causal.py:191), off-distribution for vpriv's private training, so "blocks not yet helping" is not a reading of past-content use; there, past_other > on at every t (e.g. @4000 t300 0.1353 vs 0.1096), i.e. the blocks do use the true past. (3) Real rate 0.504 s / update: 8k ~02:03, 12k ~02:37 UTC. (4) "2k / 4k look-only, so no cost" was wrong (Astra, Fable): the old strictly ordered watcher would have decided 8k ~1 h after training paused at 12k.
 - P0 fixes (Neon): tmet-V16k-reset (3755976) could not compute the long-minus-short warning (the reset breaks the history chain, so the signed scorer skips the late gap) -> cancelled; new scripts/reset_gap.py scores ticks 150-169 long vs short (job 3756093). pprobe2k hung on broken node damnii10 -> resubmitted (3756088); damnii10 excluded in the watcher. latent_change.py running on V16k vs A20k (3756090).

@@ -4,7 +4,7 @@
 cd $HOME/mini-reality-view
 export PYTHONUNBUFFERED=1 PYTHONPATH=$PWD HF_HOME=$PWD/hf HF_HUB_OFFLINE=1 TMPDIR=$PWD/tmp
 PY=.venv/bin/python; A=runs/longA/ckpt_20000.pt; T=runs/ctest_${SLURM_JOB_ID:-manual}; mkdir -p $T; FAILS=0
-sha256sum scripts/train_causal.py scripts/causal_rollout.py scripts/causal_tests.py mrv/causal_video.py mrv/noise.py mrv/sd.py slurm/causal_tests.sh scripts/rho_decision.py scripts/rho_rule.py scripts/test_rho_rule.py scripts/test_noise.py slurm/launch_vlive.sh | tee $T/code_sha256.txt
+sha256sum scripts/train_causal.py scripts/causal_rollout.py scripts/causal_tests.py mrv/causal_video.py mrv/noise.py mrv/sd.py slurm/causal_tests.sh scripts/rho_decision.py scripts/rho_rule.py scripts/test_rho_rule.py scripts/test_noise.py scripts/det_run.py slurm/launch_vlive.sh | tee $T/code_sha256.txt
 chk() { if [ "$1" != 0 ]; then echo "FAIL $2 (exit $1)"; FAILS=$((FAILS+1)); fi; }
 echo "== rho rule CPU fixtures"; (cd scripts && ../$PY test_rho_rule.py); chk $? test_rho_rule
 echo "== noise CPU fixtures (A3 vpriv)"; $PY scripts/test_noise.py; chk $? test_noise
@@ -28,7 +28,10 @@ for w in TW:
 torch.save({**ck, "temporal": [w.temporal.state_dict() for w in TW], "K": 4, "rho": 0.5, "step": 0,
             "block_names": [n for n, m in u.named_modules() if m.__class__.__name__ == "WithCausalTemporal"]}, "$T/rand.pt")
 P
-R="$PY scripts/causal_rollout.py --ckpt $T/rand.pt --split dev --drive_list $T/one.txt --seeds 0"
+# T5 / T6 compare separate processes bit-exactly: run the UNCHANGED rollout script with deterministic GPU kernels switched on
+# from outside (a first-tick mismatch with empty history was seen on an H200 = cross-process kernel nondeterminism, not a leak)
+export CUBLAS_WORKSPACE_CONFIG=:4096:8
+R="$PY scripts/det_run.py scripts/causal_rollout.py --ckpt $T/rand.pt --split dev --drive_list $T/one.txt --seeds 0"
 echo "== T5: 60 ticks; from tick 30 replace cameras only / private draws only / both"
 $R --max_ticks 60 --out $T/t5_ctrl > /dev/null; chk $? T5-ctrl
 $R --max_ticks 60 --swap --swap_at 30 --out $T/t5_cam > /dev/null; chk $? T5-cam
